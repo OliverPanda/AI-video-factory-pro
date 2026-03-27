@@ -1,0 +1,22 @@
+{
+  "name": "ai-video-factory-pro",
+  "version": "1.0.0",
+  "description": "AI漫剧自动化生成系统 - 输入剧本，自动生成短视频",
+  "type": "module",
+  "main": "scripts/run.js",
+  "scripts": {
+    "start": "node scripts/run.js",
+    "test": "node scripts/run.js samples/test_script.txt"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "p-queue": "^8.0.1",
+    "sharp": "^0.33.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

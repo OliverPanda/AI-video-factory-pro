@@ -1,0 +1,361 @@
+# AI漫剧自动化生成系统
+
+输入剧本文件，自动生成可发布到抖音/视频号/快手/小红书的竖屏漫剧短视频。
+
+## 系统架构
+
+```
+用户输入剧本（.txt）
+        │
+  ┌─────▼──────┐
+  │ 导演Agent  │  ← LLM主控，拆解任务、调度子Agent
+  └─────┬──────┘
+        │
+  ┌─────┼──────────────────────┐
+  │     │                      │
+  ▼     ▼                      ▼
+编剧  视觉设计Agent         角色设定Agent
+Agent  （分镜+Prompt生成）  （外观/一致性描述）
+  │     │                      │
+  └─────┼──────────────────────┘
+        │
+  ┌─────▼──────┐        ┌──────────────┐
+  │ 图像生成   │◄──────►│ 一致性验证   │
+  │ Agent      │        │ Agent（LLM） │
+  └─────┬──────┘        └──────────────┘
+        │
+  ┌─────▼──────┐        ┌──────────────┐
+  │  配音Agent │        │  字幕Agent   │
+  │  (TTS)     │        │  (LLM生成)   │
+  └─────┬──────┘        └──────┬───────┘
+        └──────────┬───────────┘
+               ┌───▼────┐
+               │ 合成    │  FFmpeg
+               │ Agent  │
+               └───┬────┘
+                   │
+           ┌───────▼────────┐
+           │ 最终视频输出    │
+           │ 1080×1920 竖屏  │
+           └────────────────┘
+```
+
+## Agent 详细说明
+
+### Agent 1：导演Agent（Orchestrator）
+**文件**：`src/agents/director.js`
+
+**职责**：读取剧本，拆分任务，按顺序调度所有子Agent，处理异常，支持断点续跑。
+
+**核心机制**：每个步骤完成后将结果写入 `temp/<jobId>/state.json`，下次运行同一剧本时自动跳过已完成步骤。
+
+**执行流程**：
+1. 读取剧本文件
+2. 调用编剧Agent解析分镜
+3. 调用角色设定Agent构建视觉档案
+4. 调用视觉设计Agent生成图像Prompt
+5. 调用图像生成Agent批量出图
+6. 调用一致性验证Agent检查并触发重生成
+7. 调用配音Agent批量合成音频
+8. 调用合成Agent输出最终视频
+
+---
+
+### Agent 2：编剧Agent（Script Parser）
+**文件**：`src/agents/scriptParser.js`
+
+**职责**：将原始剧本文本解析为结构化分镜JSON数据。
+
+**输入**：剧本文本（.txt）
+
+**输出**：
+```json
+{
+  "title": "剧名",
+  "totalDuration": 60,
+  "characters": [
+    { "name": "小明", "gender": "male", "age": "20多岁" }
+  ],
+  "shots": [
+    {
+      "id": "shot_001",
+      "scene": "咖啡馆白天",
+      "characters": ["小明", "小红"],
+      "action": "小明递过一杯咖啡",
+      "dialogue": "给你，加了糖",
+      "emotion": "温柔、害羞",
+      "camera_type": "中景",
+      "duration": 3
+    }
+  ]
+}
+```
+
+**LLM调用**：DeepSeek-V3，低温度（0.3）保证结构准确性。
+
+---
+
+### Agent 3：角色设定Agent（Character Registry）
+**文件**：`src/agents/characterRegistry.js`
+
+**职责**：为剧本中所有角色构建视觉档案，生成可复用的英文Prompt描述词，确保跨镜头外观一致性。
+
+**输出**（每个角色的视觉ID卡）：
+```json
+{
+  "name": "小红",
+  "gender": "female",
+  "visualDescription": "young Asian woman, long black hair, fair skin, casual outfit...",
+  "basePromptTokens": "young Asian woman, long black hair, fair skin, bright eyes",
+  "personality": "温柔内敛，眼神清澈"
+}
+```
+
+**作用**：每次生成包含该角色的图像时，自动将 `basePromptTokens` 注入Prompt，维持外观一致。
+
+---
+
+### Agent 4：视觉设计Agent（Prompt Engineer）
+**文件**：`src/agents/promptEngineer.js`
+
+**职责**：为每个分镜生成专业的图像生成Prompt，自动注入角色词、风格词、镜头词。
+
+**两种风格示例**：
+
+写实风格：
+```
+young Asian woman, long black hair, fair skin, bright eyes,
+cozy coffee shop interior, warm window lighting, passing coffee cup,
+shy smile, medium shot, bokeh background,
+cinematic, photorealistic, 8k uhd, hyperdetailed, sharp focus
+```
+
+3D风格：
+```
+young Asian woman, long black hair, fair skin, bright eyes,
+cozy coffee shop, warm ambient lighting, passing coffee cup,
+shy expression, medium shot,
+3D render, Pixar style, Cinema4D, octane render, 8k, subsurface scattering
+```
+
+**镜头类型映射**：特写 / 近景 / 中景 / 全景 / 远景 → 对应英文Camera关键词
+
+---
+
+### Agent 5：图像生成Agent（Image Generator）
+**文件**：`src/agents/imageGenerator.js`
+
+**职责**：调用图像API批量生成分镜图，含并发控制和自动重试。
+
+| 风格 | API | 备注 |
+|------|-----|------|
+| 写实 | Together AI Flux Pro | `IMAGE_STYLE=realistic` |
+| 3D | Stability AI SD3 | `IMAGE_STYLE=3d` |
+
+**并发控制**：p-queue，默认并发2（`IMAGE_CONCURRENCY`可配置），每次失败自动重试3次。
+
+**输出规格**：1080×1920 PNG，竖屏9:16。
+
+---
+
+### Agent 6：一致性验证Agent（Consistency Checker）
+**文件**：`src/agents/consistencyChecker.js`
+
+**职责**：用多模态LLM检查同一角色在多张图片中的外观一致性，评分不达标时通知导演Agent触发重生成。
+
+**LLM调用**：Qwen-VL-Max（多模态，对中文场景/人物理解准确）
+
+**评分维度**：
+- 面部特征（五官、肤色）
+- 发型发色
+- 服装穿搭
+- 体型比例
+
+**触发规则**：总分 < 7分（可通过 `CONSISTENCY_THRESHOLD` 环境变量调整）时，将问题图像标记为需要重生成，并附上改进建议。
+
+---
+
+### Agent 7：配音Agent（TTS）
+**文件**：`src/agents/ttsAgent.js`
+
+**职责**：为每段对白生成配音音频，无台词的分镜自动跳过。
+
+| 提供商 | 环境变量 | 特点 |
+|--------|---------|------|
+| 阿里云 | `TTS_PROVIDER=aliyun` | 成本最低，中文自然 |
+| Azure Speech | `TTS_PROVIDER=azure` | 音质最佳，情感丰富 |
+
+**角色音色**：根据角色性别自动选择音色（female → 小白/Xiaoxiao，male → 云希/Yunxi）
+
+---
+
+### Agent 8：合成Agent（Video Composer）
+**文件**：`src/agents/videoComposer.js`
+
+**职责**：将图像序列 + 配音音频 + 字幕文件用FFmpeg合成最终视频。
+
+**字幕**：自动生成ASS格式字幕文件（支持中文，微软雅黑字体，带描边）
+
+**输出规格**：
+- 分辨率：1080×1920（竖屏9:16）
+- 编码：H.264 + AAC 128kbps
+- 帧率：24fps
+- 字幕：硬字幕嵌入
+
+---
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 运行时 | Node.js 18+，ES Modules |
+| LLM文本 | DeepSeek-V3（首选）/ Qwen2.5-72B / Claude |
+| LLM视觉 | Qwen-VL-Max（一致性验证） |
+| 图像生成（写实）| Together AI Flux Pro |
+| 图像生成（3D）| Stability AI SD3 |
+| 配音TTS | 阿里云语音合成 / Azure Speech |
+| 视频合成 | FFmpeg + fluent-ffmpeg |
+| 并发控制 | p-queue |
+| 数据存储 | 本地JSON文件（MVP阶段） |
+
+## LLM选型说明
+
+中文剧本场景对LLM有特殊要求：理解古装/现代中文口语、人名地名识别、情感词准确提取。
+
+| 用途 | 模型 | 优势 |
+|------|------|------|
+| 剧本解析/Prompt生成 | **DeepSeek-V3**（首选） | 中文超强、¥2/M tokens、128K上下文 |
+| 文本备选 | Qwen2.5-72B | 阿里中文训练，口语/网络用语理解好 |
+| 视觉一致性验证 | **Qwen-VL-Max** | 多模态+中文场景理解，替代Claude Vision |
+| 全能备选 | Claude Sonnet | 综合能力强，支持多模态 |
+
+切换方式：修改 `.env` 中的 `LLM_PROVIDER` 和 `LLM_VISION_PROVIDER`。
+
+## 文件结构
+
+```
+AI-video-factory-pro/
+├── src/
+│   ├── agents/
+│   │   ├── director.js           # Agent 1：主编排
+│   │   ├── scriptParser.js       # Agent 2：编剧
+│   │   ├── characterRegistry.js  # Agent 3：角色设定
+│   │   ├── promptEngineer.js     # Agent 4：视觉设计
+│   │   ├── imageGenerator.js     # Agent 5：图像生成
+│   │   ├── consistencyChecker.js # Agent 6：一致性验证
+│   │   ├── ttsAgent.js           # Agent 7：配音
+│   │   └── videoComposer.js      # Agent 8：合成
+│   ├── llm/
+│   │   ├── client.js             # 统一LLM客户端（多Provider）
+│   │   └── prompts/
+│   │       ├── scriptAnalysis.js
+│   │       ├── promptEngineering.js
+│   │       └── consistencyCheck.js
+│   ├── apis/
+│   │   ├── imageApi.js           # Together AI + Stability AI
+│   │   └── ttsApi.js             # 阿里云 + Azure Speech
+│   └── utils/
+│       ├── queue.js              # p-queue并发控制
+│       ├── logger.js             # 日志工具
+│       └── fileHelper.js         # 文件读写工具
+├── scripts/
+│   └── run.js                    # CLI入口
+├── samples/
+│   └── test_script.txt           # 测试剧本
+├── temp/                         # 临时文件（图片、音频、状态）
+├── output/                       # 最终输出视频
+├── .env.example                  # 环境变量模板
+└── package.json
+```
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+npm install
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入API Key（阶段1最少需要）：
+- `DEEPSEEK_API_KEY` — [api.deepseek.com](https://api.deepseek.com)
+- `TOGETHER_API_KEY` — [api.together.xyz](https://api.together.xyz)（写实风格图像）
+- 或 `STABILITY_API_KEY` — [platform.stability.ai](https://platform.stability.ai)（3D风格）
+
+### 3. 安装 FFmpeg
+
+```bash
+# Windows（推荐）
+winget install Gyan.FFmpeg
+
+# 或手动下载：https://ffmpeg.org/download.html
+```
+
+### 4. 运行
+
+```bash
+# 使用测试剧本，跳过一致性验证（加速）
+node scripts/run.js samples/test_script.txt --skip-consistency
+
+# 使用3D风格
+node scripts/run.js samples/test_script.txt --style=3d
+
+# 完整流程（含一致性验证）
+node scripts/run.js your_script.txt
+```
+
+### 命令行参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--style=realistic\|3d` | 视觉风格 | `realistic` |
+| `--skip-consistency` | 跳过一致性验证 | 关闭 |
+| `--provider=deepseek\|qwen\|claude` | 覆盖LLM提供商 | `.env`配置 |
+
+## 成本估算
+
+| 服务 | 单次成本 | 月预算参考 |
+|------|---------|----------|
+| DeepSeek-V3（剧本分析） | ~¥0.002/次 | ¥10-50 |
+| Qwen-VL-Max（一致性验证） | ~¥0.01/次 | ¥20-80 |
+| Together AI Flux Pro（写实图像） | ~$0.05/张 | ¥100-500 |
+| Stability AI（3D图像） | ~$0.01/张 | ¥50-200 |
+| 阿里云TTS（配音） | ~¥0.001/字 | ¥20-100 |
+| FFmpeg（视频合成） | 免费 | 0 |
+| **合计** | | **¥200-930/月** |
+
+## 角色一致性方案
+
+**MVP阶段（无需训练）**：
+1. 角色首次出现时，生成"视觉ID卡"（`basePromptTokens`）
+2. 后续每张包含该角色的图像，自动在Prompt中注入ID卡特征词
+3. 生成后用Qwen-VL-Max检查一致性，评分 < 7分时调整Prompt重新生成
+
+**进阶阶段（可选）**：
+- IP-Adapter（参考图引导生成，外观更稳定）
+- LoRA微调（针对特定角色训练，最高一致性）
+
+## MVP实施路线
+
+**阶段1（核心流程）**
+- [x] 项目结构搭建
+- [ ] 配置API Keys，安装依赖
+- [ ] 测试 scriptParser：输入剧本 → 验证JSON输出
+- [ ] 测试 promptEngineer：分镜 → 验证Prompt质量
+- [ ] 测试图像生成：生成第一批分镜图
+- [ ] 测试FFmpeg合成无声视频
+
+**阶段2（完整Pipeline）**
+- [ ] 角色一致性验证闭环
+- [ ] TTS配音集成
+- [ ] 完整视频合成（含字幕）
+
+**阶段3（持续优化）**
+- [ ] Prompt模板库优化
+- [ ] 写实 vs 3D效果对比
+- [ ] 多平台格式适配（封面图、不同时长）
