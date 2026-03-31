@@ -1,6 +1,23 @@
 # AI漫剧自动化生成系统
 
-输入剧本文件，自动生成可发布到抖音/视频号/快手/小红书的竖屏漫剧短视频。
+输入剧本文件，或按项目/剧本/分集定位已有内容，自动生成可发布到抖音/视频号/快手/小红书的竖屏漫剧短视频。
+
+## 多项目模型
+
+当前运行模型同时支持两种入口：
+
+- 兼容模式：直接传入单个 `.txt` 剧本，CLI 会自动桥接成一个临时项目、剧本、分集并继续走分集导演流程。
+- 项目模式：显式指定 `projectId + scriptId + episodeId`，直接调用分集级导演入口，适合多剧集、多项目并行管理。
+
+核心层级如下：
+
+```text
+project
+└── script
+    └── episode
+```
+
+本地运行时的持久化结构位于 `temp/projects/<projectId>/...`，而仓库里的 `samples/project-example/` 只是说明性的最小示例，用来帮助理解项目元数据和原始剧本文本如何对应。
 
 ## 系统架构
 
@@ -261,12 +278,25 @@ AI-video-factory-pro/
 ├── scripts/
 │   └── run.js                    # CLI入口
 ├── samples/
-│   └── test_script.txt           # 测试剧本
+│   ├── test_script.txt           # 旧单文件入口示例
+│   └── project-example/
+│       ├── project.json          # 示例项目元数据
+│       └── script.txt            # 示例原始剧本
 ├── temp/                         # 临时文件（图片、音频、状态）
 ├── output/                       # 最终输出视频
 ├── .env.example                  # 环境变量模板
 └── package.json
 ```
+
+### 示例项目结构
+
+```text
+samples/project-example/
+├── project.json
+└── script.txt
+```
+
+`project.json` 用来说明示例中的 `projectId / scriptId / episodeId`，`script.txt` 保留原始剧本文本。实际运行时，项目模式读取的是 `temp/projects/...` 下预先存在的结构化 `project.json / script.json / episode.json` 数据，而不是直接消费这个示例目录。
 
 ## 快速开始
 
@@ -305,6 +335,10 @@ node scripts/run.js samples/test_script.txt --skip-consistency
 # 使用3D风格
 node scripts/run.js samples/test_script.txt --style=3d
 
+# 按项目 / 剧本 / 分集运行
+# 前提：temp/projects/project-example/... 下已经存在对应的结构化数据
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
+
 # 完整流程（含一致性验证）
 node scripts/run.js your_script.txt
 ```
@@ -313,9 +347,13 @@ node scripts/run.js your_script.txt
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
+| `<script-file>` | 旧单文件入口，兼容模式 | 无 |
+| `--project=<id>` | 项目标识，需与 `--script` / `--episode` 同时提供 | 无 |
+| `--script=<id>` | 剧本标识，需与 `--project` / `--episode` 同时提供 | 无 |
+| `--episode=<id>` | 分集标识，需与 `--project` / `--script` 同时提供 | 无 |
 | `--style=realistic\|3d` | 视觉风格 | `realistic` |
 | `--skip-consistency` | 跳过一致性验证 | 关闭 |
-| `--provider=deepseek\|qwen\|claude` | 覆盖LLM提供商 | `.env`配置 |
+| `--provider=deepseek\|qwen` | 覆盖LLM提供商 | `.env`配置 |
 
 ## 成本估算
 
