@@ -43,6 +43,10 @@ function buildLegacyBridgeIdentity(scriptFilePath) {
   };
 }
 
+function hashContent(value) {
+  return createHash('sha1').update(String(value || '')).digest('hex');
+}
+
 function createRunJobAttemptId(jobId, now = new Date()) {
   const timestamp = now.toISOString().replace(/[-:.TZ]/g, '');
   const nonce = randomUUID().replace(/-/g, '').slice(0, 8);
@@ -453,6 +457,17 @@ export function createDirector(overrides = {}) {
 
       try {
         const scriptText = deps.readTextFile(scriptFilePath);
+        const scriptContentHash = hashContent(scriptText);
+        const contentChanged =
+          state.compatibility?.scriptContentHash &&
+          state.compatibility.scriptContentHash !== scriptContentHash;
+
+        if (contentChanged) {
+          for (const key of Object.keys(state)) {
+            delete state[key];
+          }
+        }
+
         const existingScript =
           deps.loadScript(legacy.projectId, legacy.scriptId, options.storeOptions) || null;
         const existingEpisode =
@@ -461,7 +476,11 @@ export function createDirector(overrides = {}) {
 
         let scriptData = state.scriptData;
         if (!scriptData) {
-          if (existingScript && existingEpisode) {
+          if (
+            existingScript &&
+            existingEpisode &&
+            existingScript.sourceText === scriptText
+          ) {
             scriptData = {
               title: existingScript.title,
               characters: existingScript.characters || [],
@@ -480,6 +499,7 @@ export function createDirector(overrides = {}) {
           compatibility: {
             mode: 'legacy-script-file',
             scriptFilePath: legacy.resolvedPath,
+            scriptContentHash,
             projectId: legacy.projectId,
             scriptId: legacy.scriptId,
             episodeId: legacy.episodeId,
@@ -487,7 +507,11 @@ export function createDirector(overrides = {}) {
           scriptData,
         });
 
-        if (!existingScript || !existingEpisode) {
+        if (
+          !existingScript ||
+          !existingEpisode ||
+          existingScript.sourceText !== scriptText
+        ) {
           const project = createProject({
             id: legacy.projectId,
             name: title,

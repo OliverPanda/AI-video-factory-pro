@@ -161,3 +161,15 @@ test('buildVisualSegmentJobs carries animation clips into the segment rendering 
     },
   ]);
 });
+
+test('buildCompositionPlan supports ShotPlan camelCase duration fields', () => {
+  const plan = buildCompositionPlan(
+    [{ id: 'shot_1', dialogue: '你好', durationSec: 5 }],
+    [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+    [],
+    []
+  );
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].duration, 5);
+});

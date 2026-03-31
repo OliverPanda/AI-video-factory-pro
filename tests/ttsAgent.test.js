@@ -299,3 +299,33 @@ test('legacy fallback still works if relation-based data is absent', async () =>
   assert.equal(audioResults[0].hasDialogue, true);
   assert.match(audioResults[0].audioPath, /shot_legacy_tts\.mp3$/);
 });
+
+test('buildCharacterRegistry keeps source characters when the LLM omits some entries', async () => {
+  const registry = await buildCharacterRegistry(
+    [
+      { id: 'episode_1_shenqing', name: '沈清', gender: 'female' },
+      { id: 'episode_1_guard', name: '侍卫', gender: 'male' },
+    ],
+    '冷宫夜查',
+    'realistic',
+    {
+      chatJSON: async () => ({
+        characters: [
+          {
+            name: '沈清',
+            gender: 'female',
+            basePromptTokens: 'shen qing',
+          },
+        ],
+      }),
+    }
+  );
+
+  assert.equal(registry.length, 2);
+  assert.equal(registry.some((character) => character.name === '沈清'), true);
+  assert.equal(registry.some((character) => character.name === '侍卫'), true);
+  assert.equal(
+    registry.find((character) => character.name === '侍卫').episodeCharacterId,
+    'episode_1_guard'
+  );
+});

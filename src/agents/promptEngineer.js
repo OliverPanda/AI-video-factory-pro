@@ -41,7 +41,8 @@ export async function generatePromptForShot(shot, characterRegistry, style = 're
 
   // 自动增强：注入基础质量词 + 镜头关键词
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const cameraKw = CAMERA_KEYWORDS[shot.camera_type] || 'medium shot';
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   const charTokens = getShotCharacterTokens(shot, characterRegistry);
 
   const enhancedPrompt = [
@@ -97,7 +98,8 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
 // 降级方案：基于分镜信息直接组装基础Prompt
 function fallbackPrompt(shot, style) {
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const cameraKw = CAMERA_KEYWORDS[shot.camera_type] || 'medium shot';
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   return {
     shotId: shot.id,
     image_prompt: `${shot.scene}, ${shot.action}, ${cameraKw}, ${styleBase.quality}`,

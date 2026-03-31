@@ -98,19 +98,20 @@ export function buildCompositionPlan(
         ...visual,
         audioPath: audioResult?.audioPath || null,
         dialogue: shot.dialogue || '',
-        duration: visual.duration || shot.duration || 3,
+        duration: visual.duration || shot.duration || shot.durationSec || 3,
       };
     })
     .filter(Boolean);
 }
 
 function resolveShotVisual(shot, imageResults, animationClips) {
+  const shotDuration = shot.duration || shot.durationSec || 3;
   const animationClip = animationClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
   if (animationClip) {
     return {
       visualType: 'animation_clip',
       videoPath: animationClip.videoPath,
-      duration: animationClip.durationSec || shot.duration || 3,
+      duration: animationClip.durationSec || shotDuration,
     };
   }
 
@@ -122,7 +123,7 @@ function resolveShotVisual(shot, imageResults, animationClips) {
   return {
     visualType: 'static_image',
     imagePath: imgResult.imagePath,
-    duration: shot.duration || 3,
+    duration: shotDuration,
   };
 }
 

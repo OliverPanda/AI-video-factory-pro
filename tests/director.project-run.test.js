@@ -216,6 +216,89 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
   });
 });
 
+test('runPipeline compatibility mode invalidates cached script data when file content changes', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const scriptFilePath = path.join(tempRoot, 'legacy-script.txt');
+    const stateByFile = new Map();
+    const scripts = new Map();
+    const episodes = new Map();
+    let scriptText = '第一版';
+    let parseCalls = 0;
+    let audioCalls = 0;
+
+    fs.writeFileSync(scriptFilePath, scriptText, 'utf-8');
+
+    const director = createDirector({
+      readTextFile: () => scriptText,
+      initDirs: (jobId) => createDirs(path.join(tempRoot, jobId)),
+      loadJSON: (filePath) => stateByFile.get(filePath) ?? null,
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
+      parseScript: async (rawScriptText) => {
+        parseCalls += 1;
+        return {
+          title: rawScriptText,
+          characters: [{ name: '沈清' }],
+          shots: [{ id: `shot_${parseCalls}`, scene: rawScriptText, characters: ['沈清'] }],
+        };
+      },
+      saveProject: () => {},
+      loadScript: (projectId, scriptId) => scripts.get(`${projectId}:${scriptId}`) ?? null,
+      saveScript: (projectId, script) =>
+        scripts.set(`${projectId}:${script.id}`, structuredClone({ ...script, projectId })),
+      loadEpisode: (projectId, scriptId, episodeId) =>
+        episodes.get(`${projectId}:${scriptId}:${episodeId}`) ?? null,
+      saveEpisode: (projectId, scriptId, episode) =>
+        episodes.set(
+          `${projectId}:${scriptId}:${episode.id}`,
+          structuredClone({ ...episode, projectId, scriptId })
+        ),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      buildCharacterRegistry: async (characters) =>
+        characters.map((character) => ({
+          name: character.name,
+          basePromptTokens: character.name,
+        })),
+      generateAllPrompts: async (shots) =>
+        shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: '' })),
+      generateAllImages: async (prompts) =>
+        prompts.map((prompt) => ({
+          shotId: prompt.shotId,
+          imagePath: `/tmp/${prompt.shotId}.png`,
+          success: true,
+        })),
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async (shots) => {
+        audioCalls += 1;
+        return shots.map((shot) => ({ shotId: shot.id, audioPath: `/tmp/${shot.id}.mp3` }));
+      },
+      composeVideo: async () => {},
+    });
+
+    await director.runPipeline(scriptFilePath, {});
+    scriptText = '第二版';
+    fs.writeFileSync(scriptFilePath, scriptText, 'utf-8');
+    await director.runPipeline(scriptFilePath, {});
+
+    assert.equal(parseCalls, 2);
+    assert.equal(audioCalls, 2);
+
+    const [savedScript] = [...scripts.values()];
+    const [savedEpisode] = [...episodes.values()];
+    assert.equal(savedScript.title, '第二版');
+    assert.equal(savedScript.sourceText, '第二版');
+    assert.deepEqual(savedEpisode.shots, [
+      { id: 'shot_2', scene: '第二版', characters: ['沈清'] },
+    ]);
+
+    const stateEntry = [...stateByFile.entries()].find(([filePath]) => filePath.endsWith('state.json'));
+    assert.ok(stateEntry, 'expected a compatibility state file to be written');
+    assert.equal(stateEntry[1].scriptData.title, '第二版');
+    assert.equal(typeof stateEntry[1].compatibility.scriptContentHash, 'string');
+  });
+});
+
 test('runPipeline compatibility mode records failure state before delegation errors escape', async () => {
   await withTempRoot(async (tempRoot) => {
     const scriptFilePath = path.join(tempRoot, 'legacy-script.txt');

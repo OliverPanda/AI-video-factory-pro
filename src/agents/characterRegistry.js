@@ -79,8 +79,7 @@ export function getCharacterTokens(characterName, registry) {
 
 function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) {
   const remainingSources = [...sourceCharacters];
-
-  return generatedCharacters.map((character, index) => {
+  const mergedCharacters = generatedCharacters.map((character, index) => {
     const matchedSourceIndex = remainingSources.findIndex((source) => source?.name === character?.name);
     const source =
       matchedSourceIndex >= 0
@@ -97,6 +96,15 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
         source.mainCharacterTemplateId ?? character.mainCharacterTemplateId ?? null,
     };
   });
+
+  const fallbackCharacters = remainingSources.map((source) => ({
+    ...source,
+    id: source.id,
+    episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
+    mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
+  }));
+
+  return [...mergedCharacters, ...fallbackCharacters];
 }
 
 function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}) {
