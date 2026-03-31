@@ -1,6 +1,30 @@
 # AI漫剧自动化生成系统
 
-输入剧本文件，自动生成可发布到抖音/视频号/快手/小红书的竖屏漫剧短视频。
+输入剧本文件，或按项目/剧本/分集定位已有内容，自动生成可发布到抖音/视频号/快手/小红书的竖屏漫剧短视频。
+
+## 多项目模型
+
+当前运行模型同时支持两种入口：
+
+- 兼容模式：直接传入单个 `.txt` 剧本，CLI 会自动桥接成一个临时项目、剧本、分集并继续走分集导演流程。
+- 项目模式：显式指定 `projectId + scriptId + episodeId`，直接调用分集级导演入口，适合多剧集、多项目并行管理。
+
+当前已落地的核心层级如下：
+
+```text
+project
+└── script
+    └── episode
+        └── shot plan
+```
+
+本地运行时的持久化结构位于 `temp/projects/<projectId>/...`，并额外按分集保存：
+
+- `project.json / script.json / episode.json`
+- `run-jobs/<runJobId>.json`
+- 兼容旧入口的 `temp/<jobId>/state.json`
+
+仓库里的 `samples/project-example/` 只是说明性的最小示例，用来帮助理解项目元数据和原始剧本文本如何对应；项目模式真正读取的是 `temp/projects/...` 下已经存在的结构化数据。
 
 ## 系统架构
 
@@ -45,9 +69,15 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 ### Agent 1：导演Agent（Orchestrator）
 **文件**：`src/agents/director.js`
 
-**职责**：读取剧本，拆分任务，按顺序调度所有子Agent，处理异常，支持断点续跑。
+**职责**：按分集编排解析、角色、Prompt、关键帧、音频和合成步骤，处理异常，支持断点续跑。
 
-**核心机制**：每个步骤完成后将结果写入 `temp/<jobId>/state.json`，下次运行同一剧本时自动跳过已完成步骤。
+**当前入口**：
+- `runEpisodePipeline({ projectId, scriptId, episodeId, options })`
+- `runPipeline(scriptFilePath)` 仍保留为兼容桥，会先映射成临时 `project/script/episode` 再转入分集级入口
+
+**核心机制**：
+- 每个步骤完成后将结果写入 `temp/<jobId>/state.json`，下次运行同一 job 时自动跳过已完成步骤
+- 每次分集运行还会在 `temp/projects/<projectId>/scripts/<scriptId>/episodes/<episodeId>/run-jobs/` 下落一份 `RunJob` 记录，并为主要步骤追加 `AgentTaskRun`
 
 **执行流程**：
 1. 读取剧本文件
@@ -64,7 +94,7 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 ### Agent 2：编剧Agent（Script Parser）
 **文件**：`src/agents/scriptParser.js`
 
-**职责**：将原始剧本文本解析为结构化分镜JSON数据。
+**职责**：将原始剧本文本先拆分为剧集，再将单集拆分为结构化分镜；同时保留旧的平铺 `parseScript()` 输出做兼容桥接。
 
 **输入**：剧本文本（.txt）
 
@@ -254,19 +284,45 @@ AI-video-factory-pro/
 │   ├── apis/
 │   │   ├── imageApi.js           # Together AI + Stability AI
 │   │   └── ttsApi.js             # 阿里云 + Azure Speech
+│   ├── domain/
+│   │   ├── assetModel.js         # Keyframe / AnimationClip / Voice / Subtitle / EpisodeCut DTO
+│   │   ├── characterModel.js     # MainCharacterTemplate / EpisodeCharacter / ShotCharacter DTO
+│   │   ├── entityFactory.js      # 通用实体构造辅助
+│   │   └── projectModel.js       # Project / Script / Episode / ShotPlan DTO
 │   └── utils/
 │       ├── queue.js              # p-queue并发控制
 │       ├── logger.js             # 日志工具
-│       └── fileHelper.js         # 文件读写工具
+│       ├── fileHelper.js         # 文件读写工具
+│       ├── jobStore.js           # RunJob / AgentTaskRun 持久化
+│       └── projectStore.js       # project/script/episode JSON 存储
 ├── scripts/
 │   └── run.js                    # CLI入口
 ├── samples/
-│   └── test_script.txt           # 测试剧本
+│   ├── test_script.txt           # 旧单文件入口示例
+│   └── project-example/
+│       ├── project.json          # 示例项目元数据
+│       └── script.txt            # 示例原始剧本
+├── tests/
+│   ├── director.project-run.test.js
+│   ├── jobStore.test.js
+│   ├── projectModel.test.js
+│   ├── projectStore.test.js
+│   └── ttsAgent.test.js
 ├── temp/                         # 临时文件（图片、音频、状态）
 ├── output/                       # 最终输出视频
 ├── .env.example                  # 环境变量模板
 └── package.json
 ```
+
+### 示例项目结构
+
+```text
+samples/project-example/
+├── project.json
+└── script.txt
+```
+
+`project.json` 用来说明示例中的 `projectId / scriptId / episodeId`，`script.txt` 保留原始剧本文本。实际运行时，项目模式读取的是 `temp/projects/...` 下预先存在的结构化 `project.json / script.json / episode.json` 数据，而不是直接消费这个示例目录。
 
 ## 快速开始
 
@@ -305,6 +361,10 @@ node scripts/run.js samples/test_script.txt --skip-consistency
 # 使用3D风格
 node scripts/run.js samples/test_script.txt --style=3d
 
+# 按项目 / 剧本 / 分集运行
+# 前提：temp/projects/project-example/... 下已经存在对应的结构化数据
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
+
 # 完整流程（含一致性验证）
 node scripts/run.js your_script.txt
 ```
@@ -313,9 +373,36 @@ node scripts/run.js your_script.txt
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
+| `<script-file>` | 旧单文件入口，兼容模式 | 无 |
+| `--project=<id>` | 项目标识，需与 `--script` / `--episode` 同时提供 | 无 |
+| `--script=<id>` | 剧本标识，需与 `--project` / `--episode` 同时提供 | 无 |
+| `--episode=<id>` | 分集标识，需与 `--project` / `--script` 同时提供 | 无 |
 | `--style=realistic\|3d` | 视觉风格 | `realistic` |
 | `--skip-consistency` | 跳过一致性验证 | 关闭 |
-| `--provider=deepseek\|qwen\|claude` | 覆盖LLM提供商 | `.env`配置 |
+| `--provider=deepseek\|qwen` | 覆盖LLM提供商 | `.env`配置 |
+
+## 测试与验证
+
+当前仓库里有两类“测试”入口，它们的用途不同：
+
+- `pnpm test`
+  实际上会执行 `node scripts/run.js samples/test_script.txt`，属于带真实 LLM/API 依赖的端到端 smoke run；如果本地未配置可用凭证，会像当前一样报 `401`，不适合作为离线回归入口。
+- `node --test ...`
+  这是本次多项目升级新增和扩展的稳定单测入口，适合本地回归。
+
+本轮多项目升级验证使用的 focused tests：
+
+```bash
+node --test tests/projectModel.test.js
+node --test tests/characterModel.test.js
+node --test tests/projectStore.test.js
+node --test tests/scriptParser.test.js
+node --test tests/director.project-run.test.js
+node --test tests/ttsAgent.test.js
+node --test tests/videoComposer.test.js
+node --test tests/runCli.test.js
+node --test tests/jobStore.test.js
+```
 
 ## 成本估算
 

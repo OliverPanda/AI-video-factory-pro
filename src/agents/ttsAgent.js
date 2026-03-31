@@ -5,6 +5,7 @@
 import path from 'path';
 import { textToSpeech } from '../apis/ttsApi.js';
 import { ttsQueue, queueWithRetry } from '../utils/queue.js';
+import { resolveShotParticipants, resolveShotSpeaker } from './characterRegistry.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -14,7 +15,8 @@ import logger from '../utils/logger.js';
  * @param {string} audioDir - 音频输出目录
  * @returns {Promise<Array<{shotId, audioPath, hasDialogue}>>}
  */
-export async function generateAllAudio(shots, characterRegistry, audioDir) {
+export async function generateAllAudio(shots, characterRegistry, audioDir, deps = {}) {
+  const runTextToSpeech = deps.textToSpeech || textToSpeech;
   logger.info('TTSAgent', `开始为 ${shots.length} 个分镜生成配音...`);
 
   const results = await Promise.all(
@@ -29,17 +31,17 @@ export async function generateAllAudio(shots, characterRegistry, audioDir) {
             return { shotId: shot.id, audioPath: null, hasDialogue: false };
           }
 
-          // 获取说话角色的性别
-          // 优先用 shot.speaker 字段（明确标注说话者），否则取第一个角色
-          const speakerName = shot.speaker || shot.characters?.[0];
-          const speakerCard = characterRegistry.find((c) => c.name === speakerName);
-          const gender = speakerCard?.gender || 'female';
-          if (!shot.speaker && shot.characters?.length > 1) {
-            logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${shot.characters.length} 个角色出场）`);
+          const participants = resolveShotParticipants(shot, characterRegistry);
+          const speaker = resolveShotSpeaker(shot, characterRegistry);
+          const speakerName = speaker?.name || '';
+          const gender = speaker?.character?.gender || 'female';
+
+          if (!speaker?.relation?.isSpeaker && !shot.speaker && participants.length > 1) {
+            logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${participants.length} 个角色出场）`);
           }
 
           logger.step(i + 1, shots.length, `TTS: ${shot.id}`);
-          const audioPath = await textToSpeech(shot.dialogue, outputPath, { gender });
+          const audioPath = await runTextToSpeech(shot.dialogue, outputPath, { gender });
 
           return { shotId: shot.id, audioPath, hasDialogue: true };
         },

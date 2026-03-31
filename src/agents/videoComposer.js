@@ -45,10 +45,10 @@ const SUBTITLE_FONT = process.env.SUBTITLE_FONT || detectChineseFont();
 /**
  * 合成最终视频
  * @param {Array} shots - 分镜列表（含 duration）
- * @param {Array} imageResults - 图像生成结果（{shotId, imagePath}）
+ * @param {Array} imageResults - 图像生成结果（{shotId, keyframeAssetId, imagePath, success}）
  * @param {Array} audioResults - TTS结果（{shotId, audioPath}）
  * @param {string} outputPath - 最终视频路径（.mp4）
- * @param {Object} options - { title }
+ * @param {Object} options - { title, animationClips }
  */
 export async function composeVideo(shots, imageResults, audioResults, outputPath, options = {}) {
   logger.info('VideoComposer', '开始合成视频...');
@@ -58,9 +58,14 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
 
   ensureDir(path.dirname(outputPath));
 
-  // 构建合成计划（过滤掉图像失败的镜头）
-  const plan = buildCompositionPlan(shots, imageResults, audioResults);
-  if (plan.length === 0) throw new Error('没有可合成的分镜（所有图像生成失败）');
+  // 构建合成计划（优先使用动画片段，无片段时回退到静态图）
+  const plan = buildCompositionPlan(
+    shots,
+    imageResults,
+    audioResults,
+    options.animationClips || []
+  );
+  if (plan.length === 0) throw new Error('没有可合成的分镜（无可用动画片段或静态图像）');
 
   logger.info('VideoComposer', `合成计划：${plan.length} 个分镜`);
 
@@ -77,21 +82,49 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
 
 // ─── 内部函数 ────────────────────────────────────────────────
 
-function buildCompositionPlan(shots, imageResults, audioResults) {
+export function buildCompositionPlan(
+  shots,
+  imageResults = [],
+  audioResults = [],
+  animationClips = []
+) {
   return shots
     .map((shot) => {
-      const imgResult = imageResults.find((r) => r.shotId === shot.id);
+      const visual = resolveShotVisual(shot, imageResults, animationClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
-      if (!imgResult?.imagePath || !imgResult.success) return null;
+      if (!visual) return null;
       return {
         shotId: shot.id,
-        imagePath: imgResult.imagePath,
+        ...visual,
         audioPath: audioResult?.audioPath || null,
         dialogue: shot.dialogue || '',
-        duration: shot.duration || 3,
+        duration: visual.duration || shot.duration || shot.durationSec || 3,
       };
     })
     .filter(Boolean);
+}
+
+function resolveShotVisual(shot, imageResults, animationClips) {
+  const shotDuration = shot.duration || shot.durationSec || 3;
+  const animationClip = animationClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
+  if (animationClip) {
+    return {
+      visualType: 'animation_clip',
+      videoPath: animationClip.videoPath,
+      duration: animationClip.durationSec || shotDuration,
+    };
+  }
+
+  const imgResult = imageResults.find((result) => result.shotId === shot.id);
+  if (!imgResult?.imagePath || imgResult.success === false) {
+    return null;
+  }
+
+  return {
+    visualType: 'static_image',
+    imagePath: imgResult.imagePath,
+    duration: shotDuration,
+  };
 }
 
 function generateSubtitleFile(plan, subtitlePath) {
@@ -145,67 +178,196 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 function mergeWithFFmpeg(plan, subtitlePath, outputPath) {
   return new Promise((resolve, reject) => {
-    // 创建 FFmpeg 拼接列表文件
-    const concatListPath = outputPath.replace('.mp4', '_concat.txt');
-    const concatLines = plan
-      .map((item) => `file '${item.imagePath.replace(/\\/g, '/')}'\nduration ${item.duration}`)
-      .join('\n');
-    fs.writeFileSync(concatListPath, concatLines);
+    const tempFiles = [];
 
-    // 音频文件过滤
-    const audioItems = plan.filter((item) => item.audioPath && fs.existsSync(item.audioPath));
+    createVisualSegments(plan, outputPath)
+      .then(({ segmentPaths, concatListPath, concatVideoPath, tempDir }) => {
+        tempFiles.push(...segmentPaths, concatListPath, concatVideoPath, tempDir);
+        return concatVisualSegments(concatListPath, concatVideoPath).then(() =>
+          muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath)
+        );
+      })
+      .then(() => {
+        cleanupTempFiles(tempFiles);
+        resolve(outputPath);
+      })
+      .catch((err) => {
+        cleanupTempFiles(tempFiles);
+        reject(new Error(`FFmpeg 合成失败：${err.message}`));
+      });
+  });
+}
 
-    let cmd = ffmpeg();
+function createVisualSegments(plan, outputPath) {
+  const tempDir = outputPath.replace('.mp4', '_segments');
+  ensureDir(tempDir);
 
-    // 输入：图像序列（concat demuxer）
-    cmd = cmd.input(concatListPath).inputOptions(['-f', 'concat', '-safe', '0']);
-
-    // 输入：音频文件（如果有）
-    audioItems.forEach((item) => {
-      cmd = cmd.input(item.audioPath);
-    });
-
-    // 输出配置
-    const outputOptions = [
-      '-vf', `scale=${VIDEO_WIDTH}:${VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,pad=${VIDEO_WIDTH}:${VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2,ass=${subtitlePath.replace(/\\/g, '/')}`,
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '23',
-      '-pix_fmt', 'yuv420p',
-      '-r', String(VIDEO_FPS),
-    ];
-
-    if (audioItems.length > 0) {
-      // 混合多段音频
-      outputOptions.push('-c:a', 'aac', '-b:a', '128k');
+  const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
+  const tasks = segmentJobs.map((job) => {
+    if (job.visualType === 'animation_clip') {
+      return transcodeAnimationClip(job, job.segmentPath).then(() => job.segmentPath);
     }
+    return renderStaticImageSegment(job, job.segmentPath).then(() => job.segmentPath);
+  });
 
+  return Promise.all(tasks).then((segmentPaths) => {
+    const concatListPath = outputPath.replace('.mp4', '_concat.txt');
+    const concatVideoPath = outputPath.replace('.mp4', '_visual.mp4');
+    const concatLines = segmentPaths.map((filePath) => `file '${filePath.replace(/\\/g, '/')}'`).join('\n');
+    fs.writeFileSync(concatListPath, concatLines);
+    return { segmentPaths, concatListPath, concatVideoPath, tempDir };
+  });
+}
+
+function renderStaticImageSegment(item, segmentPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(item.imagePath)
+      .inputOptions(['-loop', '1'])
+      .outputOptions([
+        '-t', String(item.duration),
+        '-vf', buildScalePadFilter(),
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-r', String(VIDEO_FPS),
+        '-an',
+      ])
+      .output(segmentPath)
+      .on('end', () => resolve(segmentPath))
+      .on('error', reject)
+      .run();
+  });
+}
+
+function transcodeAnimationClip(item, segmentPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(item.videoPath)
+      .outputOptions([
+        '-t', String(item.duration),
+        '-vf', buildScalePadFilter(),
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-r', String(VIDEO_FPS),
+        '-an',
+      ])
+      .output(segmentPath)
+      .on('end', () => resolve(segmentPath))
+      .on('error', reject)
+      .run();
+  });
+}
+
+function concatVisualSegments(concatListPath, concatVideoPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(concatListPath)
+      .inputOptions(['-f', 'concat', '-safe', '0'])
+      .outputOptions([
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-r', String(VIDEO_FPS),
+        '-an',
+      ])
+      .output(concatVideoPath)
+      .on('end', () => resolve(concatVideoPath))
+      .on('error', reject)
+      .run();
+  });
+}
+
+function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
+  const audioItems = collectExistingAudioItems(plan);
+  let cmd = ffmpeg().input(concatVideoPath);
+
+  audioItems.forEach((item) => {
+    cmd = cmd.input(item.audioPath);
+  });
+
+  const outputOptions = [
+    '-vf', `ass=${subtitlePath.replace(/\\/g, '/')}`,
+    '-c:v', 'libx264',
+    '-preset', 'fast',
+    '-crf', '23',
+    '-pix_fmt', 'yuv420p',
+    '-r', String(VIDEO_FPS),
+  ];
+
+  if (audioItems.length > 0) {
+    const delayedInputs = audioItems
+      .map((item, index) => `[${index + 1}:a]adelay=${item.offsetMs}|${item.offsetMs}[a${index}]`)
+      .join(';');
+    const mixInputs = audioItems.map((_, index) => `[a${index}]`).join('');
+    cmd = cmd.complexFilter(
+      `${delayedInputs};${mixInputs}amix=inputs=${audioItems.length}:normalize=0[aout]`,
+      ['aout']
+    );
+    outputOptions.push('-map', '0:v', '-map', '[aout]', '-c:a', 'aac', '-b:a', '128k');
+  }
+
+  return new Promise((resolve, reject) => {
     cmd
       .outputOptions(outputOptions)
       .output(outputPath)
-      .on('start', (cmd) => logger.debug('VideoComposer', `FFmpeg 命令：${cmd.slice(0, 100)}...`))
+      .on('start', (command) =>
+        logger.debug('VideoComposer', `FFmpeg 命令：${command.slice(0, 120)}...`)
+      )
       .on('progress', (p) => {
         if (p.percent) process.stdout.write(`\r[FFmpeg] 进度：${Math.round(p.percent)}%`);
       })
       .on('end', () => {
         process.stdout.write('\n');
-        // 清理临时文件（有错误日志版本）
-        fs.unlink(concatListPath, (err) => {
-          if (err && err.code !== 'ENOENT') {
-            logger.warn('VideoComposer', `清理临时文件失败：${err.message}`);
-          }
-        });
         resolve(outputPath);
       })
-      .on('error', (err) => {
-        fs.unlink(concatListPath, (unlinkErr) => {
-          if (unlinkErr && unlinkErr.code !== 'ENOENT') {
-            logger.warn('VideoComposer', `清理临时文件失败：${unlinkErr.message}`);
-          }
-        });
-        reject(new Error(`FFmpeg 合成失败：${err.message}`));
-      })
+      .on('error', reject)
       .run();
+  });
+}
+
+export function buildAudioTimeline(plan) {
+  let elapsed = 0;
+
+  return plan.map((item) => {
+    const timelineItem = {
+      shotId: item.shotId,
+      audioPath: item.audioPath,
+      offsetMs: Math.round(elapsed * 1000),
+    };
+    elapsed += item.duration;
+    return timelineItem;
+  });
+}
+
+export function collectExistingAudioItems(plan, existsSync = fs.existsSync) {
+  return buildAudioTimeline(plan).filter(
+    (item) => item.audioPath && existsSync(item.audioPath)
+  );
+}
+
+export function buildVisualSegmentJobs(plan, tempDir) {
+  return plan.map((item, index) => ({
+    ...item,
+    segmentPath: path.join(tempDir, `${String(index).padStart(3, '0')}_${item.shotId}.mp4`),
+  }));
+}
+
+function buildScalePadFilter() {
+  return `scale=${VIDEO_WIDTH}:${VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,pad=${VIDEO_WIDTH}:${VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2`;
+}
+
+function cleanupTempFiles(filePaths) {
+  filePaths.forEach((filePath) => {
+    fs.rm(filePath, { recursive: true, force: true }, (err) => {
+      if (err && err.code !== 'ENOENT') {
+        logger.warn('VideoComposer', `清理临时文件失败：${err.message}`);
+      }
+    });
   });
 }
 

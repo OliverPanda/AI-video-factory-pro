@@ -9,7 +9,11 @@ import {
   STYLE_BASE,
   CAMERA_KEYWORDS,
 } from '../llm/prompts/promptEngineering.js';
-import { getShotCharacterTokens } from './characterRegistry.js';
+import {
+  getShotCharacterCards,
+  getShotCharacterNames,
+  getShotCharacterTokens,
+} from './characterRegistry.js';
 import { llmQueue } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
@@ -20,19 +24,25 @@ import logger from '../utils/logger.js';
  * @param {string} style - 'realistic' | '3d'
  * @returns {Promise<{shotId, image_prompt, negative_prompt, style_notes}>}
  */
-export async function generatePromptForShot(shot, characterRegistry, style = 'realistic') {
-  const charCards = characterRegistry.filter((c) => shot.characters?.includes(c.name));
+export async function generatePromptForShot(shot, characterRegistry, style = 'realistic', deps = {}) {
+  const runChatJSON = deps.chatJSON || chatJSON;
+  const charCards = getShotCharacterCards(shot, characterRegistry);
+  const shotForPrompt = {
+    ...shot,
+    characters: getShotCharacterNames(shot, characterRegistry),
+  };
 
   const messages = [
     { role: 'system', content: PROMPT_ENGINEER_SYSTEM },
-    { role: 'user', content: PROMPT_ENGINEER_USER(shot, charCards, style) },
+    { role: 'user', content: PROMPT_ENGINEER_USER(shotForPrompt, charCards, style) },
   ];
 
-  const result = await chatJSON(messages, { temperature: 0.6 });
+  const result = await runChatJSON(messages, { temperature: 0.6 });
 
   // 自动增强：注入基础质量词 + 镜头关键词
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const cameraKw = CAMERA_KEYWORDS[shot.camera_type] || 'medium shot';
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   const charTokens = getShotCharacterTokens(shot, characterRegistry);
 
   const enhancedPrompt = [
@@ -88,7 +98,8 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
 // 降级方案：基于分镜信息直接组装基础Prompt
 function fallbackPrompt(shot, style) {
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const cameraKw = CAMERA_KEYWORDS[shot.camera_type] || 'medium shot';
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   return {
     shotId: shot.id,
     image_prompt: `${shot.scene}, ${shot.action}, ${cameraKw}, ${styleBase.quality}`,

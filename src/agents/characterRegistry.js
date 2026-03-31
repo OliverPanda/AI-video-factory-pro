@@ -20,7 +20,8 @@ const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色
  * @param {string} style - 'realistic' | '3d'
  * @returns {Promise<Array<CharacterCard>>}
  */
-export async function buildCharacterRegistry(characters, scriptContext, style = 'realistic') {
+export async function buildCharacterRegistry(characters, scriptContext, style = 'realistic', deps = {}) {
+  const runChatJSON = deps.chatJSON || chatJSON;
   logger.info('CharacterRegistry', `构建 ${characters.length} 个角色的视觉档案...`);
 
   const prompt = `
@@ -52,7 +53,7 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
   ]
 }`;
 
-  const result = await chatJSON(
+  const result = await runChatJSON(
     [
       { role: 'system', content: CHARACTER_SYSTEM },
       { role: 'user', content: prompt },
@@ -60,7 +61,7 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
     { temperature: 0.4 }
   );
 
-  const cards = result.characters || [];
+  const cards = mergeCharacterSources(result.characters || [], characters);
   logger.info('CharacterRegistry', `角色档案构建完成：${cards.map((c) => c.name).join('、')}`);
   return cards;
 }
@@ -76,12 +77,201 @@ export function getCharacterTokens(characterName, registry) {
   return card ? card.basePromptTokens : '';
 }
 
+function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) {
+  const remainingSources = [...sourceCharacters];
+  const mergedCharacters = generatedCharacters.map((character, index) => {
+    const matchedSourceIndex = remainingSources.findIndex((source) => source?.name === character?.name);
+    const source =
+      matchedSourceIndex >= 0
+        ? remainingSources.splice(matchedSourceIndex, 1)[0]
+        : sourceCharacters[index] ?? null;
+
+    if (!source) return character;
+    return {
+      ...source,
+      ...character,
+      id: source.id ?? character.id,
+      episodeCharacterId: source.episodeCharacterId ?? source.id ?? character.episodeCharacterId ?? character.id,
+      mainCharacterTemplateId:
+        source.mainCharacterTemplateId ?? character.mainCharacterTemplateId ?? null,
+    };
+  });
+
+  const fallbackCharacters = remainingSources.map((source) => ({
+    ...source,
+    id: source.id,
+    episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
+    mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
+  }));
+
+  return [...mergedCharacters, ...fallbackCharacters];
+}
+
+function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}) {
+  return {
+    ...mainTemplate,
+    ...episodeCharacter,
+    id: episodeCharacter.id,
+    episodeCharacterId: episodeCharacter.id,
+    mainCharacterTemplateId: episodeCharacter.mainCharacterTemplateId ?? mainTemplate.id ?? null,
+    name: episodeCharacter.name ?? mainTemplate.name ?? '',
+    gender: episodeCharacter.gender ?? mainTemplate.gender ?? null,
+    age: episodeCharacter.age ?? mainTemplate.age ?? null,
+    visualDescription:
+      episodeCharacter.visualOverride ??
+      episodeCharacter.visualDescription ??
+      mainTemplate.visualDescription ??
+      null,
+    basePromptTokens: episodeCharacter.basePromptTokens ?? mainTemplate.basePromptTokens ?? null,
+    personality:
+      episodeCharacter.personalityOverride ??
+      episodeCharacter.personality ??
+      mainTemplate.personality ??
+      null,
+    defaultVoiceProfile:
+      episodeCharacter.voiceOverrideProfile ??
+      episodeCharacter.defaultVoiceProfile ??
+      mainTemplate.defaultVoiceProfile ??
+      null,
+    mainCharacterTemplate: mainTemplate || null,
+    episodeCharacter,
+  };
+}
+
+export function buildEpisodeCharacterRegistry(mainCharacterTemplates = [], episodeCharacters = []) {
+  return episodeCharacters.map((episodeCharacter) => {
+    const mainTemplate =
+      mainCharacterTemplates.find(
+        (template) => template?.id === (episodeCharacter?.mainCharacterTemplateId ?? null)
+      ) ?? null;
+
+    return buildMergedEpisodeCharacter(mainTemplate, episodeCharacter);
+  });
+}
+
+export function getEpisodeCharacterContext(episodeCharacterId, registry = []) {
+  const character =
+    registry.find(
+      (entry) => entry?.episodeCharacterId === episodeCharacterId || entry?.id === episodeCharacterId
+    ) ?? null;
+
+  if (!character) return null;
+
+  return {
+    character,
+    episodeCharacter: character.episodeCharacter ?? null,
+    mainCharacterTemplate: character.mainCharacterTemplate ?? null,
+  };
+}
+
+function sortShotCharacters(shotCharacters = []) {
+  return [...shotCharacters].sort((left, right) => {
+    const leftOrder = left?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder;
+  });
+}
+
+function findRegistryCharacterByRelation(relation, registry) {
+  if (!relation) return null;
+
+  const relationCharacterId = relation.episodeCharacterId ?? relation.characterId ?? null;
+  if (relationCharacterId) {
+    const matchedById = registry.find(
+      (character) =>
+        character?.episodeCharacterId === relationCharacterId || character?.id === relationCharacterId
+    );
+    if (matchedById) return matchedById;
+  }
+
+  const relationName = relation.characterName ?? relation.name ?? relation.character?.name ?? '';
+  if (!relationName) return null;
+  return registry.find((character) => character?.name === relationName) ?? null;
+}
+
+function createParticipant(character, relation = null, fallbackName = '') {
+  return {
+    relation,
+    character,
+    name: character?.name || fallbackName || '',
+  };
+}
+
+function resolveLegacyParticipants(shot, registry = [], relations = []) {
+  if (!Array.isArray(shot?.characters) || shot.characters.length === 0) return [];
+
+  return shot.characters
+    .map((name, index) => {
+      const character = registry.find((card) => card?.name === name) ?? null;
+      const relation = relations[index] ?? null;
+      return createParticipant(character, relation, name);
+    })
+    .filter((participant) => participant.character || participant.name);
+}
+
+export function resolveShotParticipants(shot, registry = []) {
+  if (Array.isArray(shot?.shotCharacters) && shot.shotCharacters.length > 0) {
+    const sortedRelations = sortShotCharacters(shot.shotCharacters);
+    const relationParticipants = sortedRelations
+      .map((relation, index) => {
+        const character = findRegistryCharacterByRelation(relation, registry);
+        const fallbackName =
+          relation?.characterName ??
+          relation?.name ??
+          relation?.character?.name ??
+          shot?.characters?.[index] ??
+          '';
+        const fallbackCharacter =
+          character ?? (fallbackName ? registry.find((card) => card?.name === fallbackName) ?? null : null);
+        return createParticipant(fallbackCharacter, relation, fallbackName);
+      })
+      .filter((participant) => participant.character || participant.name);
+
+    if (relationParticipants.length > 0) {
+      return relationParticipants;
+    }
+
+    return resolveLegacyParticipants(shot, registry, sortedRelations);
+  }
+
+  return resolveLegacyParticipants(shot, registry);
+}
+
+export function getShotCharacterCards(shot, registry = []) {
+  return resolveShotParticipants(shot, registry)
+    .map((participant) => participant.character)
+    .filter(Boolean);
+}
+
+export function getShotCharacterNames(shot, registry = []) {
+  return resolveShotParticipants(shot, registry)
+    .map((participant) => participant.name)
+    .filter(Boolean);
+}
+
+export function resolveShotSpeaker(shot, registry = []) {
+  const participants = resolveShotParticipants(shot, registry);
+  const relationSpeaker = participants.find((participant) => participant.relation?.isSpeaker);
+  if (relationSpeaker) return relationSpeaker;
+
+  if (shot?.speaker) {
+    const namedParticipant = participants.find((participant) => participant.name === shot.speaker);
+    if (namedParticipant) return namedParticipant;
+
+    const speakerCard = registry.find((character) => character?.name === shot.speaker) ?? null;
+    if (speakerCard) return createParticipant(speakerCard, null, shot.speaker);
+
+    return createParticipant(null, null, shot.speaker);
+  }
+
+  return participants[0] ?? null;
+}
+
 /**
  * 获取分镜中所有角色的 Prompt 组合
  */
 export function getShotCharacterTokens(shot, registry) {
-  if (!shot.characters || shot.characters.length === 0) return '';
-  return shot.characters
+  return getShotCharacterNames(shot, registry)
     .map((name) => getCharacterTokens(name, registry))
     .filter(Boolean)
     .join(', ');

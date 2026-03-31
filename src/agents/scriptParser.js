@@ -1,32 +1,99 @@
 /**
- * 编剧Agent - 将剧本文本解析为结构化分镜JSON
+ * 编剧Agent - 将剧本文本拆解为分集与分镜 JSON
  */
 
-import { chat, chatJSON } from '../llm/client.js';
-import { SCRIPT_ANALYSIS_SYSTEM, SCRIPT_ANALYSIS_USER } from '../llm/prompts/scriptAnalysis.js';
+import { chatJSON as defaultChatJSON } from '../llm/client.js';
+import {
+  SCRIPT_DECOMPOSITION_SYSTEM,
+  SCRIPT_DECOMPOSITION_USER,
+  EPISODE_STORYBOARD_SYSTEM,
+  EPISODE_STORYBOARD_USER,
+} from '../llm/prompts/scriptAnalysis.js';
 import logger from '../utils/logger.js';
 
 /**
- * 解析剧本为分镜数据
+ * 解析剧本为分集数据
  * @param {string} scriptText - 原始剧本文本
- * @returns {Promise<{title, totalDuration, characters, shots}>}
+ * @param {{ chatJSON?: Function }} deps
+ * @returns {Promise<{title, totalDuration, characters, episodes}>}
  */
-export async function parseScript(scriptText) {
-  logger.info('ScriptParser', '开始解析剧本...');
+export async function decomposeScriptToEpisodes(scriptText, deps = {}) {
+  logger.info('ScriptParser', '开始拆解剧本分集...');
 
+  const chatJSON = deps.chatJSON || defaultChatJSON;
   const messages = [
-    { role: 'system', content: SCRIPT_ANALYSIS_SYSTEM },
-    { role: 'user', content: SCRIPT_ANALYSIS_USER(scriptText) },
+    { role: 'system', content: SCRIPT_DECOMPOSITION_SYSTEM },
+    { role: 'user', content: SCRIPT_DECOMPOSITION_USER(scriptText) },
   ];
 
   const result = await chatJSON(messages, {
-    temperature: 0.3, // 低温度，保证结构准确
+    temperature: 0.3,
     maxTokens: 8192,
   });
 
-  // 校验基本结构
-  validateScriptData(result);
+  const normalized = normalizeEpisodeData(result);
+  logger.info('ScriptParser', `分集拆解完成：${normalized.episodes.length} 集`);
+  return normalized;
+}
 
+export const parseScriptToEpisodes = decomposeScriptToEpisodes;
+
+/**
+ * 解析单集为分镜数据
+ * @param {string|Object} episodeTextOrSummary - 分集摘要或分集对象
+ * @param {{ chatJSON?: Function }} deps
+ * @returns {Promise<{shots}>}
+ */
+export async function parseEpisodeToShots(episodeTextOrSummary, deps = {}) {
+  if (episodeTextOrSummary?.shots && Array.isArray(episodeTextOrSummary.shots)) {
+    return { shots: normalizeShots(episodeTextOrSummary.shots) };
+  }
+
+  const chatJSON = deps.chatJSON || defaultChatJSON;
+  const episodeContent = formatEpisodeInput(episodeTextOrSummary);
+  logger.info('ScriptParser', '开始拆解单集分镜...');
+
+  const messages = [
+    { role: 'system', content: EPISODE_STORYBOARD_SYSTEM },
+    { role: 'user', content: EPISODE_STORYBOARD_USER(episodeContent) },
+  ];
+
+  const result = await chatJSON(messages, {
+    temperature: 0.3,
+    maxTokens: 8192,
+  });
+
+  validateStoryboardData(result);
+  return {
+    shots: normalizeShots(result.shots),
+  };
+}
+
+/**
+ * 兼容旧接口：返回扁平 shots
+ * @param {string} scriptText - 原始剧本文本
+ * @param {{ chatJSON?: Function }} deps
+ * @returns {Promise<{title, totalDuration, characters, shots}>}
+ */
+export async function parseScript(scriptText, deps = {}) {
+  logger.info('ScriptParser', '开始解析剧本...');
+
+  const episodeData = await decomposeScriptToEpisodes(scriptText, deps);
+  const shots = [];
+
+  for (const episode of episodeData.episodes) {
+    const shotResult = await parseEpisodeToShots(episode, deps);
+    shots.push(...normalizeShots(shotResult.shots, shots.length, { renumber: true }));
+  }
+
+  const result = {
+    title: episodeData.title,
+    totalDuration: episodeData.totalDuration || shots.reduce((sum, shot) => sum + shot.duration, 0),
+    characters: episodeData.characters,
+    shots,
+  };
+
+  validateLegacyScriptData(result);
   logger.info('ScriptParser', `解析完成：${result.shots.length} 个分镜，共 ${result.characters.length} 个角色`);
   return result;
 }
@@ -35,12 +102,14 @@ export async function parseScript(scriptText) {
  * 细化特定场景（多轮对话）
  * @param {Object} shot - 分镜对象
  * @param {string} direction - 细化方向（如："增加更多情感细节"）
+ * @param {{ chatJSON?: Function }} deps
  */
-export async function refineShot(shot, direction) {
+export async function refineShot(shot, direction, deps = {}) {
   logger.debug('ScriptParser', `细化分镜 ${shot.id}：${direction}`);
 
+  const chatJSON = deps.chatJSON || defaultChatJSON;
   const messages = [
-    { role: 'system', content: SCRIPT_ANALYSIS_SYSTEM },
+    { role: 'system', content: EPISODE_STORYBOARD_SYSTEM },
     {
       role: 'user',
       content: `请细化以下分镜数据，${direction}：\n${JSON.stringify(shot, null, 2)}\n\n只返回修改后的单个分镜JSON对象。`,
@@ -50,8 +119,59 @@ export async function refineShot(shot, direction) {
   return chatJSON(messages, { temperature: 0.5 });
 }
 
-// ─── 内部校验 ────────────────────────────────────────────────
-function validateScriptData(data) {
+function normalizeEpisodeData(data) {
+  const characters = Array.isArray(data?.characters) ? data.characters : [];
+
+  if (Array.isArray(data?.episodes)) {
+    return {
+      title: data?.title || '',
+      totalDuration: Number(data?.totalDuration) || 0,
+      characters,
+      episodes: data.episodes.map((episode, index) => ({
+        ...episode,
+        episodeNo: Number(episode?.episodeNo) || index + 1,
+        title: episode?.title || `第${index + 1}集`,
+        summary: episode?.summary || '',
+      })),
+    };
+  }
+
+  if (Array.isArray(data?.shots)) {
+    return {
+      title: data?.title || '',
+      totalDuration: Number(data?.totalDuration) || 0,
+      characters,
+      episodes: [
+        {
+          episodeNo: 1,
+          title: '第1集',
+          summary: '',
+          shots: data.shots,
+        },
+      ],
+    };
+  }
+
+  throw new Error('剧本解析结果缺少 episodes 数组');
+}
+
+function formatEpisodeInput(episodeTextOrSummary) {
+  if (typeof episodeTextOrSummary === 'string') {
+    return episodeTextOrSummary;
+  }
+
+  if (!episodeTextOrSummary || typeof episodeTextOrSummary !== 'object') {
+    return '';
+  }
+
+  return JSON.stringify({
+    episodeNo: episodeTextOrSummary.episodeNo,
+    title: episodeTextOrSummary.title,
+    summary: episodeTextOrSummary.summary,
+  }, null, 2);
+}
+
+function validateLegacyScriptData(data) {
   if (!data.shots || !Array.isArray(data.shots)) {
     throw new Error('剧本解析结果缺少 shots 数组');
   }
@@ -59,16 +179,32 @@ function validateScriptData(data) {
     throw new Error('剧本解析结果缺少 characters 数组');
   }
 
-  data.shots.forEach((shot, i) => {
-    if (!shot.id) shot.id = `shot_${String(i + 1).padStart(3, '0')}`;
-    if (!shot.duration) shot.duration = 3;
-    if (!shot.characters) shot.characters = [];
-    if (!shot.dialogue) shot.dialogue = '';
-    if (!shot.speaker) shot.speaker = '';  // 明确说话者，空字符串代表无台词或未标注
+  data.shots = normalizeShots(data.shots);
+}
 
-    // 确保 characters 是字符串数组（LLM 偶尔会返回对象数组）
-    shot.characters = shot.characters.map((c) =>
-      typeof c === 'string' ? c : (c?.name || String(c))
+function validateStoryboardData(data) {
+  if (!data?.shots || !Array.isArray(data.shots)) {
+    throw new Error('分镜解析结果缺少 shots 数组');
+  }
+}
+
+function normalizeShots(shots, startIndex = 0, options = {}) {
+  return shots.map((shot, i) => {
+    const normalized = { ...shot };
+    const hasGeneratedId = typeof normalized.id === 'string' && /^shot_\d+$/i.test(normalized.id);
+
+    if ((options.renumber && (!normalized.id || hasGeneratedId)) || !normalized.id) {
+      normalized.id = `shot_${String(startIndex + i + 1).padStart(3, '0')}`;
+    }
+    if (!normalized.duration) normalized.duration = 3;
+    if (!normalized.characters) normalized.characters = [];
+    if (!normalized.dialogue) normalized.dialogue = '';
+    if (!normalized.speaker) normalized.speaker = '';
+
+    normalized.characters = normalized.characters.map((character) =>
+      typeof character === 'string' ? character : (character?.name || String(character))
     );
+
+    return normalized;
   });
 }

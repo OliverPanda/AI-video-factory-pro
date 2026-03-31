@@ -1,9 +1,10 @@
 /**
  * 导演Agent（Orchestrator）- 主编排器
- * 读取剧本，调度所有子Agent，处理异常，输出最终视频
+ * 支持分集级别执行，并保留旧剧本文件入口的兼容桥接
  */
 
 import path from 'path';
+import { createHash, randomUUID } from 'node:crypto';
 import { parseScript } from './scriptParser.js';
 import { buildCharacterRegistry } from './characterRegistry.js';
 import { generateAllPrompts } from './promptEngineer.js';
@@ -11,163 +12,560 @@ import { generateAllImages, regenerateImage } from './imageGenerator.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
 import { generateAllAudio } from './ttsAgent.js';
 import { composeVideo } from './videoComposer.js';
-import { saveJSON, loadJSON, initDirs, generateJobId, readTextFile } from '../utils/fileHelper.js';
+import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
+import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
+import { loadEpisode, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
+import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
+import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
 import logger from '../utils/logger.js';
 
-/**
- * 主入口：从剧本文件生成视频
- * @param {string} scriptFilePath - 剧本文件路径
- * @param {Object} options - { style: 'realistic'|'3d', skipConsistencyCheck: bool }
- * @returns {Promise<string>} 最终视频路径
- */
-export async function runPipeline(scriptFilePath, options = {}) {
-  const style = options.style || process.env.IMAGE_STYLE || 'realistic';
-  const jobId = generateJobId(path.basename(scriptFilePath));
+function sanitizeFileSegment(value, fallback) {
+  const normalized = String(value || fallback).replace(/[^\w\u4e00-\u9fa5]/g, '_');
+  return normalized || fallback;
+}
 
-  logger.info('Director', `=== 开始任务 ${jobId} ===`);
-  logger.info('Director', `剧本：${scriptFilePath} | 风格：${style}`);
+function buildEpisodeContext(script, episode) {
+  return episode.summary || script.sourceText || episode.title || script.title || '';
+}
 
-  // ─── 初始化目录 ──────────────────────────────────────────
-  const dirs = initDirs(jobId);
-  const stateFile = path.join(dirs.root, 'state.json');
-  const state = loadJSON(stateFile) || {};
+function buildLegacyBridgeIdentity(scriptFilePath) {
+  const resolvedPath = path.resolve(scriptFilePath);
+  const baseName = sanitizeFileSegment(path.basename(resolvedPath, path.extname(resolvedPath)), 'legacy');
+  const digest = createHash('sha1').update(resolvedPath).digest('hex').slice(0, 12);
+  const suffix = `${baseName}_${digest}`;
 
-  function saveState(update) {
-    Object.assign(state, update);
-    saveJSON(stateFile, state);
+  return {
+    resolvedPath,
+    jobId: `legacy_${suffix}`,
+    projectId: `legacy_project_${suffix}`,
+    scriptId: `legacy_script_${suffix}`,
+    episodeId: `legacy_episode_${suffix}`,
+  };
+}
+
+function hashContent(value) {
+  return createHash('sha1').update(String(value || '')).digest('hex');
+}
+
+function createRunJobAttemptId(jobId, now = new Date()) {
+  const timestamp = now.toISOString().replace(/[-:.TZ]/g, '');
+  const nonce = randomUUID().replace(/-/g, '').slice(0, 8);
+  return `run_${jobId}_${timestamp}_${nonce}`;
+}
+
+function ensureImageResultIdentity(imageResult) {
+  if (imageResult?.keyframeAssetId) {
+    return imageResult;
   }
 
-  try {
-    // ─── Step 1: 读取剧本 ─────────────────────────────────
-    const scriptText = readTextFile(scriptFilePath);
-    logger.info('Director', `剧本字数：${scriptText.length}`);
+  const keyframeAsset = createKeyframeAsset({
+    shotId: imageResult?.shotId,
+    imagePath: imageResult?.imagePath || null,
+    status: imageResult?.success === false ? 'failed' : 'ready',
+  });
 
-    // ─── Step 2: 解析剧本 ─────────────────────────────────
-    let scriptData = state.scriptData;
-    if (!scriptData) {
-      logger.info('Director', '【Step 1/6】解析剧本...');
-      scriptData = await parseScript(scriptText);
-      saveState({ scriptData });
-    } else {
-      logger.info('Director', '【Step 1/6】使用缓存的剧本解析结果');
-    }
+  return {
+    ...imageResult,
+    keyframeAssetId: keyframeAsset.id,
+  };
+}
 
-    const { shots, characters, title } = scriptData;
-    logger.info('Director', `剧名：${title}，共 ${shots.length} 个分镜，${characters.length} 个角色`);
+function buildAnimationClipBridge(imageResults, animationClips = []) {
+  const explicitClips = Array.isArray(animationClips)
+    ? animationClips.filter((clip) => clip?.shotId && clip?.videoPath)
+    : [];
+  if (explicitClips.length > 0) {
+    return explicitClips;
+  }
 
-    // ─── Step 3: 构建角色档案 ─────────────────────────────
-    let characterRegistry = state.characterRegistry;
-    if (!characterRegistry) {
-      logger.info('Director', '【Step 2/6】构建角色档案...');
-      characterRegistry = await buildCharacterRegistry(
-        characters,
-        `${title}：${scriptText.slice(0, 500)}`,
-        style
+  return imageResults
+    .filter((result) => result?.shotId && result?.imagePath)
+    .map((result) =>
+      createAnimationClip({
+        shotId: result.shotId,
+        keyframeAssetId: result.keyframeAssetId,
+        videoPath: null,
+        sourceMode: 'single_keyframe',
+        status: result.success === false ? 'failed' : 'draft',
+      })
+    );
+}
+
+export function createDirector(overrides = {}) {
+  const deps = {
+    parseScript,
+    buildCharacterRegistry,
+    generateAllPrompts,
+    generateAllImages,
+    regenerateImage,
+    runConsistencyCheck,
+    generateAllAudio,
+    composeVideo,
+    saveJSON,
+    loadJSON,
+    initDirs,
+    generateJobId,
+    readTextFile,
+    saveProject,
+    saveScript,
+    saveEpisode,
+    loadScript,
+    loadEpisode,
+    createRunJob,
+    finishRunJob,
+    appendAgentTaskRun,
+    logger,
+    ...overrides,
+  };
+
+  const director = {
+    async runEpisodePipeline({ projectId, scriptId, episodeId, options = {} }) {
+      const style = options.style || process.env.IMAGE_STYLE || 'realistic';
+      const jobId = options.jobId || deps.generateJobId(`${scriptId}_${episodeId}`);
+
+      deps.logger.info('Director', `=== 开始任务 ${jobId} ===`);
+      deps.logger.info(
+        'Director',
+        `项目：${projectId} | 剧本：${scriptId} | 分集：${episodeId} | 风格：${style}`
       );
-      saveState({ characterRegistry });
-    } else {
-      logger.info('Director', '【Step 2/6】使用缓存的角色档案');
-    }
 
-    // ─── Step 4: 生成图像Prompt ───────────────────────────
-    let promptList = state.promptList;
-    if (!promptList) {
-      logger.info('Director', '【Step 3/6】生成图像Prompt...');
-      promptList = await generateAllPrompts(shots, characterRegistry, style);
-      saveState({ promptList });
-    } else {
-      logger.info('Director', '【Step 3/6】使用缓存的Prompt列表');
-    }
+      const dirs = deps.initDirs(jobId);
+      const stateFile = path.join(dirs.root, 'state.json');
+      const state = deps.loadJSON(stateFile) || {};
+      let runJobRef = null;
+      let runJobCreated = false;
+      let taskRunWritesEnabled = true;
 
-    // ─── Step 5: 生成图像 ──────────────────────────────────
-    let imageResults = state.imageResults;
-    if (!imageResults) {
-      logger.info('Director', '【Step 4/6】生成分镜图像...');
-      imageResults = await generateAllImages(promptList, dirs.images, { style });
-      // 附加角色信息（用于一致性检查），保存前完成，确保缓存中也有该字段
-      imageResults = imageResults.map((r) => {
-        const shot = shots.find((s) => s.id === r.shotId);
-        return { ...r, characters: shot?.characters || [] };
-      });
-      saveState({ imageResults });
-    } else {
-      logger.info('Director', '【Step 4/6】使用缓存的图像结果');
-      // 兼容旧缓存：若 characters 字段缺失（旧版本生成的 state），补全它
-      const missingChars = imageResults.some((r) => !r.characters);
-      if (missingChars) {
-        imageResults = imageResults.map((r) => {
-          if (r.characters) return r;
-          const shot = shots.find((s) => s.id === r.shotId);
-          return { ...r, characters: shot?.characters || [] };
-        });
-        saveState({ imageResults });
+      function saveState(update) {
+        Object.assign(state, update);
+        deps.saveJSON(stateFile, state);
       }
-    }
 
-    // ─── Step 6: 一致性检查（可选） ───────────────────────
-    if (!options.skipConsistencyCheck) {
-      // 断点续跑：若上次已完成一致性检查，跳过
-      if (!state.consistencyCheckDone) {
-        logger.info('Director', '【Step 4b/6】一致性验证...');
-        const { needsRegeneration } = await runConsistencyCheck(characterRegistry, imageResults);
+      function tryObservabilityWrite(action, label) {
+        try {
+          action();
+          return true;
+        } catch (error) {
+          deps.logger.error('Director', `观测写入失败，后续将跳过：${label} - ${error.message}`);
+          return false;
+        }
+      }
 
-        if (needsRegeneration.length > 0) {
-          logger.info('Director', `重新生成 ${needsRegeneration.length} 个一致性不足的镜头...`);
-          for (const item of needsRegeneration) {
-            const originalPrompt = promptList.find((p) => p.shotId === item.shotId);
-            if (!originalPrompt) continue;
+      try {
+        const script = deps.loadScript(projectId, scriptId, options.storeOptions) || null;
+        if (!script) {
+          throw new Error(`找不到剧本：${projectId}/${scriptId}`);
+        }
 
-            // 调整Prompt（加入一致性建议）
-            const adjustedPrompt = `${originalPrompt.image_prompt}, highly consistent character appearance, ${item.suggestion || ''}`;
-            const newPath = await regenerateImage(
-              item.shotId,
-              adjustedPrompt,
-              originalPrompt.negative_prompt,
-              dirs.images,
-              { style }
-            );
+        const episode = deps.loadEpisode(projectId, scriptId, episodeId, options.storeOptions) || null;
+        if (!episode) {
+          throw new Error(`找不到分集：${projectId}/${scriptId}/${episodeId}`);
+        }
 
-            const idx = imageResults.findIndex((r) => r.shotId === item.shotId);
-            if (idx >= 0) {
-              imageResults[idx].imagePath = newPath;
-              imageResults[idx].success = true; // 重新生成后标记为成功
-            }
+        const shots = Array.isArray(episode.shots) ? episode.shots : [];
+        const characters = Array.isArray(script.characters) ? script.characters : [];
+        const scriptTitle = script.title || 'untitled_script';
+        const episodeTitle = episode.title || `episode_${episodeId}`;
+        runJobRef = {
+          id: createRunJobAttemptId(jobId),
+          projectId,
+          scriptId,
+          episodeId,
+        };
+
+        deps.logger.info(
+          'Director',
+          `剧名：${scriptTitle}，分集：${episodeTitle}，共 ${shots.length} 个分镜，${characters.length} 个角色`
+        );
+
+        function appendStepRun(step, payload) {
+          if (!runJobCreated || !taskRunWritesEnabled) {
+            return;
+          }
+
+          const succeeded = tryObservabilityWrite(
+            () =>
+              deps.appendAgentTaskRun(
+                runJobRef,
+                {
+                  id: `${runJobRef.id}_${step}`,
+                  step,
+                  agent: 'director',
+                  ...payload,
+                },
+                options.storeOptions
+              ),
+            `appendAgentTaskRun:${step}`
+          );
+          if (!succeeded) {
+            taskRunWritesEnabled = false;
           }
         }
 
-        saveState({ imageResults, consistencyCheckDone: true });
-      } else {
-        logger.info('Director', '【Step 4b/6】使用缓存的一致性检查结果');
+        runJobCreated = tryObservabilityWrite(
+          () =>
+            deps.createRunJob(
+              {
+                ...runJobRef,
+                jobId,
+                status: 'running',
+                style,
+                scriptTitle,
+                episodeTitle,
+              },
+              options.storeOptions
+            ),
+          'createRunJob'
+        );
+
+        async function recordStep(step, detail, run) {
+          const startedAt = new Date().toISOString();
+
+          try {
+            const result = await run();
+            appendStepRun(step, {
+                status: detail.status || 'completed',
+                detail: detail.message,
+                startedAt,
+                finishedAt: new Date().toISOString(),
+              });
+            return result;
+          } catch (error) {
+            appendStepRun(step, {
+              status: 'failed',
+              detail: detail.message,
+              startedAt,
+              finishedAt: new Date().toISOString(),
+              error: error.message,
+            });
+            throw error;
+          }
+        }
+
+        let characterRegistry = state.characterRegistry;
+        if (!characterRegistry) {
+          deps.logger.info('Director', '【Step 1/6】构建角色档案...');
+          characterRegistry = await recordStep(
+            'build_character_registry',
+            { message: '构建角色档案' },
+            () =>
+              deps.buildCharacterRegistry(
+                characters,
+                `${scriptTitle}：${buildEpisodeContext(script, episode).slice(0, 500)}`,
+                style
+              )
+          );
+          saveState({ characterRegistry });
+        } else {
+          deps.logger.info('Director', '【Step 1/6】使用缓存的角色档案');
+          appendStepRun('build_character_registry', {
+            status: 'cached',
+            detail: '使用缓存的角色档案',
+          });
+        }
+
+        let promptList = state.promptList;
+        if (!promptList) {
+          deps.logger.info('Director', '【Step 2/6】生成图像Prompt...');
+          promptList = await recordStep('generate_prompts', { message: '生成图像Prompt' }, () =>
+            deps.generateAllPrompts(shots, characterRegistry, style)
+          );
+          saveState({ promptList });
+        } else {
+          deps.logger.info('Director', '【Step 2/6】使用缓存的Prompt列表');
+          appendStepRun('generate_prompts', {
+            status: 'cached',
+            detail: '使用缓存的Prompt列表',
+          });
+        }
+
+        let imageResults = state.imageResults;
+        if (!imageResults) {
+          deps.logger.info('Director', '【Step 3/6】生成分镜图像...');
+          imageResults = await recordStep('generate_images', { message: '生成分镜图像' }, () =>
+            deps.generateAllImages(promptList, dirs.images, { style })
+          );
+          imageResults = imageResults.map((rawResult) => {
+            const result = ensureImageResultIdentity(rawResult);
+            const shot = shots.find((item) => item.id === result.shotId);
+            return { ...result, characters: shot?.characters || [] };
+          });
+          saveState({ imageResults });
+        } else {
+          deps.logger.info('Director', '【Step 3/6】使用缓存的图像结果');
+          appendStepRun('generate_images', {
+            status: 'cached',
+            detail: '使用缓存的图像结果',
+          });
+          if (imageResults.some((result) => !result.characters || !result.keyframeAssetId)) {
+            imageResults = imageResults.map((result) => {
+              const normalizedResult = ensureImageResultIdentity(result);
+              if (normalizedResult.characters) return normalizedResult;
+              const shot = shots.find((item) => item.id === normalizedResult.shotId);
+              return { ...normalizedResult, characters: shot?.characters || [] };
+            });
+            saveState({ imageResults });
+          }
+        }
+
+        if (!options.skipConsistencyCheck) {
+          if (!state.consistencyCheckDone) {
+            deps.logger.info('Director', '【Step 4/6】一致性验证...');
+            const { needsRegeneration } = await recordStep(
+              'consistency_check',
+              { message: '一致性验证' },
+              () => deps.runConsistencyCheck(characterRegistry, imageResults)
+            );
+
+            if (needsRegeneration.length > 0) {
+              deps.logger.info(
+                'Director',
+                `重新生成 ${needsRegeneration.length} 个一致性不足的镜头...`
+              );
+              await recordStep(
+                'regenerate_inconsistent_images',
+                { message: `重生成 ${needsRegeneration.length} 个一致性不足的镜头` },
+                async () => {
+                  for (const item of needsRegeneration) {
+                    const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
+                    if (!originalPrompt) continue;
+
+                    const adjustedPrompt =
+                      `${originalPrompt.image_prompt}, highly consistent character appearance, ` +
+                      `${item.suggestion || ''}`;
+                    const regeneratedResult = ensureImageResultIdentity(await deps.regenerateImage(
+                      item.shotId,
+                      adjustedPrompt,
+                      originalPrompt.negative_prompt,
+                      dirs.images,
+                      { style }
+                    ));
+
+                    const index = imageResults.findIndex((result) => result.shotId === item.shotId);
+                    if (index >= 0) {
+                      imageResults[index] = {
+                        ...imageResults[index],
+                        ...regeneratedResult,
+                        success: true,
+                      };
+                    }
+                  }
+                }
+              );
+            }
+
+            saveState({ imageResults, consistencyCheckDone: true });
+          } else {
+            deps.logger.info('Director', '【Step 4/6】使用缓存的一致性检查结果');
+            appendStepRun('consistency_check', {
+              status: 'cached',
+              detail: '使用缓存的一致性检查结果',
+            });
+          }
+        } else {
+          deps.logger.info('Director', '【Step 4/6】跳过一致性检查');
+          appendStepRun('consistency_check', {
+            status: 'skipped',
+            detail: '跳过一致性检查',
+          });
+        }
+
+        let audioResults = state.audioResults;
+        if (!audioResults) {
+          deps.logger.info('Director', '【Step 5/6】生成配音...');
+          audioResults = await recordStep('generate_audio', { message: '生成配音' }, () =>
+            deps.generateAllAudio(shots, characterRegistry, dirs.audio)
+          );
+          saveState({ audioResults });
+        } else {
+          deps.logger.info('Director', '【Step 5/6】使用缓存的音频结果');
+          appendStepRun('generate_audio', {
+            status: 'cached',
+            detail: '使用缓存的音频结果',
+          });
+        }
+
+        deps.logger.info('Director', '【Step 6/6】合成视频...');
+        const outputFileName =
+          `${sanitizeFileSegment(scriptTitle, 'script')}_${sanitizeFileSegment(episodeTitle, 'episode')}_${jobId}.mp4`;
+        const outputPath = path.join(dirs.output, outputFileName);
+        const animationClips = buildAnimationClipBridge(
+          imageResults,
+          state.animationClips || episode.animationClips || []
+        );
+
+        await recordStep('compose_video', { message: '合成视频' }, () =>
+          deps.composeVideo(shots, imageResults, audioResults, outputPath, {
+            title: `${scriptTitle} - ${episodeTitle}`,
+            animationClips,
+          })
+        );
+
+        saveState({ outputPath, completedAt: new Date().toISOString() });
+        if (runJobCreated) {
+          tryObservabilityWrite(
+            () =>
+              deps.finishRunJob(
+                runJobRef,
+                {
+                  status: 'completed',
+                },
+                options.storeOptions
+              ),
+            'finishRunJob:completed'
+          );
+        }
+        deps.logger.info('Director', `\n✅ 任务完成！\n   视频路径：${outputPath}`);
+        return outputPath;
+      } catch (err) {
+        deps.logger.error('Director', `任务失败：${err.message}`);
+        deps.logger.error('Director', err.stack);
+        saveState({ lastError: err.message, failedAt: new Date().toISOString() });
+        if (runJobRef && runJobCreated) {
+          tryObservabilityWrite(
+            () =>
+              deps.finishRunJob(
+                runJobRef,
+                {
+                  status: 'failed',
+                  error: err.message,
+                },
+                options.storeOptions
+              ),
+            'finishRunJob:failed'
+          );
+        }
+        throw err;
       }
-    } else {
-      logger.info('Director', '【Step 4b/6】跳过一致性检查');
-    }
+    },
 
-    // ─── Step 7: 生成配音 ──────────────────────────────────
-    let audioResults = state.audioResults;
-    if (!audioResults) {
-      logger.info('Director', '【Step 5/6】生成配音...');
-      audioResults = await generateAllAudio(shots, characterRegistry, dirs.audio);
-      saveState({ audioResults });
-    } else {
-      logger.info('Director', '【Step 5/6】使用缓存的音频结果');
-    }
+    async runPipeline(scriptFilePath, options = {}) {
+      const style = options.style || process.env.IMAGE_STYLE || 'realistic';
+      const legacy = buildLegacyBridgeIdentity(scriptFilePath);
 
-    // ─── Step 8: 合成视频 ──────────────────────────────────
-    logger.info('Director', '【Step 6/6】合成视频...');
-    const outputFileName = `${title.replace(/[^\w\u4e00-\u9fa5]/g, '_')}_${jobId}.mp4`;
-    const outputPath = path.join(dirs.output, outputFileName);
+      deps.logger.info('Director', `=== 开始兼容任务 ${legacy.jobId} ===`);
+      deps.logger.info('Director', `剧本：${scriptFilePath} | 风格：${style}`);
 
-    await composeVideo(shots, imageResults, audioResults, outputPath, { title });
+      const dirs = deps.initDirs(legacy.jobId);
+      const stateFile = path.join(dirs.root, 'state.json');
+      const state = deps.loadJSON(stateFile) || {};
 
-    saveState({ outputPath, completedAt: new Date().toISOString() });
+      function saveState(update) {
+        Object.assign(state, update);
+        deps.saveJSON(stateFile, state);
+      }
 
-    logger.info('Director', `\n✅ 任务完成！\n   视频路径：${outputPath}`);
-    return outputPath;
-  } catch (err) {
-    logger.error('Director', `任务失败：${err.message}`);
-    logger.error('Director', err.stack);
-    saveState({ lastError: err.message, failedAt: new Date().toISOString() });
-    throw err;
-  }
+      try {
+        const scriptText = deps.readTextFile(scriptFilePath);
+        const scriptContentHash = hashContent(scriptText);
+        const contentChanged =
+          state.compatibility?.scriptContentHash &&
+          state.compatibility.scriptContentHash !== scriptContentHash;
+
+        if (contentChanged) {
+          for (const key of Object.keys(state)) {
+            delete state[key];
+          }
+        }
+
+        const existingScript =
+          deps.loadScript(legacy.projectId, legacy.scriptId, options.storeOptions) || null;
+        const existingEpisode =
+          deps.loadEpisode(legacy.projectId, legacy.scriptId, legacy.episodeId, options.storeOptions) ||
+          null;
+
+        let scriptData = state.scriptData;
+        if (!scriptData) {
+          if (
+            existingScript &&
+            existingEpisode &&
+            existingScript.sourceText === scriptText
+          ) {
+            scriptData = {
+              title: existingScript.title,
+              characters: existingScript.characters || [],
+              shots: existingEpisode.shots || [],
+            };
+          } else {
+            scriptData = await deps.parseScript(scriptText);
+          }
+        }
+
+        const title = scriptData.title || path.basename(scriptFilePath, path.extname(scriptFilePath));
+        const characters = scriptData.characters || [];
+        const shots = scriptData.shots || [];
+
+        saveState({
+          compatibility: {
+            mode: 'legacy-script-file',
+            scriptFilePath: legacy.resolvedPath,
+            scriptContentHash,
+            projectId: legacy.projectId,
+            scriptId: legacy.scriptId,
+            episodeId: legacy.episodeId,
+          },
+          scriptData,
+        });
+
+        if (
+          !existingScript ||
+          !existingEpisode ||
+          existingScript.sourceText !== scriptText
+        ) {
+          const project = createProject({
+            id: legacy.projectId,
+            name: title,
+            code: sanitizeFileSegment(path.basename(scriptFilePath, path.extname(scriptFilePath)), 'project'),
+            status: 'draft',
+          });
+          deps.saveProject(project, options.storeOptions);
+
+          const script = createScript({
+            id: legacy.scriptId,
+            projectId: project.id,
+            title,
+            sourceText: scriptText,
+            characters,
+            status: 'draft',
+          });
+          deps.saveScript(project.id, script, options.storeOptions);
+
+          const episode = createEpisode({
+            id: legacy.episodeId,
+            projectId: project.id,
+            scriptId: script.id,
+            episodeNo: 1,
+            title,
+            summary: scriptText.slice(0, 500),
+            shots,
+            status: 'draft',
+          });
+          deps.saveEpisode(project.id, script.id, episode, options.storeOptions);
+        }
+
+        return director.runEpisodePipeline({
+          projectId: legacy.projectId,
+          scriptId: legacy.scriptId,
+          episodeId: legacy.episodeId,
+          options: {
+            ...options,
+            jobId: legacy.jobId,
+          },
+        });
+      } catch (err) {
+        deps.logger.error('Director', `任务失败：${err.message}`);
+        deps.logger.error('Director', err.stack);
+        saveState({ lastError: err.message, failedAt: new Date().toISOString() });
+        throw err;
+      }
+    },
+  };
+
+  return director;
 }
+
+const director = createDirector();
+
+export const runEpisodePipeline = director.runEpisodePipeline;
+export const runPipeline = director.runPipeline;
+export default director;
