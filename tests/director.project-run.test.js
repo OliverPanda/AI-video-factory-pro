@@ -137,6 +137,7 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
     const scripts = new Map();
     const episodes = new Map();
     const outputs = [];
+    const runJobs = [];
     let parseCalls = 0;
     let audioCalls = 0;
 
@@ -164,6 +165,9 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
           `${projectId}:${scriptId}:${episode.id}`,
           structuredClone({ ...episode, projectId, scriptId })
         ),
+      createRunJob: (runJob) => runJobs.push(structuredClone(runJob)),
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
       buildCharacterRegistry: async (characters) =>
         characters.map((character) => ({
           name: character.name,
@@ -197,6 +201,9 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
     assert.equal(audioCalls, 1);
     assert.equal(firstOutput, secondOutput);
     assert.deepEqual(outputs, [firstOutput, secondOutput]);
+    assert.equal(runJobs.length, 2);
+    assert.equal(runJobs[0].jobId, runJobs[1].jobId);
+    assert.notEqual(runJobs[0].id, runJobs[1].id);
 
     const [project] = [...projects.values()];
     const [script] = [...scripts.values()];
@@ -321,5 +328,270 @@ test('runEpisodePipeline applies regenerated keyframe-shaped results during cons
     const finalState = savedStates.at(-1);
     assert.equal(finalState.imageResults[0].keyframeAssetId, 'keyframe_new');
     assert.equal(finalState.imageResults[0].imagePath, '/tmp/shot_1_new.png');
+  });
+});
+
+test('runEpisodePipeline records a run job with major step task runs', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const runJobs = [];
+    const taskRuns = [];
+    const finishedRuns = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_observability',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '观测测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      createRunJob: (runJob) => runJobs.push(structuredClone(runJob)),
+      appendAgentTaskRun: (_runJobRef, taskRun) => taskRuns.push(structuredClone(taskRun)),
+      finishRunJob: (_runJobRef, update) => finishedRuns.push(structuredClone(update)),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          imagePath: '/tmp/shot_1.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: { style: 'ink' },
+    });
+
+    assert.equal(runJobs.length, 1);
+    assert.match(runJobs[0].id, /^run_job_observability_\d{17}_[a-f0-9]{8}$/);
+    assert.equal(runJobs[0].jobId, 'job_observability');
+    assert.equal(runJobs[0].projectId, 'project_1');
+    assert.equal(runJobs[0].scriptId, 'script_1');
+    assert.equal(runJobs[0].episodeId, 'episode_1');
+    assert.equal(runJobs[0].style, 'ink');
+
+    assert.deepEqual(
+      taskRuns.map((taskRun) => taskRun.step),
+      [
+        'build_character_registry',
+        'generate_prompts',
+        'generate_images',
+        'consistency_check',
+        'generate_audio',
+        'compose_video',
+      ]
+    );
+    assert.equal(taskRuns.every((taskRun) => taskRun.status === 'completed'), true);
+    assert.deepEqual(finishedRuns, [{ status: 'completed' }]);
+  });
+});
+
+test('runEpisodePipeline degrades gracefully when observability writes fail', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const errorLogs = [];
+    let appendCalls = 0;
+    let finishCalls = 0;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_observability_failures',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '观测降级',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      createRunJob: () => {
+        throw new Error('disk full');
+      },
+      appendAgentTaskRun: () => {
+        appendCalls += 1;
+        throw new Error('should not append after create failure');
+      },
+      finishRunJob: () => {
+        finishCalls += 1;
+        throw new Error('should not finish after create failure');
+      },
+      logger: {
+        info: () => {},
+        error: (...args) => errorLogs.push(args),
+      },
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          imagePath: '/tmp/shot_1.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async () => {},
+    });
+
+    const outputPath = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(outputPath, path.join(dirs.output, '观测降级_第一集_job_observability_failures.mp4'));
+    assert.equal(appendCalls, 0);
+    assert.equal(finishCalls, 0);
+    assert.equal(
+      errorLogs.some(([, message]) => String(message).includes('观测写入失败，后续将跳过：createRunJob - disk full')),
+      true
+    );
+  });
+});
+
+test('runEpisodePipeline still finalizes the run job after task-run writes start failing', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const errorLogs = [];
+    const taskRuns = [];
+    const finishedRuns = [];
+    let appendCalls = 0;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_observability_append_failure',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '观测尾态',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      createRunJob: () => {},
+      appendAgentTaskRun: (_runJobRef, taskRun) => {
+        appendCalls += 1;
+        if (appendCalls === 1) {
+          throw new Error('append failed');
+        }
+        taskRuns.push(structuredClone(taskRun));
+      },
+      finishRunJob: (_runJobRef, update) => finishedRuns.push(structuredClone(update)),
+      logger: {
+        info: () => {},
+        error: (...args) => errorLogs.push(args),
+      },
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          imagePath: '/tmp/shot_1.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(appendCalls, 1);
+    assert.deepEqual(taskRuns, []);
+    assert.deepEqual(finishedRuns, [{ status: 'completed' }]);
+    assert.equal(
+      errorLogs.some(([, message]) => String(message).includes('观测写入失败，后续将跳过：appendAgentTaskRun:build_character_registry - append failed')),
+      true
+    );
+  });
+});
+
+test('runEpisodePipeline records cached and skipped task states on rerun', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const taskRuns = [];
+    const state = {
+      characterRegistry: [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      promptList: [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      imageResults: [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      audioResults: [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      consistencyCheckDone: true,
+    };
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_cached_observability',
+      loadJSON: () => structuredClone(state),
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '缓存观测',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      createRunJob: () => {},
+      appendAgentTaskRun: (_runJobRef, taskRun) => taskRuns.push(structuredClone(taskRun)),
+      finishRunJob: () => {},
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: { skipConsistencyCheck: true },
+    });
+
+    assert.deepEqual(
+      taskRuns.map((taskRun) => [taskRun.step, taskRun.status]),
+      [
+        ['build_character_registry', 'cached'],
+        ['generate_prompts', 'cached'],
+        ['generate_images', 'cached'],
+        ['consistency_check', 'skipped'],
+        ['generate_audio', 'cached'],
+        ['compose_video', 'completed'],
+      ]
+    );
   });
 });
