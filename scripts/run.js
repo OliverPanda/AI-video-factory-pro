@@ -19,11 +19,13 @@ const USAGE = `
 选项：
   --style=realistic|3d      视觉风格（默认：realistic）
   --skip-consistency        跳过一致性验证（加速测试）
-  --provider=deepseek|qwen  LLM提供商（覆盖.env设置）
+  --provider=deepseek|qwen|claude  LLM提供商（覆盖.env设置）
+  --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
 
 示例：
   node scripts/run.js samples/test_script.txt
   node scripts/run.js samples/test_script.txt --style=3d --skip-consistency
+  node scripts/run.js samples/test_script.txt --project-id=demo-project
   node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 `.trim();
 
@@ -42,6 +44,7 @@ export function parseCliArgs(args) {
   const projectId = normalizeId(getFlagValue(args, 'project'));
   const scriptId = normalizeId(getFlagValue(args, 'script'));
   const episodeId = normalizeId(getFlagValue(args, 'episode'));
+  const projectIdOverride = normalizeId(getFlagValue(args, 'project-id'));
   const style = normalizeId(getFlagValue(args, 'style'));
   const provider = normalizeId(getFlagValue(args, 'provider'));
   const skipConsistencyCheck = args.includes('--skip-consistency');
@@ -67,6 +70,7 @@ export function parseCliArgs(args) {
     projectId,
     scriptId,
     episodeId,
+    projectIdOverride,
     style,
     skipConsistencyCheck,
     provider,
@@ -134,6 +138,7 @@ export function createCli(overrides = {}) {
       const outputPath = await deps.runPipeline(deps.resolveScriptPath(parsedArgs.scriptFile), {
         style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
         skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
+        projectId: parsedArgs.projectIdOverride,
       });
       deps.writeSuccess(outputPath);
       return outputPath;

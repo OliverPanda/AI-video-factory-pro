@@ -9,6 +9,18 @@ import path from 'path';
 const OUTPUT_DIR = process.env.OUTPUT_DIR || './output';
 const TEMP_DIR = process.env.TEMP_DIR || './temp';
 
+function assertSafePathSegment(value, label) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`[fileHelper] Invalid ${label}: expected a non-empty string`);
+  }
+
+  if (value === '.' || value === '..' || value.includes('/') || value.includes('\\')) {
+    throw new Error(`[fileHelper] Unsafe ${label}: ${value}`);
+  }
+
+  return value;
+}
+
 // 确保目录存在
 export function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -60,6 +72,17 @@ export function initDirs(jobId) {
   };
   Object.values(dirs).forEach(ensureDir);
   return dirs;
+}
+
+export function getVoicePresetsDir(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(baseTempDir, 'projects', assertSafePathSegment(projectId, 'projectId'), 'voice-presets');
+}
+
+export function getVoicePresetFilePath(projectId, voicePresetId, baseTempDir = TEMP_DIR) {
+  return path.join(
+    getVoicePresetsDir(projectId, baseTempDir),
+    `${assertSafePathSegment(voicePresetId, 'voicePresetId')}.json`
+  );
 }
 
 // 读取文本文件
@@ -117,6 +140,8 @@ export default {
   getScriptFilePath,
   getEpisodeFilePath,
   initDirs,
+  getVoicePresetsDir,
+  getVoicePresetFilePath,
   readTextFile,
   saveJSON,
   loadJSON,

@@ -13,10 +13,15 @@ import logger from '../utils/logger.js';
  * @param {Array} shots - 分镜列表
  * @param {Array} characterRegistry - 角色档案（获取性别信息）
  * @param {string} audioDir - 音频输出目录
+ * @param {Object} options - { voicePresetLoader, projectId, textToSpeech }
  * @returns {Promise<Array<{shotId, audioPath, hasDialogue}>>}
  */
-export async function generateAllAudio(shots, characterRegistry, audioDir, deps = {}) {
-  const runTextToSpeech = deps.textToSpeech || textToSpeech;
+export async function generateAllAudio(shots, characterRegistry, audioDir, options = {}) {
+  const {
+    voicePresetLoader,
+    projectId,
+    textToSpeech: runTextToSpeech = textToSpeech,
+  } = options;
   logger.info('TTSAgent', `开始为 ${shots.length} 个分镜生成配音...`);
 
   const results = await Promise.all(
@@ -35,13 +40,33 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, deps 
           const speaker = resolveShotSpeaker(shot, characterRegistry);
           const speakerName = speaker?.name || '';
           const gender = speaker?.character?.gender || 'female';
+          const speakerCard = speaker?.character || null;
+          const ttsOptions = { gender };
 
           if (!speaker?.relation?.isSpeaker && !shot.speaker && participants.length > 1) {
             logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${participants.length} 个角色出场）`);
           }
 
+          if (speakerCard?.voicePresetId && voicePresetLoader) {
+            try {
+              const preset = await voicePresetLoader(speakerCard.voicePresetId, {
+                projectId,
+                shot,
+                speakerName,
+                speakerCard,
+              });
+              if (preset) {
+                for (const key of ['voice', 'rate', 'pitch', 'volume']) {
+                  if (preset[key] !== undefined) ttsOptions[key] = preset[key];
+                }
+              }
+            } catch (err) {
+              logger.warn('TTSAgent', `${shot.id} 加载语音预设失败，回退性别默认值：${err.message}`);
+            }
+          }
+
           logger.step(i + 1, shots.length, `TTS: ${shot.id}`);
-          const audioPath = await runTextToSpeech(shot.dialogue, outputPath, { gender });
+          const audioPath = await runTextToSpeech(shot.dialogue, outputPath, ttsOptions);
 
           return { shotId: shot.id, audioPath, hasDialogue: true };
         },

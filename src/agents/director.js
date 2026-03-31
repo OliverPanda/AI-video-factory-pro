@@ -17,6 +17,7 @@ import { createEpisode, createProject, createScript } from '../domain/projectMod
 import { loadEpisode, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
+import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import logger from '../utils/logger.js';
 
 function sanitizeFileSegment(value, fallback) {
@@ -91,6 +92,10 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
     );
 }
 
+function normalizeProjectId(projectId) {
+  return projectId ?? null;
+}
+
 export function createDirector(overrides = {}) {
   const deps = {
     parseScript,
@@ -114,6 +119,7 @@ export function createDirector(overrides = {}) {
     createRunJob,
     finishRunJob,
     appendAgentTaskRun,
+    loadVoicePreset,
     logger,
     ...overrides,
   };
@@ -224,11 +230,11 @@ export function createDirector(overrides = {}) {
           try {
             const result = await run();
             appendStepRun(step, {
-                status: detail.status || 'completed',
-                detail: detail.message,
-                startedAt,
-                finishedAt: new Date().toISOString(),
-              });
+              status: detail.status || 'completed',
+              detail: detail.message,
+              startedAt,
+              finishedAt: new Date().toISOString(),
+            });
             return result;
           } catch (error) {
             appendStepRun(step, {
@@ -370,19 +376,32 @@ export function createDirector(overrides = {}) {
           });
         }
 
-        let audioResults = state.audioResults;
+        const voiceProjectId = normalizeProjectId(
+          options.voiceProjectId === undefined ? projectId : options.voiceProjectId
+        );
+        const cachedAudioProjectId = normalizeProjectId(state.audioProjectId);
+        const canReuseAudioCache = state.audioResults && cachedAudioProjectId === voiceProjectId;
+        let audioResults = canReuseAudioCache ? state.audioResults : null;
         if (!audioResults) {
           deps.logger.info('Director', '【Step 5/6】生成配音...');
+          const audioOptions = voiceProjectId
+            ? {
+                projectId: voiceProjectId,
+                voicePresetLoader: (voicePresetId, loadOptions = {}) =>
+                  deps.loadVoicePreset(voiceProjectId, voicePresetId, loadOptions),
+              }
+            : {};
           audioResults = await recordStep('generate_audio', { message: '生成配音' }, () =>
-            deps.generateAllAudio(shots, characterRegistry, dirs.audio)
+            deps.generateAllAudio(shots, characterRegistry, dirs.audio, audioOptions)
           );
-          saveState({ audioResults });
+          saveState({ audioResults, audioProjectId: voiceProjectId });
         } else {
           deps.logger.info('Director', '【Step 5/6】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',
           });
+          saveState({ audioProjectId: cachedAudioProjectId });
         }
 
         deps.logger.info('Director', '【Step 6/6】合成视频...');
@@ -550,6 +569,7 @@ export function createDirector(overrides = {}) {
           options: {
             ...options,
             jobId: legacy.jobId,
+            voiceProjectId: options.projectId ?? null,
           },
         });
       } catch (err) {
@@ -565,6 +585,10 @@ export function createDirector(overrides = {}) {
 }
 
 const director = createDirector();
+
+export function createRunPipeline(overrides = {}) {
+  return createDirector(overrides).runPipeline;
+}
 
 export const runEpisodePipeline = director.runEpisodePipeline;
 export const runPipeline = director.runPipeline;

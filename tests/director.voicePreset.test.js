@@ -1,0 +1,139 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRunPipeline } from '../src/agents/director.js';
+
+function makeTempDir(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'director-voice-preset-'));
+  t.after(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  return dir;
+}
+
+function createDirectorHarness(t, overrides = {}) {
+  const tempRoot = makeTempDir(t);
+  const dirs = {
+    root: path.join(tempRoot, 'job'),
+    images: path.join(tempRoot, 'images'),
+    audio: path.join(tempRoot, 'audio'),
+    output: path.join(tempRoot, 'output'),
+  };
+
+  for (const dir of Object.values(dirs)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const shots = [
+    {
+      id: 'shot-1',
+      dialogue: '你好。',
+      speaker: 'Alice',
+      characters: ['Alice'],
+    },
+  ];
+  const characterRegistry = [
+    { name: 'Alice', gender: 'female', voicePresetId: 'preset-alice' },
+  ];
+  const audioCalls = [];
+  const loadVoicePresetCalls = [];
+  let persistedState = null;
+
+  const deps = {
+    parseScript: async () => ({ title: 'Voice Preset Demo', shots, characters: [{ name: 'Alice' }] }),
+    buildCharacterRegistry: async () => characterRegistry,
+    generateAllPrompts: async () => [{ shotId: 'shot-1', image_prompt: 'prompt', negative_prompt: '' }],
+    generateAllImages: async () => [{ shotId: 'shot-1', success: true, imagePath: path.join(dirs.images, 'shot-1.png') }],
+    regenerateImage: async () => path.join(dirs.images, 'shot-1.png'),
+    runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+    generateAllAudio: async (inputShots, inputRegistry, audioDir, options = {}) => {
+      audioCalls.push({ inputShots, inputRegistry, audioDir, options });
+      return [{ shotId: 'shot-1', audioPath: path.join(audioDir, 'shot-1.mp3'), hasDialogue: true }];
+    },
+    composeVideo: async (inputShots, imageResults, audioResults, outputPath) => {
+      fs.writeFileSync(outputPath, JSON.stringify({ inputShots, imageResults, audioResults }), 'utf8');
+      return outputPath;
+    },
+    saveJSON: (_filePath, state) => {
+      persistedState = JSON.parse(JSON.stringify(state));
+    },
+    loadJSON: () => persistedState,
+    initDirs: () => dirs,
+    generateJobId: () => 'job-123',
+    readTextFile: () => 'script content',
+    createRunMetrics: () => ({ steps: {} }),
+    finalizeRunMetrics: () => {},
+    measureStep: async (_metrics, _key, _label, fn) => fn(),
+    loadVoicePreset: (projectId, voicePresetId, options = {}) => {
+      loadVoicePresetCalls.push({ projectId, voicePresetId, options });
+      return { id: voicePresetId, voice: 'alice-voice' };
+    },
+    ...overrides,
+  };
+
+  return {
+    runPipeline: createRunPipeline(deps),
+    dirs,
+    shots,
+    characterRegistry,
+    audioCalls,
+    loadVoicePresetCalls,
+  };
+}
+
+test('director passes projectId and a working voice preset loader into generateAllAudio', async (t) => {
+  const harness = createDirectorHarness(t);
+
+  await harness.runPipeline('script.txt', {
+    projectId: 'project-123',
+    skipConsistencyCheck: true,
+  });
+
+  assert.equal(harness.audioCalls.length, 1);
+  const audioCall = harness.audioCalls[0];
+  assert.equal(audioCall.audioDir, harness.dirs.audio);
+  assert.equal(audioCall.options.projectId, 'project-123');
+  assert.equal(typeof audioCall.options.voicePresetLoader, 'function');
+
+  const preset = await audioCall.options.voicePresetLoader('preset-alice', { fromTest: true });
+  assert.deepEqual(preset, { id: 'preset-alice', voice: 'alice-voice' });
+  assert.deepEqual(harness.loadVoicePresetCalls, [
+    {
+      projectId: 'project-123',
+      voicePresetId: 'preset-alice',
+      options: { fromTest: true },
+    },
+  ]);
+});
+
+test('director keeps audio generation backward-compatible when projectId is absent', async (t) => {
+  const harness = createDirectorHarness(t);
+
+  await harness.runPipeline('script.txt', {
+    skipConsistencyCheck: true,
+  });
+
+  assert.equal(harness.audioCalls.length, 1);
+  assert.deepEqual(harness.audioCalls[0].options, {});
+  assert.deepEqual(harness.loadVoicePresetCalls, []);
+});
+
+test('director invalidates cached audio when projectId changes', async (t) => {
+  const harness = createDirectorHarness(t);
+
+  await harness.runPipeline('script.txt', {
+    projectId: 'project-123',
+    skipConsistencyCheck: true,
+  });
+
+  await harness.runPipeline('script.txt', {
+    projectId: 'project-456',
+    skipConsistencyCheck: true,
+  });
+
+  assert.equal(harness.audioCalls.length, 2);
+  assert.equal(harness.audioCalls[0].options.projectId, 'project-123');
+  assert.equal(harness.audioCalls[1].options.projectId, 'project-456');
+});
