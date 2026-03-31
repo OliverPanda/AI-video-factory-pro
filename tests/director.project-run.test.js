@@ -251,3 +251,75 @@ test('runPipeline compatibility mode records failure state before delegation err
     );
   });
 });
+
+test('runEpisodePipeline applies regenerated keyframe-shaped results during consistency recovery', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const savedStates = [];
+    const composeCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_regen_contract',
+      loadJSON: () => null,
+      saveJSON: (_filePath, data) => savedStates.push(structuredClone(data)),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '重绘测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'old prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_old',
+          imagePath: '/tmp/shot_1_old.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({
+        needsRegeneration: [{ shotId: 'shot_1', suggestion: 'keep costume identical' }],
+      }),
+      regenerateImage: async () => ({
+        shotId: 'shot_1',
+        keyframeAssetId: 'keyframe_new',
+        imagePath: '/tmp/shot_1_new.png',
+        success: true,
+      }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async (_shots, imageResults) => {
+        composeCalls.push(structuredClone(imageResults));
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.deepEqual(composeCalls[0], [
+      {
+        shotId: 'shot_1',
+        keyframeAssetId: 'keyframe_new',
+        imagePath: '/tmp/shot_1_new.png',
+        success: true,
+        characters: ['沈清'],
+      },
+    ]);
+
+    const finalState = savedStates.at(-1);
+    assert.equal(finalState.imageResults[0].keyframeAssetId, 'keyframe_new');
+    assert.equal(finalState.imageResults[0].imagePath, '/tmp/shot_1_new.png');
+  });
+});

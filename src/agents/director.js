@@ -12,6 +12,7 @@ import { generateAllImages, regenerateImage } from './imageGenerator.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
 import { generateAllAudio } from './ttsAgent.js';
 import { composeVideo } from './videoComposer.js';
+import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
 import { loadEpisode, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
@@ -39,6 +40,44 @@ function buildLegacyBridgeIdentity(scriptFilePath) {
     scriptId: `legacy_script_${suffix}`,
     episodeId: `legacy_episode_${suffix}`,
   };
+}
+
+function ensureImageResultIdentity(imageResult) {
+  if (imageResult?.keyframeAssetId) {
+    return imageResult;
+  }
+
+  const keyframeAsset = createKeyframeAsset({
+    shotId: imageResult?.shotId,
+    imagePath: imageResult?.imagePath || null,
+    status: imageResult?.success === false ? 'failed' : 'ready',
+  });
+
+  return {
+    ...imageResult,
+    keyframeAssetId: keyframeAsset.id,
+  };
+}
+
+function buildAnimationClipBridge(imageResults, animationClips = []) {
+  const explicitClips = Array.isArray(animationClips)
+    ? animationClips.filter((clip) => clip?.shotId && clip?.videoPath)
+    : [];
+  if (explicitClips.length > 0) {
+    return explicitClips;
+  }
+
+  return imageResults
+    .filter((result) => result?.shotId && result?.imagePath)
+    .map((result) =>
+      createAnimationClip({
+        shotId: result.shotId,
+        keyframeAssetId: result.keyframeAssetId,
+        videoPath: null,
+        sourceMode: 'single_keyframe',
+        status: result.success === false ? 'failed' : 'draft',
+      })
+    );
 }
 
 export function createDirector(overrides = {}) {
@@ -132,18 +171,20 @@ export function createDirector(overrides = {}) {
         if (!imageResults) {
           deps.logger.info('Director', '【Step 3/6】生成分镜图像...');
           imageResults = await deps.generateAllImages(promptList, dirs.images, { style });
-          imageResults = imageResults.map((result) => {
+          imageResults = imageResults.map((rawResult) => {
+            const result = ensureImageResultIdentity(rawResult);
             const shot = shots.find((item) => item.id === result.shotId);
             return { ...result, characters: shot?.characters || [] };
           });
           saveState({ imageResults });
         } else {
           deps.logger.info('Director', '【Step 3/6】使用缓存的图像结果');
-          if (imageResults.some((result) => !result.characters)) {
+          if (imageResults.some((result) => !result.characters || !result.keyframeAssetId)) {
             imageResults = imageResults.map((result) => {
-              if (result.characters) return result;
-              const shot = shots.find((item) => item.id === result.shotId);
-              return { ...result, characters: shot?.characters || [] };
+              const normalizedResult = ensureImageResultIdentity(result);
+              if (normalizedResult.characters) return normalizedResult;
+              const shot = shots.find((item) => item.id === normalizedResult.shotId);
+              return { ...normalizedResult, characters: shot?.characters || [] };
             });
             saveState({ imageResults });
           }
@@ -166,18 +207,21 @@ export function createDirector(overrides = {}) {
                 const adjustedPrompt =
                   `${originalPrompt.image_prompt}, highly consistent character appearance, ` +
                   `${item.suggestion || ''}`;
-                const newPath = await deps.regenerateImage(
+                const regeneratedResult = ensureImageResultIdentity(await deps.regenerateImage(
                   item.shotId,
                   adjustedPrompt,
                   originalPrompt.negative_prompt,
                   dirs.images,
                   { style }
-                );
+                ));
 
                 const index = imageResults.findIndex((result) => result.shotId === item.shotId);
                 if (index >= 0) {
-                  imageResults[index].imagePath = newPath;
-                  imageResults[index].success = true;
+                  imageResults[index] = {
+                    ...imageResults[index],
+                    ...regeneratedResult,
+                    success: true,
+                  };
                 }
               }
             }
@@ -203,9 +247,14 @@ export function createDirector(overrides = {}) {
         const outputFileName =
           `${sanitizeFileSegment(scriptTitle, 'script')}_${sanitizeFileSegment(episodeTitle, 'episode')}_${jobId}.mp4`;
         const outputPath = path.join(dirs.output, outputFileName);
+        const animationClips = buildAnimationClipBridge(
+          imageResults,
+          state.animationClips || episode.animationClips || []
+        );
 
         await deps.composeVideo(shots, imageResults, audioResults, outputPath, {
           title: `${scriptTitle} - ${episodeTitle}`,
+          animationClips,
         });
 
         saveState({ outputPath, completedAt: new Date().toISOString() });
