@@ -17,9 +17,41 @@ export function ensureDir(dir) {
   return dir;
 }
 
+export function getJobDir(jobId, baseTempDir = TEMP_DIR) {
+  return path.join(baseTempDir, jobId);
+}
+
+export function getProjectsRoot(baseTempDir = TEMP_DIR) {
+  return path.join(baseTempDir, 'projects');
+}
+
+export function getProjectDir(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(getProjectsRoot(baseTempDir), projectId);
+}
+
+export function getScriptDir(projectId, scriptId, baseTempDir = TEMP_DIR) {
+  return path.join(getProjectDir(projectId, baseTempDir), 'scripts', scriptId);
+}
+
+export function getEpisodeDir(projectId, scriptId, episodeId, baseTempDir = TEMP_DIR) {
+  return path.join(getScriptDir(projectId, scriptId, baseTempDir), 'episodes', episodeId);
+}
+
+export function getProjectFilePath(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(getProjectDir(projectId, baseTempDir), 'project.json');
+}
+
+export function getScriptFilePath(projectId, scriptId, baseTempDir = TEMP_DIR) {
+  return path.join(getScriptDir(projectId, scriptId, baseTempDir), 'script.json');
+}
+
+export function getEpisodeFilePath(projectId, scriptId, episodeId, baseTempDir = TEMP_DIR) {
+  return path.join(getEpisodeDir(projectId, scriptId, episodeId, baseTempDir), 'episode.json');
+}
+
 // 初始化项目目录结构
 export function initDirs(jobId) {
-  const jobDir = path.join(TEMP_DIR, jobId);
+  const jobDir = getJobDir(jobId);
   const dirs = {
     root: jobDir,
     images: path.join(jobDir, 'images'),
@@ -74,4 +106,21 @@ export function generateJobId(scriptName) {
   return `${base}_${ts}`;
 }
 
-export default { ensureDir, initDirs, readTextFile, saveJSON, loadJSON, saveBuffer, imageToBase64, generateJobId };
+export default {
+  ensureDir,
+  getJobDir,
+  getProjectsRoot,
+  getProjectDir,
+  getScriptDir,
+  getEpisodeDir,
+  getProjectFilePath,
+  getScriptFilePath,
+  getEpisodeFilePath,
+  initDirs,
+  readTextFile,
+  saveJSON,
+  loadJSON,
+  saveBuffer,
+  imageToBase64,
+  generateJobId,
+};
