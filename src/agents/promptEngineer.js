@@ -72,7 +72,7 @@ function writePromptArtifacts(prompts, promptSources, artifactContext) {
   });
 }
 
-function writePromptFallbackEvidence(shot, error, artifactContext) {
+function writePromptFallbackEvidence(shot, style, error, fallbackResult, artifactContext) {
   if (!artifactContext) {
     return;
   }
@@ -80,8 +80,11 @@ function writePromptFallbackEvidence(shot, error, artifactContext) {
   const fileName = `${shot.id}-fallback-error.json`;
   saveJSON(path.join(artifactContext.errorsDir, fileName), {
     shotId: shot.id,
+    shot,
+    style,
     error: error.message,
     source: 'fallback',
+    fallbackPrompt: fallbackResult,
   });
 }
 
@@ -159,9 +162,10 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
       promptSources.push({ shotId: shot.id, source: 'llm' });
     } catch (err) {
       logger.warn('PromptEngineer', `${shot.id} Prompt生成失败，使用降级方案：${err.message}`);
-      results.push(fallbackPrompt(shot, style));
+      const fallbackResult = fallbackPrompt(shot, style);
+      results.push(fallbackResult);
       promptSources.push({ shotId: shot.id, source: 'fallback', error: err.message });
-      writePromptFallbackEvidence(shot, err, deps.artifactContext);
+      writePromptFallbackEvidence(shot, style, err, fallbackResult, deps.artifactContext);
     }
   }
 

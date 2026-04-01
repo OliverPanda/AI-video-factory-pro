@@ -35,33 +35,64 @@ function buildRegistryMarkdown(cards) {
     .join('\n')}\n`;
 }
 
-function buildNameMapping(cards) {
-  return Object.fromEntries(cards.map((card) => [card.name, card.name]));
+function hasUsefulProfile(character = {}) {
+  return Boolean(character.visualDescription || character.basePromptTokens);
 }
 
-function buildCharacterMetrics(cards, sourceCharacters) {
+function buildNameMapping(cards, sourceCharacters = [], generatedCharacters = []) {
+  return sourceCharacters.map((source, index) => {
+    const registryCharacter =
+      cards.find(
+        (card) =>
+          card?.episodeCharacterId === (source?.episodeCharacterId ?? source?.id) ||
+          card?.id === source?.id ||
+          card?.name === source?.name
+      ) ?? null;
+    const matchedGeneratedCharacter =
+      generatedCharacters.find((character) => character?.name === registryCharacter?.name) ?? null;
+
+    return {
+      sourceId: source?.id ?? null,
+      sourceEpisodeCharacterId: source?.episodeCharacterId ?? source?.id ?? null,
+      sourceName: source?.name ?? '',
+      registryId: registryCharacter?.id ?? null,
+      registryEpisodeCharacterId: registryCharacter?.episodeCharacterId ?? null,
+      registryName: registryCharacter?.name ?? '',
+      generatedName: matchedGeneratedCharacter?.name ?? null,
+      matchedBy: matchedGeneratedCharacter ? 'generated_name' : (registryCharacter ? 'source_fallback' : 'unmatched'),
+      hasUsefulProfile: hasUsefulProfile(registryCharacter),
+    };
+  });
+}
+
+function buildCharacterMetrics(cards, sourceCharacters, generatedCharacters = []) {
   const sourceCount = Array.isArray(sourceCharacters) ? sourceCharacters.length : 0;
-  const fallbackMergedCount = cards.filter((card) => !card.visualDescription && !card.basePromptTokens).length;
-  const missingProfileCount = cards.filter((card) => !card.visualDescription || !card.basePromptTokens).length;
+  const sourceMappings = buildNameMapping(cards, sourceCharacters, generatedCharacters);
+  const coveredCount = sourceMappings.filter((mapping) => mapping.hasUsefulProfile).length;
+  const fallbackMergedCount = sourceMappings.filter((mapping) => mapping.matchedBy === 'source_fallback').length;
+  const missingProfileCount = sourceMappings.filter((mapping) => !mapping.hasUsefulProfile).length;
 
   return {
     character_count: cards.length,
-    registry_coverage_rate: sourceCount > 0 ? (cards.length - missingProfileCount) / sourceCount : 1,
+    registry_coverage_rate: sourceCount > 0 ? Math.min(coveredCount / sourceCount, 1) : 1,
     fallback_merged_count: fallbackMergedCount,
     missing_profile_count: missingProfileCount,
   };
 }
 
-function writeCharacterRegistryArtifacts(cards, sourceCharacters, artifactContext) {
+function writeCharacterRegistryArtifacts(cards, sourceCharacters, generatedCharacters, artifactContext) {
   if (!artifactContext) {
     return;
   }
 
   saveJSON(path.join(artifactContext.outputsDir, 'character-registry.json'), cards);
   writeTextFile(path.join(artifactContext.outputsDir, 'character-registry.md'), buildRegistryMarkdown(cards));
-  saveJSON(path.join(artifactContext.outputsDir, 'character-name-mapping.json'), buildNameMapping(cards));
+  saveJSON(
+    path.join(artifactContext.outputsDir, 'character-name-mapping.json'),
+    buildNameMapping(cards, sourceCharacters, generatedCharacters)
+  );
 
-  const metrics = buildCharacterMetrics(cards, sourceCharacters);
+  const metrics = buildCharacterMetrics(cards, sourceCharacters, generatedCharacters);
   saveJSON(path.join(artifactContext.metricsDir, 'character-metrics.json'), metrics);
   saveJSON(artifactContext.manifestPath, {
     status: 'completed',
@@ -123,8 +154,9 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
     { temperature: 0.4 }
   );
 
-  const cards = mergeCharacterSources(result.characters || [], characters);
-  writeCharacterRegistryArtifacts(cards, characters, deps.artifactContext);
+  const generatedCharacters = result.characters || [];
+  const cards = mergeCharacterSources(generatedCharacters, characters);
+  writeCharacterRegistryArtifacts(cards, characters, generatedCharacters, deps.artifactContext);
   logger.info('CharacterRegistry', `角色档案构建完成：${cards.map((c) => c.name).join('、')}`);
   return cards;
 }
