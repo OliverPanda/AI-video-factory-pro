@@ -362,7 +362,10 @@ export function createDirector(overrides = {}) {
             const { needsRegeneration } = await recordStep(
               'consistency_check',
               { message: '一致性验证' },
-              () => deps.runConsistencyCheck(characterRegistry, imageResults)
+              () =>
+                deps.runConsistencyCheck(characterRegistry, imageResults, {
+                  artifactContext: artifactContext.agents.consistencyChecker,
+                })
             );
 
             if (needsRegeneration.length > 0) {
@@ -434,7 +437,10 @@ export function createDirector(overrides = {}) {
               }
             : {};
           audioResults = await recordStep('generate_audio', { message: '生成配音' }, () =>
-            deps.generateAllAudio(shots, characterRegistry, dirs.audio, audioOptions)
+            deps.generateAllAudio(shots, characterRegistry, dirs.audio, {
+              ...audioOptions,
+              artifactContext: artifactContext.agents.ttsAgent,
+            })
           );
           saveState({ audioResults, audioProjectId: voiceProjectId });
         } else {

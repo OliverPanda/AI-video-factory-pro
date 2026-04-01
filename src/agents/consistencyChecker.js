@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { visionChat, parseJSONResponse } from '../llm/client.js';
 import { CONSISTENCY_CHECK_SYSTEM, CONSISTENCY_CHECK_USER } from '../llm/prompts/consistencyCheck.js';
-import { imageToBase64 } from '../utils/fileHelper.js';
+import { imageToBase64, saveJSON } from '../utils/fileHelper.js';
 import logger from '../utils/logger.js';
 
 const SCORE_THRESHOLD = parseInt(process.env.CONSISTENCY_THRESHOLD || '7', 10);
@@ -96,6 +96,12 @@ export async function checkCharacterConsistency(characterName, characterCard, im
  * @returns {Promise<{reports, needsRegeneration: Array<{shotId, reason}>}>}
  */
 export async function runConsistencyCheck(characterRegistry, imageResults) {
+  let deps = {};
+  if (arguments.length >= 3 && arguments[2] && typeof arguments[2] === 'object') {
+    deps = arguments[2];
+  }
+
+  const runCheckCharacterConsistency = deps.checkCharacterConsistency || checkCharacterConsistency;
   const reports = [];
   const needsRegeneration = [];
 
@@ -107,7 +113,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
 
     if (charImages.length === 0) continue;
 
-    const report = await checkCharacterConsistency(charCard.name, charCard, charImages);
+    const report = await runCheckCharacterConsistency(charCard.name, charCard, charImages);
     reports.push(report);
 
     // 低于阈值的图像标记为需要重生成
@@ -129,6 +135,30 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
     'ConsistencyChecker',
     `一致性检查完成。需要重生成：${needsRegeneration.length} 个镜头`
   );
+
+  if (deps.artifactContext) {
+    saveJSON(path.join(deps.artifactContext.outputsDir, 'consistency-report.json'), reports);
+    saveJSON(path.join(deps.artifactContext.outputsDir, 'flagged-shots.json'), needsRegeneration);
+    saveJSON(path.join(deps.artifactContext.metricsDir, 'consistency-metrics.json'), {
+      checked_shot_count: imageResults.filter((result) => result.success).length,
+      flagged_shot_count: needsRegeneration.length,
+      avg_consistency_score:
+        reports.length > 0
+          ? reports.reduce((sum, report) => sum + (report.overallScore || 0), 0) / reports.length
+          : 0,
+      regeneration_count: needsRegeneration.length,
+    });
+    saveJSON(deps.artifactContext.manifestPath, {
+      status: 'completed',
+      checkedCharacterCount: reports.length,
+      flaggedShotCount: needsRegeneration.length,
+      outputFiles: [
+        'consistency-report.json',
+        'flagged-shots.json',
+        'consistency-metrics.json',
+      ],
+    });
+  }
 
   return { reports, needsRegeneration };
 }
