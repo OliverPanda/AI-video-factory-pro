@@ -52,25 +52,102 @@ test('image generator writes provider config index metrics retry log manifest an
       },
     });
 
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.imageGenerator.inputsDir, 'provider-config.json')),
-      true
-    );
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.imageGenerator.outputsDir, 'images.index.json')),
-      true
-    );
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.imageGenerator.metricsDir, 'image-metrics.json')),
-      true
-    );
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.imageGenerator.errorsDir, 'retry-log.json')),
-      true
-    );
-    assert.equal(fs.existsSync(ctx.agents.imageGenerator.manifestPath), true);
+    const providerConfigPath = path.join(ctx.agents.imageGenerator.inputsDir, 'provider-config.json');
+    const imageIndexPath = path.join(ctx.agents.imageGenerator.outputsDir, 'images.index.json');
+    const imageMetricsPath = path.join(ctx.agents.imageGenerator.metricsDir, 'image-metrics.json');
+    const retryLogPath = path.join(ctx.agents.imageGenerator.errorsDir, 'retry-log.json');
+    const manifestPath = ctx.agents.imageGenerator.manifestPath;
+
+    const providerConfig = JSON.parse(fs.readFileSync(providerConfigPath, 'utf-8'));
+    assert.deepEqual(providerConfig, {
+      style: 'realistic',
+      taskType: 'realistic_image',
+      provider: 'laozhang',
+      model: process.env.REALISTIC_IMAGE_MODEL || 'flux-kontext-pro',
+    });
+
+    const imageIndex = JSON.parse(fs.readFileSync(imageIndexPath, 'utf-8'));
+    assert.equal(imageIndex.length, 2);
+    assert.equal(imageIndex[0].shotId, 'shot_001');
+    assert.equal(imageIndex[0].success, true);
+    assert.equal(imageIndex[0].imagePath, path.join(imagesDir, 'shot_001.png'));
+    assert.equal(imageIndex[1].shotId, 'shot_002');
+    assert.equal(imageIndex[1].success, false);
+    assert.match(imageIndex[1].error, /503 upstream unavailable/);
+    assert.deepEqual(imageIndex[1].request, {
+      shotId: 'shot_002',
+      prompt: 'prompt 2',
+      negativePrompt: 'neg 2',
+      outputPath: path.join(imagesDir, 'shot_002.png'),
+      providerConfig,
+    });
+
+    const imageMetrics = JSON.parse(fs.readFileSync(imageMetricsPath, 'utf-8'));
+    assert.deepEqual(imageMetrics, {
+      request_count: 2,
+      success_count: 1,
+      failure_count: 1,
+      success_rate: 0.5,
+      retry_count: 2,
+      http_403_count: 0,
+      http_429_count: 0,
+      http_503_count: 1,
+    });
+
+    const retryLog = JSON.parse(fs.readFileSync(retryLogPath, 'utf-8'));
+    assert.equal(retryLog.length, 2);
+    assert.deepEqual(retryLog[0], {
+      shotId: 'shot_002',
+      prompt: 'prompt 2',
+      negativePrompt: 'neg 2',
+      outputPath: path.join(imagesDir, 'shot_002.png'),
+      providerConfig,
+      taskName: 'shot_002',
+      attempt: 1,
+      maxRetries: 3,
+      delay: 1000,
+      error: '503 upstream unavailable',
+    });
+    assert.deepEqual(retryLog[1], {
+      shotId: 'shot_002',
+      prompt: 'prompt 2',
+      negativePrompt: 'neg 2',
+      outputPath: path.join(imagesDir, 'shot_002.png'),
+      providerConfig,
+      taskName: 'shot_002',
+      attempt: 2,
+      maxRetries: 3,
+      delay: 2000,
+      error: '503 upstream unavailable',
+    });
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    assert.deepEqual(manifest, {
+      status: 'completed_with_errors',
+      requestCount: 2,
+      successCount: 1,
+      failureCount: 1,
+      outputFiles: ['provider-config.json', 'images.index.json', 'image-metrics.json', 'retry-log.json'],
+    });
 
     const errorFiles = fs.readdirSync(ctx.agents.imageGenerator.errorsDir);
-    assert.equal(errorFiles.some((fileName) => /shot_002/i.test(fileName)), true);
+    const errorFileName = errorFiles.find((fileName) => /shot_002/i.test(fileName));
+    assert.ok(errorFileName);
+
+    const terminalError = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.imageGenerator.errorsDir, errorFileName), 'utf-8')
+    );
+    assert.equal(terminalError.shotId, 'shot_002');
+    assert.equal(terminalError.success, false);
+    assert.match(terminalError.error, /503 upstream unavailable/);
+    assert.deepEqual(terminalError.request, {
+      shotId: 'shot_002',
+      prompt: 'prompt 2',
+      negativePrompt: 'neg 2',
+      outputPath: path.join(imagesDir, 'shot_002.png'),
+      providerConfig,
+    });
+    assert.equal(Array.isArray(terminalError.retryHistory), true);
+    assert.equal(terminalError.retryHistory.length, 2);
   });
 });

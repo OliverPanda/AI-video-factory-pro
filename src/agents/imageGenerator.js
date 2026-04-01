@@ -17,6 +17,7 @@ function createKeyframeResult({
   imagePath,
   style,
   success,
+  request = undefined,
   error = undefined,
 }) {
   const keyframeAsset = createKeyframeAsset({
@@ -34,6 +35,7 @@ function createKeyframeResult({
     keyframeAssetId: keyframeAsset.id,
     imagePath,
     success,
+    ...(request ? { request } : {}),
     ...(error ? { error } : {}),
   };
 }
@@ -61,6 +63,16 @@ function countErrorCode(results, code) {
   return results.filter((result) => String(result.error || '').includes(String(code))).length;
 }
 
+function buildRequestContext(task, providerConfig) {
+  return {
+    shotId: task.shotId,
+    prompt: task.prompt,
+    negativePrompt: task.negativePrompt,
+    outputPath: task.outputPath,
+    providerConfig,
+  };
+}
+
 function writeImageArtifacts(results, retryLog, artifactContext, providerConfig) {
   if (!artifactContext) {
     return;
@@ -84,7 +96,11 @@ function writeImageArtifacts(results, retryLog, artifactContext, providerConfig)
   saveJSON(path.join(artifactContext.errorsDir, 'retry-log.json'), retryLog);
 
   for (const result of results.filter((entry) => !entry.success)) {
-    saveJSON(path.join(artifactContext.errorsDir, `${result.shotId}-error.json`), result);
+    saveJSON(path.join(artifactContext.errorsDir, `${result.shotId}-error.json`), {
+      ...result,
+      request: result.request || null,
+      retryHistory: retryLog.filter((entry) => entry.shotId === result.shotId),
+    });
   }
 
   saveJSON(artifactContext.manifestPath, {
@@ -136,6 +152,7 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
             imagePath: imgPath,
             style,
             success: true,
+            request: buildRequestContext(task, providerConfig),
           });
         },
         3,
@@ -143,7 +160,7 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
         {
           onRetry: ({ taskName, attempt, maxRetries, delay, error }) => {
             retryLog.push({
-              shotId: task.shotId,
+              ...buildRequestContext(task, providerConfig),
               taskName,
               attempt,
               maxRetries,
@@ -162,6 +179,7 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
           style,
           success: false,
           error: err.message,
+          request: buildRequestContext(task, providerConfig),
         });
       })
     )
