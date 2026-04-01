@@ -2,9 +2,11 @@
  * 图像生成Agent - 调用图像API批量生成分镜图，含并发控制和重试
  */
 
+import fs from 'node:fs';
 import path from 'path';
-import { generateImage } from '../apis/imageApi.js';
+import { generateImage, resolveImageRoute, resolveImageTaskType } from '../apis/imageApi.js';
 import { createKeyframeAsset } from '../domain/assetModel.js';
+import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { imageQueue, queueWithRetry } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
@@ -36,6 +38,64 @@ function createKeyframeResult({
   };
 }
 
+function buildProviderConfigSnapshot(options = {}) {
+  const style = options.style || process.env.IMAGE_STYLE || 'realistic';
+  const taskType = resolveImageTaskType({ style, taskType: options.taskType });
+  let route = null;
+
+  try {
+    route = resolveImageRoute(taskType, options.env);
+  } catch {
+    route = null;
+  }
+
+  return {
+    style,
+    taskType,
+    provider: route?.provider ?? null,
+    model: route?.model ?? null,
+  };
+}
+
+function countErrorCode(results, code) {
+  return results.filter((result) => String(result.error || '').includes(String(code))).length;
+}
+
+function writeImageArtifacts(results, retryLog, artifactContext, providerConfig) {
+  if (!artifactContext) {
+    return;
+  }
+
+  saveJSON(path.join(artifactContext.inputsDir, 'provider-config.json'), providerConfig);
+  saveJSON(path.join(artifactContext.outputsDir, 'images.index.json'), results);
+
+  const successCount = results.filter((result) => result.success).length;
+  const failureCount = results.length - successCount;
+  saveJSON(path.join(artifactContext.metricsDir, 'image-metrics.json'), {
+    request_count: results.length,
+    success_count: successCount,
+    failure_count: failureCount,
+    success_rate: results.length > 0 ? successCount / results.length : 0,
+    retry_count: retryLog.length,
+    http_403_count: countErrorCode(results, 403),
+    http_429_count: countErrorCode(results, 429),
+    http_503_count: countErrorCode(results, 503),
+  });
+  saveJSON(path.join(artifactContext.errorsDir, 'retry-log.json'), retryLog);
+
+  for (const result of results.filter((entry) => !entry.success)) {
+    saveJSON(path.join(artifactContext.errorsDir, `${result.shotId}-error.json`), result);
+  }
+
+  saveJSON(artifactContext.manifestPath, {
+    status: failureCount > 0 ? 'completed_with_errors' : 'completed',
+    requestCount: results.length,
+    successCount,
+    failureCount,
+    outputFiles: ['provider-config.json', 'images.index.json', 'image-metrics.json', 'retry-log.json'],
+  });
+}
+
 /**
  * 批量生成所有分镜图像
  * @param {Array<{shotId, image_prompt, negative_prompt}>} promptList - Prompt列表
@@ -46,6 +106,9 @@ function createKeyframeResult({
 export async function generateAllImages(promptList, imagesDir, options = {}) {
   logger.info('ImageGenerator', `开始生成 ${promptList.length} 张分镜图像...`);
   const style = options.style || process.env.IMAGE_STYLE || 'realistic';
+  const runGenerateImage = options.generateImage || generateImage;
+  const retryLog = [];
+  const providerConfig = buildProviderConfigSnapshot(options);
 
   const tasks = promptList.map((p) => ({
     shotId: p.shotId,
@@ -60,11 +123,11 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
         imageQueue,
         async () => {
           logger.step(i + 1, tasks.length, `生成图像: ${task.shotId}`);
-          const imgPath = await generateImage(
+          const imgPath = await runGenerateImage(
             task.prompt,
             task.negativePrompt,
             task.outputPath,
-            { style }
+            options
           );
           return createKeyframeResult({
             shotId: task.shotId,
@@ -76,7 +139,19 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
           });
         },
         3,
-        task.shotId
+        task.shotId,
+        {
+          onRetry: ({ taskName, attempt, maxRetries, delay, error }) => {
+            retryLog.push({
+              shotId: task.shotId,
+              taskName,
+              attempt,
+              maxRetries,
+              delay,
+              error: error.message,
+            });
+          },
+        }
       ).catch((err) => {
         logger.error('ImageGenerator', `${task.shotId} 生成失败：${err.message}`);
         return createKeyframeResult({
@@ -94,6 +169,7 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
 
   const successCount = results.filter((r) => r.success).length;
   logger.info('ImageGenerator', `图像生成完成：${successCount}/${promptList.length} 成功`);
+  writeImageArtifacts(results, retryLog, options.artifactContext, providerConfig);
 
   return results;
 }

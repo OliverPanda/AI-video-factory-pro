@@ -328,7 +328,10 @@ export function createDirector(overrides = {}) {
         if (!imageResults) {
           deps.logger.info('Director', '【Step 3/6】生成分镜图像...');
           imageResults = await recordStep('generate_images', { message: '生成分镜图像' }, () =>
-            deps.generateAllImages(promptList, dirs.images, { style })
+            deps.generateAllImages(promptList, dirs.images, {
+              style,
+              artifactContext: artifactContext.agents.imageGenerator,
+            })
           );
           imageResults = imageResults.map((rawResult) => {
             const result = ensureImageResultIdentity(rawResult);
