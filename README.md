@@ -48,11 +48,11 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
   │ Agent      │        │ Agent（LLM） │
   └─────┬──────┘        └──────────────┘
         │
-  ┌─────▼──────┐        ┌──────────────┐
-  │  配音Agent │        │  字幕Agent   │
-  │  (TTS)     │        │  (LLM生成)   │
-  └─────┬──────┘        └──────┬───────┘
-        └──────────┬───────────┘
+  ┌─────▼──────┐
+  │  配音Agent │
+  │  (TTS)     │
+  └─────┬──────┘
+        │
                ┌───▼────┐
                │ 合成    │  FFmpeg
                │ Agent  │
@@ -69,7 +69,7 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 ### Agent 1：导演Agent（Orchestrator）
 **文件**：`src/agents/director.js`
 
-**职责**：按分集编排解析、角色、Prompt、关键帧、音频和合成步骤，处理异常，支持断点续跑。
+**职责**：按分集编排解析、角色、Prompt、关键帧、音频和合成步骤，处理缓存、失败重试、审计产物和兼容模式桥接。
 
 **当前入口**：
 - `runEpisodePipeline({ projectId, scriptId, episodeId, options })`
@@ -78,6 +78,7 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 **核心机制**：
 - 每个步骤完成后将结果写入 `temp/<jobId>/state.json`，下次运行同一 job 时自动跳过已完成步骤
 - 每次分集运行还会在 `temp/projects/<projectId>/scripts/<scriptId>/episodes/<episodeId>/run-jobs/` 下落一份 `RunJob` 记录，并为主要步骤追加 `AgentTaskRun`
+- 每次分集运行还会生成一份可审计运行包，位于 `temp/projects/<projectName>__<projectId>/.../runs/<timestamp>__<runJobId>/`
 
 **执行流程**：
 1. 读取剧本文件
@@ -121,18 +122,25 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 }
 ```
 
-**LLM调用**：DeepSeek-V3，低温度（0.3）保证结构准确性。
+**当前补充**：
+- 支持 `script -> episodes -> shots` 的项目模型
+- 兼容旧 `parseScript()` 平铺输出
+- 在审计运行包里会落 `source-script.txt / shots.flat.json / shots.table.md / parser-metrics.json`
+
+**LLM调用**：当前默认推荐 `Qwen` 作为文本主力，`DeepSeek` 作为备选。
 
 ---
 
 ### Agent 3：角色设定Agent（Character Registry）
 **文件**：`src/agents/characterRegistry.js`
 
-**职责**：为剧本中所有角色构建视觉档案，生成可复用的英文Prompt描述词，确保跨镜头外观一致性。
+**职责**：为剧本中所有角色构建视觉档案，生成可复用的英文 Prompt 描述词，并解析 `EpisodeCharacter / ShotCharacter` 关系，给 Prompt、TTS 和一致性检查提供统一角色视图。
 
 **输出**（每个角色的视觉ID卡）：
 ```json
 {
+  "id": "episode_char_001",
+  "episodeCharacterId": "episode_char_001",
   "name": "小红",
   "gender": "female",
   "visualDescription": "young Asian woman, long black hair, fair skin, casual outfit...",
@@ -141,14 +149,17 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 }
 ```
 
-**作用**：每次生成包含该角色的图像时，自动将 `basePromptTokens` 注入Prompt，维持外观一致。
+**当前补充**：
+- LLM 漏掉角色时会自动用 source character 做 fallback 合并
+- 审计运行包里会落 `character-registry.json / character-name-mapping.json / character-metrics.json`
+- `resolveShotParticipants()` 和 `resolveShotSpeaker()` 也在这一层完成
 
 ---
 
 ### Agent 4：视觉设计Agent（Prompt Engineer）
 **文件**：`src/agents/promptEngineer.js`
 
-**职责**：为每个分镜生成专业的图像生成Prompt，自动注入角色词、风格词、镜头词。
+**职责**：为每个分镜生成结构化图像 Prompt，自动注入角色词、风格词、镜头词，并在 LLM 返回坏 JSON 时自动降级为本地 fallback Prompt。
 
 **两种风格示例**：
 
@@ -170,6 +181,11 @@ shy expression, medium shot,
 
 **镜头类型映射**：特写 / 近景 / 中景 / 全景 / 远景 → 对应英文Camera关键词
 
+**当前补充**：
+- 默认推荐 `Qwen` 作为 JSON Prompt 主力，`DeepSeek` 作为备选
+- 审计运行包里会落 `prompts.json / prompt-sources.json / prompts.table.md / prompt-metrics.json`
+- 每个 fallback 镜头都会单独落错误证据文件
+
 ---
 
 ### Agent 5：图像生成Agent（Image Generator）
@@ -179,21 +195,29 @@ shy expression, medium shot,
 
 | 风格 | API | 备注 |
 |------|-----|------|
-| 写实 | Together AI Flux Pro | `IMAGE_STYLE=realistic` |
-| 3D | Stability AI SD3 | `IMAGE_STYLE=3d` |
+| 写实 | LaoZhang 图像路由 | `IMAGE_STYLE=realistic` |
+| 3D | LaoZhang 图像路由 | `IMAGE_STYLE=3d` |
 
-**并发控制**：p-queue，默认并发2（`IMAGE_CONCURRENCY`可配置），每次失败自动重试3次。
+**并发控制**：队列并发控制 + 自动重试 3 次。
 
-**输出规格**：1080×1920 PNG，竖屏9:16。
+**当前补充**：
+- 结果会包装成 `KeyframeAsset` 风格的 runtime object
+- 审计运行包里会落 `provider-config.json / images.index.json / image-metrics.json / retry-log.json`
+- 每个失败镜头都会落 `<shotId>-error.json`
 
 ---
 
 ### Agent 6：一致性验证Agent（Consistency Checker）
 **文件**：`src/agents/consistencyChecker.js`
 
-**职责**：用多模态LLM检查同一角色在多张图片中的外观一致性，评分不达标时通知导演Agent触发重生成。
+**职责**：用多模态 LLM 检查同一角色在多张图片中的外观一致性，评分不达标时通知导演 Agent 触发重生成。
 
-**LLM调用**：Qwen-VL-Max（多模态，对中文场景/人物理解准确）
+**关键边界**：
+- 当前做的是“角色外观一致性”
+- 还不是完整的“镜头时序连贯性 / 场面调度连续性 Agent”
+- 它更关注发型、脸型、服装、明显可视特征是否漂移
+
+**LLM调用**：当前通过视觉 LLM 做多图检查，默认按批次处理，避免单次 base64 过大。
 
 **评分维度**：
 - 面部特征（五官、肤色）
@@ -203,19 +227,31 @@ shy expression, medium shot,
 
 **触发规则**：总分 < 7分（可通过 `CONSISTENCY_THRESHOLD` 环境变量调整）时，将问题图像标记为需要重生成，并附上改进建议。
 
+**当前补充**：
+- 少于 2 张有效图的角色会被跳过
+- 多批结果会取平均分，问题图索引会做全局偏移
+- 审计运行包里会落 `consistency-report.json / consistency-report.md / flagged-shots.json / consistency-metrics.json`
+- 批次失败时会落 `<character>-batch-<n>-error.json`
+
 ---
 
 ### Agent 7：配音Agent（TTS）
 **文件**：`src/agents/ttsAgent.js`
 
-**职责**：为每段对白生成配音音频，无台词的分镜自动跳过。
+**职责**：为每段对白生成配音音频，无台词分镜自动跳过；按 `ShotCharacter.isSpeaker / shot.speaker / characters` 解析说话者，并按 `voicePresetId` 决定声线。
 
 | 提供商 | 环境变量 | 特点 |
 |--------|---------|------|
-| 阿里云 | `TTS_PROVIDER=aliyun` | 成本最低，中文自然 |
-| Azure Speech | `TTS_PROVIDER=azure` | 音质最佳，情感丰富 |
+| 讯飞 | `TTS_PROVIDER=xfyun` | 当前代码主实现 |
 
-**角色音色**：根据角色性别自动选择音色（female → 小白/Xiaoxiao，male → 云希/Yunxi）
+**角色音色**：
+- 优先 `voicePresetId -> VoicePreset`
+- 找不到 preset 时回退到性别默认值
+- `.env` 中的发音人配置只做默认兜底，不承载项目内角色差异
+
+**当前补充**：
+- 审计运行包里会落 `voice-resolution.json / audio.index.json / dialogue-table.md / tts-metrics.json`
+- 失败镜头会落 `<shotId>-error.json`
 
 ---
 
@@ -232,6 +268,13 @@ shy expression, medium shot,
 - 帧率：24fps
 - 字幕：硬字幕嵌入
 
+**当前补充**：
+- 优先合成 `AnimationClip`，没有 clip 时回退为单张关键帧静态镜头
+- 审计运行包里会落 `compose-plan.json / segment-index.json / video-metrics.json`
+- FFmpeg 失败时会额外落 `ffmpeg-command.txt / ffmpeg-stderr.txt`
+
+完整 Agent 文档入口见 [docs/agents/README.md](docs/agents/README.md)。
+
 ---
 
 ## 技术栈
@@ -239,13 +282,12 @@ shy expression, medium shot,
 | 类别 | 技术 |
 |------|------|
 | 运行时 | Node.js 18+，ES Modules |
-| LLM文本 | DeepSeek-V3（首选）/ Qwen2.5-72B / Claude |
-| LLM视觉 | Qwen-VL-Max（一致性验证） |
-| 图像生成（写实）| Together AI Flux Pro |
-| 图像生成（3D）| Stability AI SD3 |
-| 配音TTS | 阿里云语音合成 / Azure Speech |
+| LLM文本 | Qwen（首选）/ DeepSeek / Claude |
+| LLM视觉 | 当前视觉 provider 路由 |
+| 图像生成 | LaoZhang 图像路由 |
+| 配音TTS | 讯飞语音合成 |
 | 视频合成 | FFmpeg + fluent-ffmpeg |
-| 并发控制 | p-queue |
+| 并发控制 | 自定义队列 |
 | 数据存储 | 本地JSON文件（MVP阶段） |
 
 ## LLM选型说明
@@ -254,9 +296,9 @@ shy expression, medium shot,
 
 | 用途 | 模型 | 优势 |
 |------|------|------|
-| 剧本解析/Prompt生成 | **DeepSeek-V3**（首选） | 中文超强、¥2/M tokens、128K上下文 |
-| 文本备选 | Qwen2.5-72B | 阿里中文训练，口语/网络用语理解好 |
-| 视觉一致性验证 | **Qwen-VL-Max** | 多模态+中文场景理解，替代Claude Vision |
+| 剧本解析/Prompt生成 | **Qwen**（首选） | 当前实测 JSON 输出更稳 |
+| 文本备选 | DeepSeek | 中文能力强、成本低，但 JSON 输出稳定性波动更大 |
+| 视觉一致性验证 | 视觉 LLM | 当前实现按 provider 路由调用 |
 | 全能备选 | Claude Sonnet | 综合能力强，支持多模态 |
 
 切换方式：修改 `.env` 中的 `LLM_PROVIDER` 和 `LLM_VISION_PROVIDER`。
@@ -282,19 +324,20 @@ AI-video-factory-pro/
 │   │       ├── promptEngineering.js
 │   │       └── consistencyCheck.js
 │   ├── apis/
-│   │   ├── imageApi.js           # Together AI + Stability AI
-│   │   └── ttsApi.js             # 阿里云 + Azure Speech
+│   │   ├── imageApi.js           # LaoZhang 图像路由
+│   │   └── ttsApi.js             # 讯飞 TTS
 │   ├── domain/
 │   │   ├── assetModel.js         # Keyframe / AnimationClip / Voice / Subtitle / EpisodeCut DTO
 │   │   ├── characterModel.js     # MainCharacterTemplate / EpisodeCharacter / ShotCharacter DTO
 │   │   ├── entityFactory.js      # 通用实体构造辅助
 │   │   └── projectModel.js       # Project / Script / Episode / ShotPlan DTO
 │   └── utils/
-│       ├── queue.js              # p-queue并发控制
+│       ├── queue.js              # 并发控制与重试
 │       ├── logger.js             # 日志工具
 │       ├── fileHelper.js         # 文件读写工具
 │       ├── jobStore.js           # RunJob / AgentTaskRun 持久化
-│       └── projectStore.js       # project/script/episode JSON 存储
+│       ├── projectStore.js       # project/script/episode JSON 存储
+│       └── runArtifacts.js       # Agent 审计成果物目录
 ├── scripts/
 │   └── run.js                    # CLI入口
 ├── samples/
@@ -379,7 +422,7 @@ node scripts/run.js your_script.txt
 | `--episode=<id>` | 分集标识，需与 `--project` / `--script` 同时提供 | 无 |
 | `--style=realistic\|3d` | 视觉风格 | `realistic` |
 | `--skip-consistency` | 跳过一致性验证 | 关闭 |
-| `--provider=deepseek\|qwen` | 覆盖LLM提供商 | `.env`配置 |
+| `--provider=qwen\|deepseek\|claude` | 覆盖LLM提供商 | `.env`配置 |
 
 ## 测试与验证
 
@@ -408,20 +451,25 @@ node --test tests/jobStore.test.js
 
 | 服务 | 单次成本 | 月预算参考 |
 |------|---------|----------|
-| DeepSeek-V3（剧本分析） | ~¥0.002/次 | ¥10-50 |
-| Qwen-VL-Max（一致性验证） | ~¥0.01/次 | ¥20-80 |
-| Together AI Flux Pro（写实图像） | ~$0.05/张 | ¥100-500 |
-| Stability AI（3D图像） | ~$0.01/张 | ¥50-200 |
-| 阿里云TTS（配音） | ~¥0.001/字 | ¥20-100 |
+| Qwen / DeepSeek（文本） | 取决于 provider 路由 | 按实际调用量 |
+| 视觉 LLM（一致性验证） | 取决于 provider 路由 | 按实际调用量 |
+| LaoZhang 图像生成 | 取决于模型与分组渠道 | 按实际调用量 |
+| 讯飞TTS（配音） | 取决于字符数与套餐 | 按实际调用量 |
 | FFmpeg（视频合成） | 免费 | 0 |
-| **合计** | | **¥200-930/月** |
+| **合计** | | **以当前中转站 / provider 实际计费为准** |
 
 ## 角色一致性方案
 
 **MVP阶段（无需训练）**：
 1. 角色首次出现时，生成"视觉ID卡"（`basePromptTokens`）
 2. 后续每张包含该角色的图像，自动在Prompt中注入ID卡特征词
-3. 生成后用Qwen-VL-Max检查一致性，评分 < 7分时调整Prompt重新生成
+3. 生成后按角色聚合同名镜头，做角色外观一致性检查
+4. 评分 < 7分时调整Prompt重新生成
+
+**当前边界**：
+- 已做：角色外观一致性
+- 未单独建模：镜头动作衔接、构图连续、视线连续、场面调度连贯性
+- 如果要做“连贯性 Agent”，建议作为新 Agent 单独设计，而不是继续混在 `Consistency Checker`
 
 **进阶阶段（可选）**：
 - IP-Adapter（参考图引导生成，外观更稳定）
