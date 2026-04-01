@@ -14,9 +14,10 @@ import { generateAllAudio } from './ttsAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
-import { loadEpisode, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
+import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
+import { createRunArtifactContext } from '../utils/runArtifacts.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import logger from '../utils/logger.js';
 
@@ -96,6 +97,16 @@ function normalizeProjectId(projectId) {
   return projectId ?? null;
 }
 
+const AGENT_ARTIFACT_LAYOUT = {
+  scriptParser: '01-script-parser',
+  characterRegistry: '02-character-registry',
+  promptEngineer: '03-prompt-engineer',
+  imageGenerator: '04-image-generator',
+  consistencyChecker: '05-consistency-checker',
+  ttsAgent: '06-tts-agent',
+  videoComposer: '07-video-composer',
+};
+
 export function createDirector(overrides = {}) {
   const deps = {
     parseScript,
@@ -114,6 +125,7 @@ export function createDirector(overrides = {}) {
     saveProject,
     saveScript,
     saveEpisode,
+    loadProject,
     loadScript,
     loadEpisode,
     createRunJob,
@@ -138,6 +150,7 @@ export function createDirector(overrides = {}) {
       const dirs = deps.initDirs(jobId);
       const stateFile = path.join(dirs.root, 'state.json');
       const state = deps.loadJSON(stateFile) || {};
+      const runStartedAt = options.startedAt || new Date().toISOString();
       let runJobRef = null;
       let runJobCreated = false;
       let taskRunWritesEnabled = true;
@@ -158,6 +171,7 @@ export function createDirector(overrides = {}) {
       }
 
       try {
+        const project = deps.loadProject(projectId, options.storeOptions) || null;
         const script = deps.loadScript(projectId, scriptId, options.storeOptions) || null;
         if (!script) {
           throw new Error(`找不到剧本：${projectId}/${scriptId}`);
@@ -170,6 +184,7 @@ export function createDirector(overrides = {}) {
 
         const shots = Array.isArray(episode.shots) ? episode.shots : [];
         const characters = Array.isArray(script.characters) ? script.characters : [];
+        const projectName = project?.name || projectId;
         const scriptTitle = script.title || 'untitled_script';
         const episodeTitle = episode.title || `episode_${episodeId}`;
         runJobRef = {
@@ -178,6 +193,39 @@ export function createDirector(overrides = {}) {
           scriptId,
           episodeId,
         };
+        const artifactContext = createRunArtifactContext({
+          baseTempDir: options.storeOptions?.baseTempDir,
+          projectId,
+          projectName,
+          scriptId,
+          scriptTitle,
+          episodeId,
+          episodeTitle,
+          episodeNo: episode.episodeNo,
+          runJobId: runJobRef.id,
+          startedAt: runStartedAt,
+        });
+
+        deps.saveJSON(artifactContext.manifestPath, {
+          projectId,
+          projectName,
+          scriptId,
+          scriptTitle,
+          episodeId,
+          episodeTitle,
+          runJobId: runJobRef.id,
+          jobId,
+          style,
+          startedAt: runStartedAt,
+        });
+        deps.saveJSON(path.join(artifactContext.runDir, 'timeline.json'), []);
+        for (const [agentKey, agentContext] of Object.entries(artifactContext.agents)) {
+          deps.saveJSON(agentContext.manifestPath, {
+            agentKey,
+            agentDirName: AGENT_ARTIFACT_LAYOUT[agentKey],
+            status: 'pending',
+          });
+        }
 
         deps.logger.info(
           'Director',
@@ -218,6 +266,10 @@ export function createDirector(overrides = {}) {
                 style,
                 scriptTitle,
                 episodeTitle,
+                startedAt: runStartedAt,
+                artifactRunDir: artifactContext.runDir,
+                artifactManifestPath: artifactContext.manifestPath,
+                artifactTimelinePath: path.join(artifactContext.runDir, 'timeline.json'),
               },
               options.storeOptions
             ),

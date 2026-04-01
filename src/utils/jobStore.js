@@ -52,6 +52,9 @@ export function createRunJob(input, options = {}) {
     startedAt: input?.startedAt || new Date().toISOString(),
     finishedAt: input?.finishedAt || null,
     error: input?.error || null,
+    artifactRunDir: input?.artifactRunDir || null,
+    artifactManifestPath: input?.artifactManifestPath || null,
+    artifactTimelinePath: input?.artifactTimelinePath || null,
     agentTaskRuns: Array.isArray(input?.agentTaskRuns) ? input.agentTaskRuns : [],
   };
 
