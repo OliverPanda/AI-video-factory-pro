@@ -294,7 +294,8 @@ export function createDirector(overrides = {}) {
               deps.buildCharacterRegistry(
                 characters,
                 `${scriptTitle}：${buildEpisodeContext(script, episode).slice(0, 500)}`,
-                style
+                style,
+                { artifactContext: artifactContext.agents.characterRegistry }
               )
           );
           saveState({ characterRegistry });
@@ -310,7 +311,9 @@ export function createDirector(overrides = {}) {
         if (!promptList) {
           deps.logger.info('Director', '【Step 2/6】生成图像Prompt...');
           promptList = await recordStep('generate_prompts', { message: '生成图像Prompt' }, () =>
-            deps.generateAllPrompts(shots, characterRegistry, style)
+            deps.generateAllPrompts(shots, characterRegistry, style, {
+              artifactContext: artifactContext.agents.promptEngineer,
+            })
           );
           saveState({ promptList });
         } else {

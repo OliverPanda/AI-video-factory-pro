@@ -2,7 +2,10 @@
  * 角色设定Agent - 维护角色视觉档案，确保跨镜头一致性
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { chatJSON } from '../llm/client.js';
+import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import logger from '../utils/logger.js';
 
 const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色创建详细的视觉设定档案。
@@ -12,6 +15,65 @@ const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色
 - 描述要具体可视化，避免抽象词汇
 - 优先描述可见特征：发型、发色、面部、体型、服装
 - 生成图像提示词要与所选风格（写实/3D）匹配`;
+
+function writeTextFile(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function buildRegistryMarkdown(cards) {
+  return `${cards
+    .map(
+      (card) =>
+        `## ${card.name}\n` +
+        `- Gender: ${card.gender || ''}\n` +
+        `- Age: ${card.age || ''}\n` +
+        `- Visual: ${card.visualDescription || ''}\n` +
+        `- Tokens: ${card.basePromptTokens || ''}\n` +
+        `- Personality: ${card.personality || ''}\n`
+    )
+    .join('\n')}\n`;
+}
+
+function buildNameMapping(cards) {
+  return Object.fromEntries(cards.map((card) => [card.name, card.name]));
+}
+
+function buildCharacterMetrics(cards, sourceCharacters) {
+  const sourceCount = Array.isArray(sourceCharacters) ? sourceCharacters.length : 0;
+  const fallbackMergedCount = cards.filter((card) => !card.visualDescription && !card.basePromptTokens).length;
+  const missingProfileCount = cards.filter((card) => !card.visualDescription || !card.basePromptTokens).length;
+
+  return {
+    character_count: cards.length,
+    registry_coverage_rate: sourceCount > 0 ? (cards.length - missingProfileCount) / sourceCount : 1,
+    fallback_merged_count: fallbackMergedCount,
+    missing_profile_count: missingProfileCount,
+  };
+}
+
+function writeCharacterRegistryArtifacts(cards, sourceCharacters, artifactContext) {
+  if (!artifactContext) {
+    return;
+  }
+
+  saveJSON(path.join(artifactContext.outputsDir, 'character-registry.json'), cards);
+  writeTextFile(path.join(artifactContext.outputsDir, 'character-registry.md'), buildRegistryMarkdown(cards));
+  saveJSON(path.join(artifactContext.outputsDir, 'character-name-mapping.json'), buildNameMapping(cards));
+
+  const metrics = buildCharacterMetrics(cards, sourceCharacters);
+  saveJSON(path.join(artifactContext.metricsDir, 'character-metrics.json'), metrics);
+  saveJSON(artifactContext.manifestPath, {
+    status: 'completed',
+    characterCount: cards.length,
+    outputFiles: [
+      'character-registry.json',
+      'character-registry.md',
+      'character-name-mapping.json',
+      'character-metrics.json',
+    ],
+  });
+}
 
 /**
  * 构建角色视觉档案
@@ -62,6 +124,7 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
   );
 
   const cards = mergeCharacterSources(result.characters || [], characters);
+  writeCharacterRegistryArtifacts(cards, characters, deps.artifactContext);
   logger.info('CharacterRegistry', `角色档案构建完成：${cards.map((c) => c.name).join('、')}`);
   return cards;
 }
