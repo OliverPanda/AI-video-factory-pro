@@ -96,7 +96,15 @@ test('director creates manifest timeline and agent directories for an episode ru
     assert.match(manifest.runJobId, /^run_job_artifacts_\d{17}_[a-f0-9]{8}$/);
 
     const timeline = JSON.parse(fs.readFileSync(path.join(expectedRunDir, 'timeline.json'), 'utf-8'));
-    assert.deepEqual(timeline, []);
+    assert.equal(Array.isArray(timeline), true);
+    assert.equal(timeline.length, 1);
+    assert.deepEqual(timeline[0], {
+      event: 'run_initialized',
+      status: 'running',
+      at: '2026-04-01T09:00:00.000Z',
+      runJobId: manifest.runJobId,
+      jobId: 'job_artifacts',
+    });
 
     const agentManifest = JSON.parse(
       fs.readFileSync(path.join(expectedRunDir, '01-script-parser', 'manifest.json'), 'utf-8')

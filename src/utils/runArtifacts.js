@@ -1,12 +1,22 @@
 import path from 'node:path';
 
-import { ensureDir } from './fileHelper.js';
+import { ensureDir, saveJSON } from './fileHelper.js';
 import {
   buildEpisodeDirName,
   buildProjectDirName,
   buildRunDirName,
   buildScriptDirName,
 } from './naming.js';
+
+export const AGENT_ARTIFACT_LAYOUT = {
+  scriptParser: '01-script-parser',
+  characterRegistry: '02-character-registry',
+  promptEngineer: '03-prompt-engineer',
+  imageGenerator: '04-image-generator',
+  consistencyChecker: '05-consistency-checker',
+  ttsAgent: '06-tts-agent',
+  videoComposer: '07-video-composer',
+};
 
 function createAgentContext(runDir, agentDirName) {
   const dir = ensureDir(path.join(runDir, agentDirName));
@@ -51,18 +61,47 @@ export function createRunArtifactContext(input) {
     runsDir,
     runDir,
     manifestPath: path.join(runDir, 'manifest.json'),
+    timelinePath: path.join(runDir, 'timeline.json'),
     agents: {
-      scriptParser: createAgentContext(runDir, '01-script-parser'),
-      characterRegistry: createAgentContext(runDir, '02-character-registry'),
-      promptEngineer: createAgentContext(runDir, '03-prompt-engineer'),
-      imageGenerator: createAgentContext(runDir, '04-image-generator'),
-      consistencyChecker: createAgentContext(runDir, '05-consistency-checker'),
-      ttsAgent: createAgentContext(runDir, '06-tts-agent'),
-      videoComposer: createAgentContext(runDir, '07-video-composer'),
+      scriptParser: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.scriptParser),
+      characterRegistry: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRegistry),
+      promptEngineer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.promptEngineer),
+      imageGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.imageGenerator),
+      consistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.consistencyChecker),
+      ttsAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsAgent),
+      videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
     },
   };
 }
 
+export function initializeRunArtifacts(artifactContext, metadata, options = {}) {
+  const writeJSON = options.saveJSON || saveJSON;
+  const timeline = [
+    {
+      event: 'run_initialized',
+      status: 'running',
+      at: metadata.startedAt,
+      runJobId: metadata.runJobId,
+      jobId: metadata.jobId,
+    },
+  ];
+
+  writeJSON(artifactContext.manifestPath, metadata);
+  writeJSON(artifactContext.timelinePath, timeline);
+
+  for (const [agentKey, agentContext] of Object.entries(artifactContext.agents)) {
+    writeJSON(agentContext.manifestPath, {
+      agentKey,
+      agentDirName: AGENT_ARTIFACT_LAYOUT[agentKey],
+      status: 'pending',
+    });
+  }
+
+  return timeline;
+}
+
 export default {
   createRunArtifactContext,
+  initializeRunArtifacts,
+  AGENT_ARTIFACT_LAYOUT,
 };

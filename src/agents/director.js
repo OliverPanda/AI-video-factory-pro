@@ -17,7 +17,7 @@ import { createEpisode, createProject, createScript } from '../domain/projectMod
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
-import { createRunArtifactContext } from '../utils/runArtifacts.js';
+import { createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import logger from '../utils/logger.js';
 
@@ -96,16 +96,6 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
 function normalizeProjectId(projectId) {
   return projectId ?? null;
 }
-
-const AGENT_ARTIFACT_LAYOUT = {
-  scriptParser: '01-script-parser',
-  characterRegistry: '02-character-registry',
-  promptEngineer: '03-prompt-engineer',
-  imageGenerator: '04-image-generator',
-  consistencyChecker: '05-consistency-checker',
-  ttsAgent: '06-tts-agent',
-  videoComposer: '07-video-composer',
-};
 
 export function createDirector(overrides = {}) {
   const deps = {
@@ -206,7 +196,7 @@ export function createDirector(overrides = {}) {
           startedAt: runStartedAt,
         });
 
-        deps.saveJSON(artifactContext.manifestPath, {
+        initializeRunArtifacts(artifactContext, {
           projectId,
           projectName,
           scriptId,
@@ -217,15 +207,7 @@ export function createDirector(overrides = {}) {
           jobId,
           style,
           startedAt: runStartedAt,
-        });
-        deps.saveJSON(path.join(artifactContext.runDir, 'timeline.json'), []);
-        for (const [agentKey, agentContext] of Object.entries(artifactContext.agents)) {
-          deps.saveJSON(agentContext.manifestPath, {
-            agentKey,
-            agentDirName: AGENT_ARTIFACT_LAYOUT[agentKey],
-            status: 'pending',
-          });
-        }
+        }, { saveJSON: deps.saveJSON });
 
         deps.logger.info(
           'Director',
@@ -269,7 +251,7 @@ export function createDirector(overrides = {}) {
                 startedAt: runStartedAt,
                 artifactRunDir: artifactContext.runDir,
                 artifactManifestPath: artifactContext.manifestPath,
-                artifactTimelinePath: path.join(artifactContext.runDir, 'timeline.json'),
+                artifactTimelinePath: artifactContext.timelinePath,
               },
               options.storeOptions
             ),
