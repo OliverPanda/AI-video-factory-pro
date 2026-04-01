@@ -510,6 +510,8 @@ export function createDirector(overrides = {}) {
 
       try {
         const scriptText = deps.readTextFile(scriptFilePath);
+        const legacyScriptTitle =
+          path.basename(scriptFilePath, path.extname(scriptFilePath)) || legacy.scriptId;
         const scriptContentHash = hashContent(scriptText);
         const contentChanged =
           state.compatibility?.scriptContentHash &&
@@ -540,8 +542,22 @@ export function createDirector(overrides = {}) {
               shots: existingEpisode.shots || [],
             };
           } else {
-            const bootstrapArtifactContext = options.artifactContext?.agents?.scriptParser;
+            const bootstrapArtifactContext =
+              options.artifactContext?.agents?.scriptParser ||
+              createRunArtifactContext({
+                baseTempDir: options.storeOptions?.baseTempDir,
+                projectId: legacy.projectId,
+                projectName: legacyScriptTitle,
+                scriptId: legacy.scriptId,
+                scriptTitle: legacyScriptTitle,
+                episodeId: legacy.episodeId,
+                episodeTitle: legacyScriptTitle,
+                episodeNo: 1,
+                runJobId: legacy.jobId,
+                startedAt: options.startedAt || new Date().toISOString(),
+              }).agents.scriptParser;
             scriptData = await deps.parseScript(scriptText, {
+              ...options.parseScriptDeps,
               artifactContext: bootstrapArtifactContext,
             });
           }
