@@ -17,7 +17,7 @@ import { createEpisode, createProject, createScript } from '../domain/projectMod
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
-import { createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
+import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import logger from '../utils/logger.js';
 
@@ -178,23 +178,25 @@ export function createDirector(overrides = {}) {
         const scriptTitle = script.title || 'untitled_script';
         const episodeTitle = episode.title || `episode_${episodeId}`;
         runJobRef = {
-          id: createRunJobAttemptId(jobId),
+          id: options.runAttemptId || createRunJobAttemptId(jobId),
           projectId,
           scriptId,
           episodeId,
         };
-        const artifactContext = createRunArtifactContext({
-          baseTempDir: options.storeOptions?.baseTempDir,
-          projectId,
-          projectName,
-          scriptId,
-          scriptTitle,
-          episodeId,
-          episodeTitle,
-          episodeNo: episode.episodeNo,
-          runJobId: runJobRef.id,
-          startedAt: runStartedAt,
-        });
+        const artifactContext =
+          options.artifactContext ||
+          createRunArtifactContext({
+            baseTempDir: options.storeOptions?.baseTempDir,
+            projectId,
+            projectName,
+            scriptId,
+            scriptTitle,
+            episodeId,
+            episodeTitle,
+            episodeNo: episode.episodeNo,
+            runJobId: runJobRef.id,
+            startedAt: runStartedAt,
+          });
 
         initializeRunArtifacts(artifactContext, {
           projectId,
@@ -495,6 +497,8 @@ export function createDirector(overrides = {}) {
     async runPipeline(scriptFilePath, options = {}) {
       const style = options.style || process.env.IMAGE_STYLE || 'realistic';
       const legacy = buildLegacyBridgeIdentity(scriptFilePath);
+      const runStartedAt = options.startedAt || new Date().toISOString();
+      const runAttemptId = options.runAttemptId || createRunJobAttemptId(legacy.jobId, new Date(runStartedAt));
 
       deps.logger.info('Director', `=== 开始兼容任务 ${legacy.jobId} ===`);
       deps.logger.info('Director', `剧本：${scriptFilePath} | 风格：${style}`);
@@ -513,6 +517,7 @@ export function createDirector(overrides = {}) {
         const legacyScriptTitle =
           path.basename(scriptFilePath, path.extname(scriptFilePath)) || legacy.scriptId;
         const scriptContentHash = hashContent(scriptText);
+        let bootstrapParserArtifactContext = null;
         const contentChanged =
           state.compatibility?.scriptContentHash &&
           state.compatibility.scriptContentHash !== scriptContentHash;
@@ -542,23 +547,21 @@ export function createDirector(overrides = {}) {
               shots: existingEpisode.shots || [],
             };
           } else {
-            const bootstrapArtifactContext =
-              options.artifactContext?.agents?.scriptParser ||
-              createRunArtifactContext({
-                baseTempDir: options.storeOptions?.baseTempDir,
-                projectId: legacy.projectId,
-                projectName: legacyScriptTitle,
-                scriptId: legacy.scriptId,
-                scriptTitle: legacyScriptTitle,
-                episodeId: legacy.episodeId,
-                episodeTitle: legacyScriptTitle,
-                episodeNo: 1,
-                runJobId: legacy.jobId,
-                startedAt: options.startedAt || new Date().toISOString(),
-              }).agents.scriptParser;
+            bootstrapParserArtifactContext = createRunArtifactContext({
+              baseTempDir: options.storeOptions?.baseTempDir,
+              projectId: legacy.projectId,
+              projectName: legacyScriptTitle,
+              scriptId: legacy.scriptId,
+              scriptTitle: legacyScriptTitle,
+              episodeId: legacy.episodeId,
+              episodeTitle: legacyScriptTitle,
+              episodeNo: 1,
+              runJobId: runAttemptId,
+              startedAt: runStartedAt,
+            }).agents.scriptParser;
             scriptData = await deps.parseScript(scriptText, {
               ...options.parseScriptDeps,
-              artifactContext: bootstrapArtifactContext,
+              artifactContext: bootstrapParserArtifactContext,
             });
           }
         }
@@ -566,6 +569,27 @@ export function createDirector(overrides = {}) {
         const title = scriptData.title || path.basename(scriptFilePath, path.extname(scriptFilePath));
         const characters = scriptData.characters || [];
         const shots = scriptData.shots || [];
+        const finalArtifactContext =
+          options.artifactContext ||
+          createRunArtifactContext({
+            baseTempDir: options.storeOptions?.baseTempDir,
+            projectId: legacy.projectId,
+            projectName: title,
+            scriptId: legacy.scriptId,
+            scriptTitle: title,
+            episodeId: legacy.episodeId,
+            episodeTitle: title,
+            episodeNo: 1,
+            runJobId: runAttemptId,
+            startedAt: runStartedAt,
+          });
+
+        if (bootstrapParserArtifactContext && !options.artifactContext) {
+          adoptAgentArtifacts(
+            bootstrapParserArtifactContext,
+            finalArtifactContext.agents.scriptParser
+          );
+        }
 
         saveState({
           compatibility: {
@@ -622,6 +646,9 @@ export function createDirector(overrides = {}) {
           options: {
             ...options,
             jobId: legacy.jobId,
+            startedAt: runStartedAt,
+            runAttemptId,
+            artifactContext: finalArtifactContext,
             voiceProjectId: options.projectId ?? null,
           },
         });

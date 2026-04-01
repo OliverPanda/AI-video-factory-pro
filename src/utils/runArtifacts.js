@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { ensureDir, saveJSON } from './fileHelper.js';
@@ -90,18 +91,40 @@ export function initializeRunArtifacts(artifactContext, metadata, options = {}) 
   writeJSON(artifactContext.timelinePath, timeline);
 
   for (const [agentKey, agentContext] of Object.entries(artifactContext.agents)) {
-    writeJSON(agentContext.manifestPath, {
-      agentKey,
-      agentDirName: AGENT_ARTIFACT_LAYOUT[agentKey],
-      status: 'pending',
-    });
+    if (!fs.existsSync(agentContext.manifestPath)) {
+      writeJSON(agentContext.manifestPath, {
+        agentKey,
+        agentDirName: AGENT_ARTIFACT_LAYOUT[agentKey],
+        status: 'pending',
+      });
+    }
   }
 
   return timeline;
 }
 
+export function adoptAgentArtifacts(sourceAgentContext, targetAgentContext) {
+  if (!sourceAgentContext || !targetAgentContext) {
+    return targetAgentContext;
+  }
+
+  if (sourceAgentContext.dir === targetAgentContext.dir) {
+    return targetAgentContext;
+  }
+
+  if (!fs.existsSync(sourceAgentContext.dir)) {
+    return targetAgentContext;
+  }
+
+  fs.rmSync(targetAgentContext.dir, { recursive: true, force: true });
+  ensureDir(path.dirname(targetAgentContext.dir));
+  fs.renameSync(sourceAgentContext.dir, targetAgentContext.dir);
+  return targetAgentContext;
+}
+
 export default {
   createRunArtifactContext,
   initializeRunArtifacts,
+  adoptAgentArtifacts,
   AGENT_ARTIFACT_LAYOUT,
 };
