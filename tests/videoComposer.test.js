@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 
 import {
+  __testables,
   buildAudioTimeline,
   buildCompositionPlan,
   buildVisualSegmentJobs,
@@ -172,4 +173,21 @@ test('buildCompositionPlan supports ShotPlan camelCase duration fields', () => {
 
   assert.equal(plan.length, 1);
   assert.equal(plan[0].duration, 5);
+});
+
+test('buildVideoMetrics summarizes composition outputs', () => {
+  const metrics = __testables.buildVideoMetrics(
+    [
+      { shotId: 'shot_1', duration: 2, dialogue: '你好' },
+      { shotId: 'shot_2', duration: 3, dialogue: '' },
+    ],
+    '/tmp/final-video.mp4'
+  );
+
+  assert.deepEqual(metrics, {
+    composed_shot_count: 2,
+    subtitle_count: 1,
+    total_duration_sec: 5,
+    output_path: '/tmp/final-video.mp4',
+  });
 });

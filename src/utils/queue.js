@@ -24,7 +24,7 @@ export const llmQueue = new PQueue({ concurrency: 5 });
  * @param {number} maxRetries
  * @param {string} taskName - 用于日志
  */
-export async function queueWithRetry(queue, fn, maxRetries = 3, taskName = 'task') {
+export async function queueWithRetry(queue, fn, maxRetries = 3, taskName = 'task', hooks = {}) {
   return queue.add(async () => {
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -34,6 +34,13 @@ export async function queueWithRetry(queue, fn, maxRetries = 3, taskName = 'task
         lastError = err;
         if (attempt < maxRetries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 30000); // 指数退避：1s, 2s, 4s...最多30s
+          hooks.onRetry?.({
+            taskName,
+            attempt,
+            maxRetries,
+            delay,
+            error: err,
+          });
           console.warn(`[Queue] ${taskName} 失败，${delay}ms 后重试 (${attempt}/${maxRetries})：${err.message}`);
           await new Promise((r) => setTimeout(r, delay));
         }

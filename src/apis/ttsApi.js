@@ -1,90 +1,151 @@
 /**
  * TTS 配音 API 封装
- * 支持：阿里云语音合成 | Azure Speech
- * 通过 TTS_PROVIDER 环境变量控制
+ * 当前仅支持：讯飞在线语音合成
  */
 
 import 'dotenv/config';
-import axios from 'axios';
+import crypto from 'crypto';
 import path from 'path';
+import WebSocket from 'ws';
 import { saveBuffer } from '../utils/fileHelper.js';
 import logger from '../utils/logger.js';
 
-const DEFAULT_PROVIDER = process.env.TTS_PROVIDER || 'aliyun';
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
-// ─── 阿里云 TTS ───────────────────────────────────────────────
-// 文档：https://help.aliyun.com/zh/isi/developer-reference/overview-of-real-time-speech-synthesis
-async function ttsWithAliyun(text, outputPath, options = {}) {
-  const appKey = process.env.ALIYUN_TTS_APP_KEY;
-  const token = process.env.ALIYUN_TTS_TOKEN;
-  if (!appKey || !token) throw new Error('缺少 ALIYUN_TTS_APP_KEY 或 ALIYUN_TTS_TOKEN');
+function normalizeXfyunBusinessValue(value, fallback = 50) {
+  if (value === undefined || value === null || value === '') return fallback;
 
-  const voice = options.voice || (options.gender === 'female' ? 'zhixiaobai' : 'zhimiao_emo');
-  const baseUrl = process.env.ALIYUN_TTS_BASE_URL || 'https://nls-gateway.cn-shanghai.aliyuncs.com';
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue === 0) return fallback;
+
+  if (numericValue >= 0 && numericValue <= 100) {
+    return Math.round(numericValue);
+  }
+
+  return clamp(Math.round(50 + numericValue / 2), 0, 100);
+}
+
+function buildXfyunRequestUrl({
+  apiKey,
+  apiSecret,
+  host = process.env.XFYUN_TTS_HOST || 'tts-api.xfyun.cn',
+  pathName = process.env.XFYUN_TTS_PATH || '/v2/tts',
+  date = new Date().toUTCString(),
+}) {
+  const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${pathName} HTTP/1.1`;
+  const signatureSha = crypto
+    .createHmac('sha256', apiSecret)
+    .update(signatureOrigin)
+    .digest('base64');
+  const authorizationOrigin =
+    `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`;
+  const authorization = Buffer.from(authorizationOrigin).toString('base64');
 
   const params = new URLSearchParams({
-    appkey: appKey,
-    token,
-    text: text.slice(0, 300), // 阿里云单次限制300字
-    voice,
-    format: 'mp3',
-    sample_rate: '16000',
-    speech_rate: String(options.rate || 0),
-    pitch_rate: String(options.pitch || 0),
+    authorization,
+    date,
+    host,
   });
 
-  const response = await axios.get(`${baseUrl}/stream/v1/tts?${params}`, {
-    responseType: 'arraybuffer',
-    timeout: 30000,
+  return `wss://${host}${pathName}?${params.toString()}`;
+}
+
+function buildXfyunPayload(text, options = {}, env = process.env) {
+  const femaleVoice = env.XFYUN_TTS_VOICE_FEMALE || env.XFYUN_TTS_VOICE || 'xiaoyan';
+  const maleVoice = env.XFYUN_TTS_VOICE_MALE || env.XFYUN_TTS_VOICE || 'xiaofeng';
+
+  return {
+    common: {
+      app_id: env.XFYUN_TTS_APP_ID,
+    },
+    business: {
+      aue: env.XFYUN_TTS_AUDIO_ENCODING || 'lame',
+      auf: env.XFYUN_TTS_AUDIO_FORMAT || 'audio/L16;rate=16000',
+      sfl: 1,
+      tte: env.XFYUN_TTS_TEXT_ENCODING || 'UTF8',
+      vcn: options.voice || (options.gender === 'female' ? femaleVoice : maleVoice),
+      speed: normalizeXfyunBusinessValue(options.rate, 50),
+      volume: normalizeXfyunBusinessValue(options.volume, 50),
+      pitch: normalizeXfyunBusinessValue(options.pitch, 50),
+    },
+    data: {
+      status: 2,
+      text: Buffer.from(text).toString('base64'),
+    },
+  };
+}
+
+async function ttsWithXfyun(text, outputPath, options = {}) {
+  const appId = process.env.XFYUN_TTS_APP_ID;
+  const apiKey = process.env.XFYUN_TTS_API_KEY;
+  const apiSecret = process.env.XFYUN_TTS_API_SECRET;
+
+  if (!appId || !apiKey || !apiSecret) {
+    throw new Error('缺少 XFYUN_TTS_APP_ID、XFYUN_TTS_API_KEY 或 XFYUN_TTS_API_SECRET');
+  }
+
+  const url = buildXfyunRequestUrl({ apiKey, apiSecret });
+  const payload = buildXfyunPayload(text, options);
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const audioChunks = [];
+    const timeout = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('讯飞 TTS 超时'));
+    }, 30000);
+
+    const cleanup = () => clearTimeout(timeout);
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify(payload));
+    });
+
+    ws.on('message', (rawMessage) => {
+      try {
+        const message = JSON.parse(rawMessage.toString());
+        if (message.code !== 0) {
+          throw new Error(message.message || `讯飞 TTS 返回错误码：${message.code}`);
+        }
+
+        const audioBase64 = message.data?.audio;
+        if (audioBase64) {
+          audioChunks.push(Buffer.from(audioBase64, 'base64'));
+        }
+
+        if (message.data?.status === 2) {
+          saveBuffer(outputPath, Buffer.concat(audioChunks));
+          cleanup();
+          ws.close();
+          logger.debug('TTS', `讯飞TTS完成：${path.basename(outputPath)}`);
+          resolve(outputPath);
+        }
+      } catch (error) {
+        cleanup();
+        ws.terminate();
+        reject(error);
+      }
+    });
+
+    ws.on('error', (error) => {
+      cleanup();
+      reject(new Error(`讯飞 TTS 连接失败：${error.message}`));
+    });
+
+    ws.on('close', () => {
+      cleanup();
+    });
   });
-
-  saveBuffer(outputPath, Buffer.from(response.data));
-  logger.debug('TTS', `阿里云TTS完成：${path.basename(outputPath)}`);
-  return outputPath;
 }
 
-// ─── Azure Speech ────────────────────────────────────────────
-async function ttsWithAzure(text, outputPath, options = {}) {
-  const key = process.env.AZURE_SPEECH_KEY;
-  const region = process.env.AZURE_SPEECH_REGION || 'eastasia';
-  if (!key) throw new Error('缺少 AZURE_SPEECH_KEY');
-
-  const voice = options.voice || (options.gender === 'female' ? 'zh-CN-XiaoxiaoNeural' : 'zh-CN-YunxiNeural');
-  const ssml = `
-<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="zh-CN">
-  <voice name="${voice}">
-    <prosody rate="${options.rate || '0%'}" pitch="${options.pitch || '0%'}">
-      ${text}
-    </prosody>
-  </voice>
-</speak>`.trim();
-
-  const response = await axios.post(
-    `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,
-    ssml,
-    {
-      headers: {
-        'Ocp-Apim-Subscription-Key': key,
-        'Content-Type': 'application/ssml+xml',
-        'X-Microsoft-OutputFormat': 'audio-48khz-192kbitrate-mono-mp3',
-      },
-      responseType: 'arraybuffer',
-      timeout: 30000,
-    }
-  );
-
-  saveBuffer(outputPath, Buffer.from(response.data));
-  logger.debug('TTS', `Azure TTS完成：${path.basename(outputPath)}`);
-  return outputPath;
-}
-
-// ─── 统一接口 ────────────────────────────────────────────────
 /**
  * 文字转语音
  * @param {string} text - 台词文本
  * @param {string} outputPath - 音频保存路径（.mp3）
- * @param {Object} options - { gender: 'male'|'female', rate, pitch, voice, provider }
- * @returns {Promise<string>} 音频文件路径
+ * @param {Object} options - { gender: 'male'|'female', rate, pitch, volume, voice }
+ * @returns {Promise<string|null>} 音频文件路径
  */
 export async function textToSpeech(text, outputPath, options = {}) {
   if (!text || text.trim() === '') {
@@ -92,13 +153,8 @@ export async function textToSpeech(text, outputPath, options = {}) {
     return null;
   }
 
-  const provider = options.provider || DEFAULT_PROVIDER;
-  logger.info('TTS', `合成语音 [${provider}]：${text.slice(0, 30)}...`);
-
-  if (provider === 'azure') {
-    return ttsWithAzure(text, outputPath, options);
-  }
-  return ttsWithAliyun(text, outputPath, options);
+  logger.info('TTS', `合成语音 [xfyun]：${text.slice(0, 30)}...`);
+  return ttsWithXfyun(text, outputPath, options);
 }
 
 /**
@@ -109,3 +165,9 @@ export async function batchTTS(tasks) {
     tasks.map(({ text, outputPath, options }) => textToSpeech(text, outputPath, options))
   );
 }
+
+export const __testables = {
+  buildXfyunRequestUrl,
+  buildXfyunPayload,
+  normalizeXfyunBusinessValue,
+};

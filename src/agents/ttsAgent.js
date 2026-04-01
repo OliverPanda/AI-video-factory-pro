@@ -20,24 +20,39 @@ function writeTtsArtifacts(results, voiceResolution, artifactContext) {
     return;
   }
 
-  saveJSON(path.join(artifactContext.inputsDir, 'voice-resolution.json'), voiceResolution);
-  saveJSON(path.join(artifactContext.outputsDir, 'audio.index.json'), results);
+  const orderedResults = [...results].sort((left, right) => left.shotId.localeCompare(right.shotId));
+  const orderedVoiceResolution = [...voiceResolution].sort((left, right) =>
+    left.shotId.localeCompare(right.shotId)
+  );
+
+  saveJSON(path.join(artifactContext.inputsDir, 'voice-resolution.json'), orderedVoiceResolution);
+  saveJSON(path.join(artifactContext.outputsDir, 'audio.index.json'), orderedResults);
   writeTextFile(
     path.join(artifactContext.outputsDir, 'dialogue-table.md'),
     [
-      '| Shot ID | Speaker | Dialogue | Status | Audio Path |',
-      '| --- | --- | --- | --- | --- |',
-      ...voiceResolution.map((entry) =>
-        `| ${entry.shotId} | ${entry.speakerName || ''} | ${entry.dialogue || ''} | ${entry.status} | ${entry.audioPath || ''} |`
+      '| Shot ID | Speaker | Voice | Dialogue | Status | Audio Path |',
+      '| --- | --- | --- | --- | --- | --- |',
+      ...orderedVoiceResolution.map((entry) =>
+        `| ${entry.shotId} | ${entry.speakerName || ''} | ${entry.ttsOptions?.voice || entry.resolvedGender || ''} | ${entry.dialogue || ''} | ${entry.status} | ${entry.audioPath || ''} |`
       ),
     ].join('\n') + '\n'
   );
 
-  const dialogueShotCount = voiceResolution.filter((entry) => entry.hasDialogue).length;
-  const synthesizedCount = results.filter((entry) => entry.audioPath).length;
-  const skippedCount = voiceResolution.filter((entry) => !entry.hasDialogue).length;
-  const failureCount = results.filter((entry) => entry.error).length;
-  const defaultVoiceFallbackCount = voiceResolution.filter((entry) => entry.usedDefaultVoiceFallback).length;
+  const dialogueShotCount = orderedVoiceResolution.filter((entry) => entry.hasDialogue).length;
+  const synthesizedCount = orderedResults.filter((entry) => entry.audioPath).length;
+  const skippedCount = orderedVoiceResolution.filter((entry) => !entry.hasDialogue).length;
+  const failureCount = orderedResults.filter((entry) => entry.error).length;
+  const defaultVoiceFallbackCount = orderedVoiceResolution.filter((entry) => entry.usedDefaultVoiceFallback).length;
+  const uniqueVoiceCount = new Set(
+    orderedVoiceResolution
+      .map((entry) => entry.ttsOptions?.voice || null)
+      .filter(Boolean)
+  ).size;
+  const voiceUsage = orderedVoiceResolution.reduce((acc, entry) => {
+    const key = entry.ttsOptions?.voice || entry.resolvedGender || 'unresolved';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
   saveJSON(path.join(artifactContext.metricsDir, 'tts-metrics.json'), {
     dialogue_shot_count: dialogueShotCount,
@@ -45,10 +60,12 @@ function writeTtsArtifacts(results, voiceResolution, artifactContext) {
     skipped_count: skippedCount,
     failure_count: failureCount,
     default_voice_fallback_count: defaultVoiceFallbackCount,
+    unique_voice_count: uniqueVoiceCount,
+    voice_usage: voiceUsage,
   });
 
-  for (const result of results.filter((entry) => entry.error)) {
-    const resolution = voiceResolution.find((entry) => entry.shotId === result.shotId) || null;
+  for (const result of orderedResults.filter((entry) => entry.error)) {
+    const resolution = orderedVoiceResolution.find((entry) => entry.shotId === result.shotId) || null;
     saveJSON(path.join(artifactContext.errorsDir, `${result.shotId}-error.json`), {
       ...result,
       voiceResolution: resolution,
@@ -106,6 +123,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
               usedDefaultVoiceFallback: false,
               status: 'skipped',
               audioPath: null,
+              voicePresetId: null,
             });
             return { shotId: shot.id, audioPath: null, hasDialogue: false };
           }
@@ -144,17 +162,18 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
 
           logger.step(i + 1, shots.length, `TTS: ${shot.id}`);
           const audioPath = await runTextToSpeech(shot.dialogue, outputPath, ttsOptions);
-          voiceResolution.push({
-            shotId: shot.id,
-            hasDialogue: true,
-            dialogue: shot.dialogue,
-            speakerName,
-            resolvedGender: gender,
-            ttsOptions: { ...ttsOptions },
-            usedDefaultVoiceFallback,
-            status: 'synthesized',
-            audioPath,
-          });
+            voiceResolution.push({
+              shotId: shot.id,
+              hasDialogue: true,
+              dialogue: shot.dialogue,
+              speakerName,
+              resolvedGender: gender,
+              ttsOptions: { ...ttsOptions },
+              usedDefaultVoiceFallback,
+              status: 'synthesized',
+              audioPath,
+              voicePresetId: speakerCard?.voicePresetId || null,
+            });
 
           return { shotId: shot.id, audioPath, hasDialogue: true };
         },
@@ -175,6 +194,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
           status: 'failed',
           audioPath: null,
           error: err.message,
+          voicePresetId: speaker?.character?.voicePresetId || null,
         });
         return { shotId: shot.id, audioPath: null, hasDialogue: true, error: err.message };
       })

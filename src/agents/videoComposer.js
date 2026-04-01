@@ -8,24 +8,34 @@ import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
-import { ensureDir } from '../utils/fileHelper.js';
+import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import logger from '../utils/logger.js';
 
-const VIDEO_WIDTH = parseInt(process.env.VIDEO_WIDTH || '1080');
-const VIDEO_HEIGHT = parseInt(process.env.VIDEO_HEIGHT || '1920');
-const VIDEO_FPS = parseInt(process.env.VIDEO_FPS || '24');
+const VIDEO_WIDTH = parseInt(process.env.VIDEO_WIDTH || '1080', 10);
+const VIDEO_HEIGHT = parseInt(process.env.VIDEO_HEIGHT || '1920', 10);
+const VIDEO_FPS = parseInt(process.env.VIDEO_FPS || '24', 10);
+const WORKSPACE_ROOT = path.resolve(process.cwd());
+const ALLOWED_ROOTS = [
+  WORKSPACE_ROOT,
+  path.resolve(process.env.OUTPUT_DIR || './output'),
+  path.resolve(process.env.TEMP_DIR || './temp'),
+];
 
 // 按优先级选择可用的中文字体（跨平台兼容）
 function detectChineseFont() {
   const candidates = [
-    'Microsoft YaHei', // Windows 微软雅黑
-    'PingFang SC',     // macOS 苹方
-    'Noto Sans CJK SC', // Linux Google Noto
-    'WenQuanYi Micro Hei', // Linux 文泉驿
-    'SimHei',          // 中易黑体（通用备选）
-    'Arial Unicode MS', // 万能备选
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Noto Sans CJK SC',
+    'WenQuanYi Micro Hei',
+    'SimHei',
+    'Arial Unicode MS',
   ];
-  // 尝试用 fc-list 检测（Linux/macOS），Windows 直接返回首选
+
+  if (process.platform === 'win32') {
+    return candidates[0];
+  }
+
   try {
     const installed = execSync('fc-list : family', { timeout: 3000 }).toString();
     for (const font of candidates) {
@@ -35,12 +45,53 @@ function detectChineseFont() {
       }
     }
   } catch {
-    // Windows 上 fc-list 不存在，直接用微软雅黑
+    // 非 Windows 环境未安装 fc-list 时回退到默认字体
   }
-  return candidates[0]; // 默认微软雅黑
+
+  return candidates[0];
 }
 
 const SUBTITLE_FONT = process.env.SUBTITLE_FONT || detectChineseFont();
+
+function writeTextFile(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function buildVideoMetrics(plan, outputPath) {
+  return {
+    composed_shot_count: plan.length,
+    subtitle_count: plan.filter((item) => item.dialogue).length,
+    total_duration_sec: Number(plan.reduce((sum, item) => sum + item.duration, 0).toFixed(3)),
+    output_path: outputPath,
+  };
+}
+
+function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) {
+  if (!artifactContext) {
+    return;
+  }
+
+  const segmentTempDir = outputPath.replace(/\.mp4$/i, '_segments');
+  const segmentIndex = buildVisualSegmentJobs(plan, segmentTempDir);
+
+  saveJSON(path.join(artifactContext.outputsDir, 'compose-plan.json'), plan);
+  saveJSON(path.join(artifactContext.outputsDir, 'segment-index.json'), segmentIndex);
+  saveJSON(path.join(artifactContext.metricsDir, 'video-metrics.json'), buildVideoMetrics(plan, outputPath));
+
+  if (extras.ffmpegCommand) {
+    writeTextFile(path.join(artifactContext.errorsDir, 'ffmpeg-command.txt'), extras.ffmpegCommand);
+  }
+  if (extras.ffmpegStderr) {
+    writeTextFile(path.join(artifactContext.errorsDir, 'ffmpeg-stderr.txt'), extras.ffmpegStderr);
+  }
+
+  saveJSON(artifactContext.manifestPath, {
+    status: extras.status || 'completed',
+    composedShotCount: plan.length,
+    outputFiles: ['compose-plan.json', 'segment-index.json', 'video-metrics.json'],
+  });
+}
 
 /**
  * 合成最终视频
@@ -53,12 +104,16 @@ const SUBTITLE_FONT = process.env.SUBTITLE_FONT || detectChineseFont();
 export async function composeVideo(shots, imageResults, audioResults, outputPath, options = {}) {
   logger.info('VideoComposer', '开始合成视频...');
 
-  // 提前检查 FFmpeg 是否可用
-  await checkFFmpeg();
+  const runCheckFFmpeg = options.checkFFmpeg || checkFFmpeg;
+  const runGenerateSubtitleFile = options.generateSubtitleFile || generateSubtitleFile;
+  const runMergeWithFFmpeg = options.mergeWithFFmpeg || mergeWithFFmpeg;
+  const allowedRoots = options.allowedRoots || [];
 
-  ensureDir(path.dirname(outputPath));
+  await runCheckFFmpeg();
 
-  // 构建合成计划（优先使用动画片段，无片段时回退到静态图）
+  const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频', { allowedRoots });
+  ensureDir(path.dirname(safeOutputPath));
+
   const plan = buildCompositionPlan(
     shots,
     imageResults,
@@ -66,21 +121,87 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
     options.animationClips || []
   );
   if (plan.length === 0) throw new Error('没有可合成的分镜（无可用动画片段或静态图像）');
+  const safePlan = validatePlanPaths(plan, { allowedRoots });
 
-  logger.info('VideoComposer', `合成计划：${plan.length} 个分镜`);
+  logger.info('VideoComposer', `合成计划：${safePlan.length} 个分镜`);
 
-  // 生成字幕文件（ASS格式，支持中文）
-  const subtitlePath = outputPath.replace('.mp4', '.ass');
-  generateSubtitleFile(plan, subtitlePath);
+  const subtitlePath = safeOutputPath.replace(/\.mp4$/i, '.ass');
+  runGenerateSubtitleFile(safePlan, subtitlePath);
 
-  // 合成视频
-  await mergeWithFFmpeg(plan, subtitlePath, outputPath);
+  try {
+    await runMergeWithFFmpeg(safePlan, subtitlePath, safeOutputPath);
+  } catch (error) {
+    writeComposerArtifacts(safePlan, safeOutputPath, options.artifactContext, {
+      status: 'failed',
+      ffmpegCommand: error.ffmpegCommand || error.command || '',
+      ffmpegStderr: error.ffmpegStderr || error.stderr || error.message,
+    });
+    throw error;
+  }
 
-  logger.info('VideoComposer', `视频合成完成：${outputPath}`);
-  return outputPath;
+  writeComposerArtifacts(safePlan, safeOutputPath, options.artifactContext, {
+    status: 'completed',
+  });
+
+  logger.info('VideoComposer', `视频合成完成：${safeOutputPath}`);
+  return safeOutputPath;
 }
 
-// ─── 内部函数 ────────────────────────────────────────────────
+function assertSafeWorkspacePath(targetPath, label, options = {}) {
+  if (!targetPath || typeof targetPath !== 'string') {
+    throw new Error(`${label} 路径无效`);
+  }
+
+  if (/[\r\n\0]/.test(targetPath)) {
+    throw new Error(`${label} 路径包含非法控制字符`);
+  }
+
+  const resolved = path.resolve(targetPath);
+  const allowedRoots = [...ALLOWED_ROOTS, ...(options.allowedRoots || [])]
+    .filter(Boolean)
+    .map((root) => path.resolve(root));
+  const isAllowed = allowedRoots.some((root) => {
+    const relative = path.relative(root, resolved);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
+
+  if (!isAllowed) {
+    throw new Error(`${label} 路径超出允许范围：${resolved}`);
+  }
+
+  if (options.mustExist && !fs.existsSync(resolved)) {
+    throw new Error(`${label} 不存在：${resolved}`);
+  }
+
+  return resolved;
+}
+
+function escapeConcatPath(filePath) {
+  return filePath.replace(/\\/g, '/').replace(/'/g, `'\\''`);
+}
+
+function escapeFilterPath(filePath) {
+  return filePath
+    .replace(/\\/g, '/')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/,/g, '\\,')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+function escapeAssText(text) {
+  return String(text)
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\N')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}');
+}
+
+function normalizeDuration(duration) {
+  const numericDuration = Number(duration);
+  return Number.isFinite(numericDuration) && numericDuration > 0 ? numericDuration : 0.1;
+}
 
 export function buildCompositionPlan(
   shots,
@@ -93,12 +214,13 @@ export function buildCompositionPlan(
       const visual = resolveShotVisual(shot, imageResults, animationClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
       if (!visual) return null;
+
       return {
         shotId: shot.id,
         ...visual,
         audioPath: audioResult?.audioPath || null,
         dialogue: shot.dialogue || '',
-        duration: visual.duration || shot.duration || shot.durationSec || 3,
+        duration: normalizeDuration(visual.duration || shot.duration || shot.durationSec || 3),
       };
     })
     .filter(Boolean);
@@ -127,7 +249,34 @@ function resolveShotVisual(shot, imageResults, animationClips) {
   };
 }
 
+function validatePlanPaths(plan, options = {}) {
+  return plan.map((item) => ({
+    ...item,
+    imagePath:
+      item.visualType === 'static_image'
+        ? assertSafeWorkspacePath(item.imagePath, `分镜 ${item.shotId} 图像`, {
+            mustExist: true,
+            allowedRoots: options.allowedRoots,
+          })
+        : item.imagePath,
+    videoPath:
+      item.visualType === 'animation_clip'
+        ? assertSafeWorkspacePath(item.videoPath, `分镜 ${item.shotId} 动画`, {
+            mustExist: true,
+            allowedRoots: options.allowedRoots,
+          })
+        : item.videoPath,
+    audioPath: item.audioPath
+      ? assertSafeWorkspacePath(item.audioPath, `分镜 ${item.shotId} 音频`, {
+          mustExist: true,
+          allowedRoots: options.allowedRoots,
+        })
+      : null,
+  }));
+}
+
 function generateSubtitleFile(plan, subtitlePath) {
+  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件');
   let currentTime = 0;
   const dialogues = [];
 
@@ -136,14 +285,17 @@ function generateSubtitleFile(plan, subtitlePath) {
       dialogues.push({
         start: currentTime,
         end: currentTime + item.duration,
-        text: item.dialogue,
+        text: escapeAssText(item.dialogue),
       });
     }
     currentTime += item.duration;
   }
 
   if (dialogues.length === 0) {
-    fs.writeFileSync(subtitlePath, '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n');
+    fs.writeFileSync(
+      safeSubtitlePath,
+      '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+    );
     return;
   }
 
@@ -172,34 +324,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     .map((d) => `Dialogue: 0,${toASSTime(d.start)},${toASSTime(d.end)},Default,,0,0,0,,${d.text}`)
     .join('\n');
 
-  fs.writeFileSync(subtitlePath, header + events);
-  logger.debug('VideoComposer', `字幕文件生成：${path.basename(subtitlePath)}（${dialogues.length} 条）`);
+  fs.writeFileSync(safeSubtitlePath, header + events);
+  logger.debug('VideoComposer', `字幕文件生成：${path.basename(safeSubtitlePath)}（${dialogues.length} 条）`);
 }
 
-function mergeWithFFmpeg(plan, subtitlePath, outputPath) {
-  return new Promise((resolve, reject) => {
-    const tempFiles = [];
+async function mergeWithFFmpeg(plan, subtitlePath, outputPath) {
+  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', { mustExist: true });
+  const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频');
+  const tempFiles = [];
 
-    createVisualSegments(plan, outputPath)
-      .then(({ segmentPaths, concatListPath, concatVideoPath, tempDir }) => {
-        tempFiles.push(...segmentPaths, concatListPath, concatVideoPath, tempDir);
-        return concatVisualSegments(concatListPath, concatVideoPath).then(() =>
-          muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath)
-        );
-      })
-      .then(() => {
-        cleanupTempFiles(tempFiles);
-        resolve(outputPath);
-      })
-      .catch((err) => {
-        cleanupTempFiles(tempFiles);
-        reject(new Error(`FFmpeg 合成失败：${err.message}`));
-      });
-  });
+  try {
+    const { segmentPaths, concatListPath, concatVideoPath, tempDir } = await createVisualSegments(
+      plan,
+      safeOutputPath
+    );
+    tempFiles.push(...segmentPaths, concatListPath, concatVideoPath, tempDir);
+    await concatVisualSegments(concatListPath, concatVideoPath);
+    await muxAudioAndSubtitles(plan, concatVideoPath, safeSubtitlePath, safeOutputPath);
+  } catch (err) {
+    throw new Error(`FFmpeg 合成失败：${err.message}`);
+  } finally {
+    cleanupTempFiles(tempFiles);
+  }
 }
 
 function createVisualSegments(plan, outputPath) {
-  const tempDir = outputPath.replace('.mp4', '_segments');
+  const tempDir = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_segments'), '视频片段目录');
   ensureDir(tempDir);
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
@@ -211,9 +361,9 @@ function createVisualSegments(plan, outputPath) {
   });
 
   return Promise.all(tasks).then((segmentPaths) => {
-    const concatListPath = outputPath.replace('.mp4', '_concat.txt');
-    const concatVideoPath = outputPath.replace('.mp4', '_visual.mp4');
-    const concatLines = segmentPaths.map((filePath) => `file '${filePath.replace(/\\/g, '/')}'`).join('\n');
+    const concatListPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_concat.txt'), '视频拼接列表');
+    const concatVideoPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_visual.mp4'), '视频拼接输出');
+    const concatLines = segmentPaths.map((filePath) => `file '${escapeConcatPath(filePath)}'`).join('\n');
     fs.writeFileSync(concatListPath, concatLines);
     return { segmentPaths, concatListPath, concatVideoPath, tempDir };
   });
@@ -291,12 +441,18 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
   });
 
   const outputOptions = [
-    '-vf', `ass=${subtitlePath.replace(/\\/g, '/')}`,
-    '-c:v', 'libx264',
-    '-preset', 'fast',
-    '-crf', '23',
-    '-pix_fmt', 'yuv420p',
-    '-r', String(VIDEO_FPS),
+    '-vf',
+    `ass=${escapeFilterPath(subtitlePath)}`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'fast',
+    '-crf',
+    '23',
+    '-pix_fmt',
+    'yuv420p',
+    '-r',
+    String(VIDEO_FPS),
   ];
 
   if (audioItems.length > 0) {
@@ -316,7 +472,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
       .outputOptions(outputOptions)
       .output(outputPath)
       .on('start', (command) =>
-        logger.debug('VideoComposer', `FFmpeg 命令：${command.slice(0, 120)}...`)
+        logger.debug('VideoComposer', `FFmpeg 命令：${command.slice(0, 160)}...`)
       )
       .on('progress', (p) => {
         if (p.percent) process.stdout.write(`\r[FFmpeg] 进度：${Math.round(p.percent)}%`);
@@ -345,9 +501,7 @@ export function buildAudioTimeline(plan) {
 }
 
 export function collectExistingAudioItems(plan, existsSync = fs.existsSync) {
-  return buildAudioTimeline(plan).filter(
-    (item) => item.audioPath && existsSync(item.audioPath)
-  );
+  return buildAudioTimeline(plan).filter((item) => item.audioPath && existsSync(item.audioPath));
 }
 
 export function buildVisualSegmentJobs(plan, tempDir) {
@@ -371,19 +525,31 @@ function cleanupTempFiles(filePaths) {
   });
 }
 
-// ─── FFmpeg 可用性检查 ────────────────────────────────────────
 function checkFFmpeg() {
   return new Promise((resolve, reject) => {
     ffmpeg.getAvailableFormats((err) => {
       if (err) {
-        reject(new Error(
-          'FFmpeg 未安装或不在 PATH 中。\n' +
-          '  Windows 安装：winget install Gyan.FFmpeg\n' +
-          '  或访问：https://ffmpeg.org/download.html'
-        ));
+        reject(
+          new Error(
+            'FFmpeg 未安装或不在 PATH 中。\n' +
+              '  Windows 安装：winget install Gyan.FFmpeg\n' +
+              '  或访问：https://ffmpeg.org/download.html'
+          )
+        );
       } else {
         resolve();
       }
     });
   });
 }
+
+export const __testables = {
+  assertSafeWorkspacePath,
+  escapeConcatPath,
+  escapeFilterPath,
+  escapeAssText,
+  buildCompositionPlan,
+  buildVideoMetrics,
+  buildSubtitlePath: (outputPath) => outputPath.replace(/\.mp4$/i, '.ass'),
+  normalizeAudioDuration: normalizeDuration,
+};

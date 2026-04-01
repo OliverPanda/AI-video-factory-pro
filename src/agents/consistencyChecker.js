@@ -13,6 +13,54 @@ const SCORE_THRESHOLD = parseInt(process.env.CONSISTENCY_THRESHOLD || '7', 10);
 // 每批最多发送几张图给视觉LLM（防止单次 base64 占用过大内存）
 const BATCH_SIZE = parseInt(process.env.CONSISTENCY_BATCH_SIZE || '6', 10);
 
+function writeTextFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function buildConsistencyMarkdown(reports, needsRegeneration) {
+  const lines = [
+    '# Consistency Report',
+    '',
+    `- Checked Characters: ${reports.length}`,
+    `- Flagged Shots: ${needsRegeneration.length}`,
+    '',
+  ];
+
+  if (reports.length === 0) {
+    lines.push('No consistency reports were generated.');
+  }
+
+  for (const report of reports) {
+    lines.push(`## ${report.character}`);
+    lines.push(`- Overall Score: ${report.overallScore ?? 'n/a'}`);
+    lines.push(`- Skipped: ${report.skipped ? 'yes' : 'no'}`);
+    if (report.details) {
+      lines.push(`- Details: ${report.details}`);
+    }
+    if (report.suggestion) {
+      lines.push(`- Suggestion: ${report.suggestion}`);
+    }
+    if (Array.isArray(report.problematicImageIndices) && report.problematicImageIndices.length > 0) {
+      lines.push(`- Problematic Image Indices: ${report.problematicImageIndices.join(', ')}`);
+    }
+    if (report.error) {
+      lines.push(`- Error: ${report.error}`);
+    }
+    lines.push('');
+  }
+
+  if (needsRegeneration.length > 0) {
+    lines.push('## Flagged Shots');
+    for (const item of needsRegeneration) {
+      lines.push(`- ${item.shotId}: ${item.reason}`);
+    }
+    lines.push('');
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
 /**
  * 验证同一角色在多张图片中的一致性
  * @param {string} characterName
@@ -20,7 +68,7 @@ const BATCH_SIZE = parseInt(process.env.CONSISTENCY_BATCH_SIZE || '6', 10);
  * @param {Array<{shotId, imagePath}>} imageList - 包含该角色的图像列表
  * @returns {Promise<ConsistencyReport>}
  */
-export async function checkCharacterConsistency(characterName, characterCard, imageList) {
+export async function checkCharacterConsistency(characterName, characterCard, imageList, options = {}) {
   // 过滤不存在的图像
   const validImages = imageList.filter((img) => img.imagePath && fs.existsSync(img.imagePath));
   if (validImages.length < 2) {
@@ -63,6 +111,21 @@ export async function checkCharacterConsistency(characterName, characterCard, im
       allReports.push(report);
     } catch (err) {
       logger.warn('ConsistencyChecker', `批次 ${batchIdx + 1}/${batches.length} 检查失败：${err.message}，跳过`);
+      if (options.artifactContext) {
+        saveJSON(
+          path.join(
+            options.artifactContext.errorsDir,
+            `${characterName.replace(/[^\w\u4e00-\u9fa5-]/g, '_')}-batch-${batchIdx + 1}-error.json`
+          ),
+          {
+            character: characterName,
+            batchIndex: batchIdx,
+            batchSize: batch.length,
+            error: err.message,
+            imageShots: batch.map((image) => ({ shotId: image.shotId, imagePath: image.imagePath })),
+          }
+        );
+      }
     }
   }
 
@@ -113,7 +176,9 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
 
     if (charImages.length === 0) continue;
 
-    const report = await runCheckCharacterConsistency(charCard.name, charCard, charImages);
+    const report = await runCheckCharacterConsistency(charCard.name, charCard, charImages, {
+      artifactContext: deps.artifactContext,
+    });
     reports.push(report);
 
     // 低于阈值的图像标记为需要重生成
@@ -137,9 +202,16 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
   );
 
   if (deps.artifactContext) {
+    saveJSON(path.join(deps.artifactContext.inputsDir, 'character-registry.json'), characterRegistry);
+    saveJSON(path.join(deps.artifactContext.inputsDir, 'image-results.json'), imageResults);
     saveJSON(path.join(deps.artifactContext.outputsDir, 'consistency-report.json'), reports);
     saveJSON(path.join(deps.artifactContext.outputsDir, 'flagged-shots.json'), needsRegeneration);
+    writeTextFile(
+      path.join(deps.artifactContext.outputsDir, 'consistency-report.md'),
+      buildConsistencyMarkdown(reports, needsRegeneration)
+    );
     saveJSON(path.join(deps.artifactContext.metricsDir, 'consistency-metrics.json'), {
+      checked_character_count: reports.length,
       checked_shot_count: imageResults.filter((result) => result.success).length,
       flagged_shot_count: needsRegeneration.length,
       avg_consistency_score:
@@ -154,6 +226,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
       flaggedShotCount: needsRegeneration.length,
       outputFiles: [
         'consistency-report.json',
+        'consistency-report.md',
         'flagged-shots.json',
         'consistency-metrics.json',
       ],

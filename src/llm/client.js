@@ -1,6 +1,6 @@
 /**
  * LLM 统一客户端
- * 支持多 Provider 切换：deepseek | qwen | claude
+ * 支持多 Provider 切换：qwen | deepseek | claude
  * 通过 .env 中 LLM_PROVIDER / LLM_VISION_PROVIDER 控制
  */
 
@@ -94,7 +94,7 @@ async function callClaude(messages, options = {}) {
  * @returns {Promise<string>}
  */
 export async function chat(messages, options = {}) {
-  const providerName = options.provider || process.env.LLM_PROVIDER || 'deepseek';
+  const providerName = options.provider || process.env.LLM_PROVIDER || 'qwen';
   const provider = PROVIDERS[providerName];
   if (!provider) throw new Error(`Unknown LLM provider: ${providerName}`);
 

@@ -19,7 +19,7 @@ const USAGE = `
 选项：
   --style=realistic|3d      视觉风格（默认：realistic）
   --skip-consistency        跳过一致性验证（加速测试）
-  --provider=deepseek|qwen|claude  LLM提供商（覆盖.env设置）
+  --provider=qwen|deepseek|claude  LLM提供商（覆盖.env设置）
   --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
 
 示例：

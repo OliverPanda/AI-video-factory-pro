@@ -1,0 +1,93 @@
+<h2>多剧组数据设计草图</h2>
+<p class="subtitle">上半部分是内容层，下半部分是生产层。先看结构是否符合你的脑图，再决定要不要细化到字段级 DTO。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">内容层 ER 图</div>
+    <div class="mockup-body">
+      <pre style="font-size:14px;line-height:1.45;white-space:pre-wrap;margin:0">
+Project (剧组)
+  1 ── N Script (长剧本)
+  1 ── N MainCharacterTemplate (主角色模板)
+  1 ── N ProductionProfileBinding
+
+Script
+  1 ── N Episode (剧集)
+
+Episode
+  N ── 1 Project
+  N ── 1 Script
+  1 ── N EpisodeCharacter (本集角色副本)
+  1 ── N Shot (分镜)
+  1 ── N EpisodeAssetBundle
+
+EpisodeCharacter
+  N ── 0..1 MainCharacterTemplate
+  N ── 1 Episode
+
+Shot
+  N ── 1 Episode
+  N ── M EpisodeCharacter
+  1 ── 0..1 AnimationAsset
+  1 ── 0..1 VoiceAsset
+  1 ── 0..1 SubtitleAsset
+      </pre>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">生产层 ER 图</div>
+    <div class="mockup-body">
+      <pre style="font-size:14px;line-height:1.45;white-space:pre-wrap;margin:0">
+ProductionProfile
+  1 ── N AgentConfig
+  1 ── N VoiceCastProfile
+  1 ── N RenderProfile
+
+RunJob
+  N ── 1 Project
+  N ── 0..1 Script
+  N ── 0..1 Episode
+  N ── 1 ProductionProfile
+  1 ── N AgentTaskRun
+
+AgentTaskRun
+  N ── 1 RunJob
+  0..1 ── 1 InputAsset
+  0..1 ── 1 OutputAsset
+
+VoiceCastProfile
+  1 ── N VoiceCastEntry
+
+VoiceCastEntry
+  N ── 0..1 MainCharacterTemplate
+  N ── 0..1 EpisodeCharacter
+  fields: voice / rate / pitch / volume
+      </pre>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>方向正确</h3>
+      <p>继续细化每个实体的 DTO 字段和映射规则。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>内容层要改</h3>
+      <p>先调整 Project / Script / Episode / Character 的归属关系。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>生产层要改</h3>
+      <p>先调整 ProductionProfile / RunJob / AgentTaskRun 的职责。</p>
+    </div>
+  </div>
+</div>

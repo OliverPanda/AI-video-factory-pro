@@ -55,19 +55,70 @@ test('consistency checker writes report flagged shots metrics and manifest when 
       }
     );
 
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.consistencyChecker.outputsDir, 'consistency-report.json')),
-      true
-    );
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.consistencyChecker.outputsDir, 'flagged-shots.json')),
-      true
-    );
-    assert.equal(
-      fs.existsSync(path.join(ctx.agents.consistencyChecker.metricsDir, 'consistency-metrics.json')),
-      true
-    );
-    assert.equal(fs.existsSync(ctx.agents.consistencyChecker.manifestPath), true);
+    const registryInputPath = path.join(ctx.agents.consistencyChecker.inputsDir, 'character-registry.json');
+    const imageResultsInputPath = path.join(ctx.agents.consistencyChecker.inputsDir, 'image-results.json');
+    const reportPath = path.join(ctx.agents.consistencyChecker.outputsDir, 'consistency-report.json');
+    const markdownPath = path.join(ctx.agents.consistencyChecker.outputsDir, 'consistency-report.md');
+    const flaggedPath = path.join(ctx.agents.consistencyChecker.outputsDir, 'flagged-shots.json');
+    const metricsPath = path.join(ctx.agents.consistencyChecker.metricsDir, 'consistency-metrics.json');
+    const manifestPath = ctx.agents.consistencyChecker.manifestPath;
+
+    assert.equal(fs.existsSync(registryInputPath), true);
+    assert.equal(fs.existsSync(imageResultsInputPath), true);
+    assert.equal(fs.existsSync(reportPath), true);
+    assert.equal(fs.existsSync(markdownPath), true);
+    assert.equal(fs.existsSync(flaggedPath), true);
+    assert.equal(fs.existsSync(metricsPath), true);
+    assert.equal(fs.existsSync(manifestPath), true);
+
+    const registryInput = JSON.parse(fs.readFileSync(registryInputPath, 'utf-8'));
+    assert.equal(registryInput.length, 1);
+    assert.equal(registryInput[0].name, '小红');
+
+    const imageResultsInput = JSON.parse(fs.readFileSync(imageResultsInputPath, 'utf-8'));
+    assert.equal(imageResultsInput.length, 2);
+    assert.equal(imageResultsInput[1].shotId, 'shot_002');
+
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+    assert.equal(report.length, 1);
+    assert.equal(report[0].character, '小红');
+    assert.equal(report[0].overallScore, 6);
+
+    const markdown = fs.readFileSync(markdownPath, 'utf-8');
+    assert.match(markdown, /# Consistency Report/);
+    assert.match(markdown, /## 小红/);
+    assert.match(markdown, /Overall Score: 6/);
+
+    const flaggedShots = JSON.parse(fs.readFileSync(flaggedPath, 'utf-8'));
+    assert.deepEqual(flaggedShots, [
+      {
+        shotId: 'shot_002',
+        reason: '小红 一致性评分 6/10',
+        suggestion: 'match costume',
+      },
+    ]);
+
+    const metrics = JSON.parse(fs.readFileSync(metricsPath, 'utf-8'));
+    assert.deepEqual(metrics, {
+      checked_character_count: 1,
+      checked_shot_count: 2,
+      flagged_shot_count: 1,
+      avg_consistency_score: 6,
+      regeneration_count: 1,
+    });
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    assert.deepEqual(manifest, {
+      status: 'completed',
+      checkedCharacterCount: 1,
+      flaggedShotCount: 1,
+      outputFiles: [
+        'consistency-report.json',
+        'consistency-report.md',
+        'flagged-shots.json',
+        'consistency-metrics.json',
+      ],
+    });
   });
 });
 
@@ -132,7 +183,98 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
     );
     assert.equal(fs.existsSync(ctx.agents.ttsAgent.manifestPath), true);
 
+    const voiceResolution = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsAgent.inputsDir, 'voice-resolution.json'), 'utf-8')
+    );
+    assert.equal(voiceResolution.length, 3);
+    assert.deepEqual(voiceResolution[0], {
+      shotId: 'shot_001',
+      hasDialogue: true,
+      dialogue: '你好。',
+      speakerName: '小红',
+      resolvedGender: 'female',
+      ttsOptions: {
+        gender: 'female',
+        voice: 'preset-red-voice',
+        rate: 65,
+      },
+      usedDefaultVoiceFallback: false,
+      status: 'synthesized',
+      audioPath: path.join(audioDir, 'shot_001.mp3'),
+      voicePresetId: 'preset-red',
+    });
+    assert.equal(voiceResolution[1].shotId, 'shot_002');
+    assert.equal(voiceResolution[1].status, 'failed');
+    assert.equal(voiceResolution[1].usedDefaultVoiceFallback, true);
+    assert.equal(voiceResolution[1].voicePresetId, null);
+    assert.equal(voiceResolution[2].shotId, 'shot_003');
+    assert.equal(voiceResolution[2].status, 'skipped');
+    assert.equal(voiceResolution[2].voicePresetId, null);
+
+    const audioIndex = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsAgent.outputsDir, 'audio.index.json'), 'utf-8')
+    );
+    assert.deepEqual(audioIndex, [
+      { shotId: 'shot_001', audioPath: path.join(audioDir, 'shot_001.mp3'), hasDialogue: true },
+      {
+        shotId: 'shot_002',
+        audioPath: null,
+        hasDialogue: true,
+        error: '[Queue] shot_002 重试3次后失败：tts synth failed',
+      },
+      { shotId: 'shot_003', audioPath: null, hasDialogue: false },
+    ]);
+
+    const dialogueTable = fs.readFileSync(
+      path.join(ctx.agents.ttsAgent.outputsDir, 'dialogue-table.md'),
+      'utf-8'
+    );
+    assert.match(dialogueTable, /\| Shot ID \| Speaker \| Voice \| Dialogue \| Status \| Audio Path \|/);
+    assert.match(dialogueTable, /\| shot_001 \| 小红 \| preset-red-voice \| 你好。 \| synthesized \|/);
+    assert.match(dialogueTable, /\| shot_002 \| 店长 \| male \| 出错了。 \| failed \|/);
+    assert.match(dialogueTable, /\| shot_003 \|  \|  \|  \| skipped \|  \|/);
+
+    const metrics = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsAgent.metricsDir, 'tts-metrics.json'), 'utf-8')
+    );
+    assert.deepEqual(metrics, {
+      dialogue_shot_count: 2,
+      synthesized_count: 1,
+      skipped_count: 1,
+      failure_count: 1,
+      default_voice_fallback_count: 1,
+      unique_voice_count: 1,
+      voice_usage: {
+        'preset-red-voice': 1,
+        male: 1,
+        unresolved: 1,
+      },
+    });
+
+    const manifest = JSON.parse(fs.readFileSync(ctx.agents.ttsAgent.manifestPath, 'utf-8'));
+    assert.deepEqual(manifest, {
+      status: 'completed_with_errors',
+      dialogueShotCount: 2,
+      synthesizedCount: 1,
+      skippedCount: 1,
+      failureCount: 1,
+      outputFiles: [
+        'voice-resolution.json',
+        'audio.index.json',
+        'dialogue-table.md',
+        'tts-metrics.json',
+      ],
+    });
+
     const errorFiles = fs.readdirSync(ctx.agents.ttsAgent.errorsDir);
     assert.equal(errorFiles.some((fileName) => /shot_002/i.test(fileName)), true);
+
+    const terminalErrorPath = errorFiles.find((fileName) => /shot_002/i.test(fileName));
+    const terminalError = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsAgent.errorsDir, terminalErrorPath), 'utf-8')
+    );
+    assert.equal(terminalError.shotId, 'shot_002');
+    assert.equal(terminalError.error, '[Queue] shot_002 重试3次后失败：tts synth failed');
+    assert.equal(terminalError.voiceResolution.speakerName, '店长');
   });
 });
