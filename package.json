@@ -6,7 +6,8 @@
   "main": "scripts/run.js",
   "scripts": {
     "start": "node scripts/run.js",
-    "test": "node scripts/run-tests.js"
+    "test": "node scripts/run-tests.js",
+    "test:character-consistency": "node scripts/run-tests.js characterBible consistencyChecker.identity continuityChecker director.artifacts pipeline.acceptance characterConsistency.acceptance promptEngineer.artifacts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

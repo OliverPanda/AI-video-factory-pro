@@ -15,8 +15,9 @@ export const AGENT_ARTIFACT_LAYOUT = {
   promptEngineer: '03-prompt-engineer',
   imageGenerator: '04-image-generator',
   consistencyChecker: '05-consistency-checker',
-  ttsAgent: '06-tts-agent',
-  videoComposer: '07-video-composer',
+  continuityChecker: '06-continuity-checker',
+  ttsAgent: '07-tts-agent',
+  videoComposer: '08-video-composer',
 };
 
 function createAgentContext(runDir, agentDirName) {
@@ -38,7 +39,7 @@ function createAgentContext(runDir, agentDirName) {
 }
 
 export function createRunArtifactContext(input) {
-  const baseTempDir = input?.baseTempDir;
+  const baseTempDir = input?.baseTempDir || './temp';
   const projectDir = ensureDir(
     path.join(baseTempDir, 'projects', buildProjectDirName(input?.projectName, input?.projectId))
   );
@@ -69,6 +70,7 @@ export function createRunArtifactContext(input) {
       promptEngineer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.promptEngineer),
       imageGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.imageGenerator),
       consistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.consistencyChecker),
+      continuityChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.continuityChecker),
       ttsAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
     },

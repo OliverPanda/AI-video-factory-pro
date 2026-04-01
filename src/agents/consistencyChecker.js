@@ -36,7 +36,13 @@ function buildConsistencyMarkdown(reports, needsRegeneration) {
     lines.push(`- Overall Score: ${report.overallScore ?? 'n/a'}`);
     lines.push(`- Skipped: ${report.skipped ? 'yes' : 'no'}`);
     if (report.details) {
-      lines.push(`- Details: ${report.details}`);
+      lines.push(`- Details: ${JSON.stringify(report.details)}`);
+    }
+    if (Array.isArray(report.identityDriftTags) && report.identityDriftTags.length > 0) {
+      lines.push(`- Identity Drift Tags: ${report.identityDriftTags.join(', ')}`);
+    }
+    if (report.anchorSummary) {
+      lines.push(`- Anchor Summary: ${JSON.stringify(report.anchorSummary)}`);
     }
     if (report.suggestion) {
       lines.push(`- Suggestion: ${report.suggestion}`);
@@ -59,6 +65,40 @@ function buildConsistencyMarkdown(reports, needsRegeneration) {
   }
 
   return `${lines.join('\n')}\n`;
+}
+
+function normalizeIdentityDriftTags(tags = []) {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+
+  return [...new Set(tags.filter(Boolean).map((tag) => String(tag).trim()))];
+}
+
+function normalizeConsistencyReport(rawReport = {}, characterName, validImages) {
+  return {
+    character: rawReport.character || characterName,
+    overallScore: rawReport.overallScore ?? 10,
+    details: rawReport.details ?? null,
+    anchorSummary: rawReport.anchorSummary ?? {},
+    identityDriftTags: normalizeIdentityDriftTags(rawReport.identityDriftTags),
+    problematicImageIndices: Array.isArray(rawReport.problematicImageIndices)
+      ? rawReport.problematicImageIndices
+      : [],
+    suggestion: rawReport.suggestion ?? null,
+    imageList: validImages,
+  };
+}
+
+function collectIdentityDriftCounts(reports = []) {
+  const counts = {};
+  for (const report of reports) {
+    for (const tag of normalizeIdentityDriftTags(report?.identityDriftTags)) {
+      counts[tag] = (counts[tag] || 0) + 1;
+    }
+  }
+
+  return counts;
 }
 
 /**
@@ -103,7 +143,7 @@ export async function checkCharacterConsistency(characterName, characterCard, im
         temperature: 0.2,
       });
 
-      const report = parseJSONResponse(raw);
+      const report = normalizeConsistencyReport(parseJSONResponse(raw), characterName, batch);
 
       // 将批内索引转为全局索引
       const globalIndices = (report.problematicImageIndices || []).map((i) => i + globalOffset);
@@ -143,7 +183,11 @@ export async function checkCharacterConsistency(characterName, characterCard, im
     character: characterName,
     overallScore: avgScore,
     details: lastReport.details,
-    problematicImageIndices: [...new Set(allProblematicIndices)], // 去重
+    anchorSummary: lastReport.anchorSummary ?? {},
+    identityDriftTags: normalizeIdentityDriftTags(
+      allReports.flatMap((report) => report.identityDriftTags || [])
+    ),
+    problematicImageIndices: [...new Set(allProblematicIndices)],
     suggestion: lastReport.suggestion,
     imageList: validImages,
   };
@@ -176,9 +220,13 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
 
     if (charImages.length === 0) continue;
 
-    const report = await runCheckCharacterConsistency(charCard.name, charCard, charImages, {
-      artifactContext: deps.artifactContext,
-    });
+    const report = normalizeConsistencyReport(
+      await runCheckCharacterConsistency(charCard.name, charCard, charImages, {
+        artifactContext: deps.artifactContext,
+      }),
+      charCard.name,
+      charImages
+    );
     reports.push(report);
 
     // 低于阈值的图像标记为需要重生成
@@ -202,6 +250,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
   );
 
   if (deps.artifactContext) {
+    const driftCounts = collectIdentityDriftCounts(reports);
     saveJSON(path.join(deps.artifactContext.inputsDir, 'character-registry.json'), characterRegistry);
     saveJSON(path.join(deps.artifactContext.inputsDir, 'image-results.json'), imageResults);
     saveJSON(path.join(deps.artifactContext.outputsDir, 'consistency-report.json'), reports);
@@ -218,6 +267,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
         reports.length > 0
           ? reports.reduce((sum, report) => sum + (report.overallScore || 0), 0) / reports.length
           : 0,
+      identity_drift_tag_counts: driftCounts,
       regeneration_count: needsRegeneration.length,
     });
     saveJSON(deps.artifactContext.manifestPath, {

@@ -22,11 +22,22 @@ test('character registry exposes merged main-template and episode-instance conte
       defaultVoiceProfile: 'warm-default',
     },
   ];
+  const characterBibles = [
+    {
+      id: 'bible-hero',
+      name: '沈清',
+      basePromptTokens: 'bible tokens',
+      negativeDriftTokens: 'different hairstyle',
+      coreTraits: { hairStyle: 'long black hair', skinTone: 'fair skin' },
+      lightingAnchor: { baseTone: 'soft natural light' },
+    },
+  ];
   const episodeCharacters = [
     {
       id: 'ep-hero',
       name: '沈清',
       mainCharacterTemplateId: 'tpl-hero',
+      characterBibleId: 'bible-hero',
       roleType: 'lead',
       visualOverride: 'episode visual override',
       personalityOverride: '更沉稳',
@@ -34,7 +45,7 @@ test('character registry exposes merged main-template and episode-instance conte
     },
   ];
 
-  const registry = buildEpisodeCharacterRegistry(mainTemplates, episodeCharacters);
+  const registry = buildEpisodeCharacterRegistry(mainTemplates, episodeCharacters, characterBibles);
   const entry = registry[0];
   const context = getEpisodeCharacterContext('ep-hero', registry);
 
@@ -42,14 +53,18 @@ test('character registry exposes merged main-template and episode-instance conte
   assert.equal(entry.id, 'ep-hero');
   assert.equal(entry.episodeCharacterId, 'ep-hero');
   assert.equal(entry.mainCharacterTemplateId, 'tpl-hero');
+  assert.equal(entry.characterBibleId, 'bible-hero');
   assert.equal(entry.name, '沈清');
   assert.equal(entry.visualDescription, 'episode visual override');
-  assert.equal(entry.basePromptTokens, 'template tokens');
+  assert.equal(entry.basePromptTokens, 'bible tokens');
   assert.equal(entry.personality, '更沉稳');
   assert.equal(entry.defaultVoiceProfile, 'episode-voice');
+  assert.equal(entry.negativeDriftTokens, 'different hairstyle');
+  assert.deepEqual(entry.lightingAnchor, { baseTone: 'soft natural light' });
   assert.equal(context.character, entry);
   assert.equal(context.episodeCharacter.id, 'ep-hero');
   assert.equal(context.mainCharacterTemplate.id, 'tpl-hero');
+  assert.equal(context.characterBible.id, 'bible-hero');
 });
 
 test('buildCharacterRegistry preserves source identifiers and legacy names rescue relation-only shots', async () => {
@@ -105,6 +120,13 @@ test('buildCharacterRegistry preserves source identifiers and legacy names rescu
     emotion: '紧张',
     camera_type: '中景',
     characters: ['沈清', '侍卫'],
+    continuityState: {
+      carryOverFromShotId: 'shot_prev',
+      sceneLighting: 'cold moonlight corridor',
+      cameraAxis: 'screen_left_to_right',
+      propStates: [{ name: 'lantern', holderEpisodeCharacterId: 'ep-guard' }],
+      continuityRiskTags: ['two-character interaction'],
+    },
     shotCharacters: [{ episodeCharacterId: 'missing-1' }, { episodeCharacterId: 'missing-2' }],
   };
 
@@ -122,7 +144,10 @@ test('buildCharacterRegistry preserves source identifiers and legacy names rescu
 
   assert.ok(capturedMessages);
   assert.match(capturedMessages[1].content, /出场角色：沈清、侍卫/);
+  assert.match(capturedMessages[1].content, /场景光照：cold moonlight corridor/);
+  assert.match(capturedMessages[1].content, /连续风险：two-character interaction/);
   assert.ok(promptResult.image_prompt.startsWith('dark hanfu, poised gaze, bronze armor, stern posture'));
+  assert.match(promptResult.image_prompt, /cold moonlight corridor/);
 
   const ttsCalls = [];
   const audioResults = await generateAllAudio(
@@ -182,6 +207,13 @@ test('prompt engineer derives role context from ShotCharacter relations rather t
     emotion: '紧张',
     camera_type: '中景',
     characters: ['旧角色'],
+    continuityState: {
+      carryOverFromShotId: 'shot_0',
+      sceneLighting: 'cold moonlight corridor',
+      cameraAxis: 'screen_left_to_right',
+      propStates: [{ name: 'sword', holderEpisodeCharacterId: 'ep-guard' }],
+      continuityRiskTags: ['duel staging'],
+    },
     shotCharacters: [
       { episodeCharacterId: 'ep-guard', sortOrder: 2 },
       { episodeCharacterId: 'ep-hero', sortOrder: 1, isPrimary: true },
@@ -202,9 +234,12 @@ test('prompt engineer derives role context from ShotCharacter relations rather t
   assert.ok(capturedMessages);
   assert.match(capturedMessages[1].content, /出场角色：沈清、侍卫/);
   assert.doesNotMatch(capturedMessages[1].content, /出场角色：旧角色/);
+  assert.match(capturedMessages[1].content, /承接镜头：shot_0/);
+  assert.match(capturedMessages[1].content, /道具状态：sword:ep-guard/);
   assert.match(capturedMessages[1].content, /沈清：young strategist in dark hanfu/);
   assert.match(capturedMessages[1].content, /侍卫：armored palace guard/);
   assert.ok(result.image_prompt.startsWith('dark hanfu, poised gaze, bronze armor, stern posture'));
+  assert.match(result.image_prompt, /cold moonlight corridor/);
   assert.equal(result.shotId, 'shot_1');
 });
 

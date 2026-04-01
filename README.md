@@ -49,6 +49,11 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
   └─────┬──────┘        └──────────────┘
         │
   ┌─────▼──────┐
+  │ 连贯性检查 │
+  │ Agent      │
+  └─────┬──────┘
+        │
+  ┌─────▼──────┐
   │  配音Agent │
   │  (TTS)     │
   └─────┬──────┘
@@ -86,9 +91,10 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 3. 调用角色设定Agent构建视觉档案
 4. 调用视觉设计Agent生成图像Prompt
 5. 调用图像生成Agent批量出图
-6. 调用一致性验证Agent检查并触发重生成
-7. 调用配音Agent批量合成音频
-8. 调用合成Agent输出最终视频
+6. 调用一致性验证Agent检查角色身份漂移并触发重生成
+7. 调用连贯性检查Agent检查跨分镜承接
+8. 调用配音Agent批量合成音频
+9. 调用合成Agent输出最终视频
 
 ---
 
@@ -151,6 +157,7 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 
 **当前补充**：
 - LLM 漏掉角色时会自动用 source character 做 fallback 合并
+- 项目模式下可直接合并 `MainCharacterTemplate + EpisodeCharacter + CharacterBible`
 - 审计运行包里会落 `character-registry.json / character-name-mapping.json / character-metrics.json`
 - `resolveShotParticipants()` 和 `resolveShotSpeaker()` 也在这一层完成
 
@@ -183,6 +190,7 @@ shy expression, medium shot,
 
 **当前补充**：
 - 默认推荐 `Qwen` 作为 JSON Prompt 主力，`DeepSeek` 作为备选
+- `ShotContinuityState` 会进入 prompt 约束块，注入光照、轴线、道具状态和风险标签
 - 审计运行包里会落 `prompts.json / prompt-sources.json / prompts.table.md / prompt-metrics.json`
 - 每个 fallback 镜头都会单独落错误证据文件
 
@@ -230,12 +238,25 @@ shy expression, medium shot,
 **当前补充**：
 - 少于 2 张有效图的角色会被跳过
 - 多批结果会取平均分，问题图索引会做全局偏移
+- 报告会额外输出 `identityDriftTags / anchorSummary`
 - 审计运行包里会落 `consistency-report.json / consistency-report.md / flagged-shots.json / consistency-metrics.json`
 - 批次失败时会落 `<character>-batch-<n>-error.json`
 
 ---
 
-### Agent 7：配音Agent（TTS）
+### Agent 7：连贯性检查Agent（Continuity Checker）
+**文件**：`src/agents/continuityChecker.js`
+
+**职责**：按 `previous shot -> current shot` 的承接关系检查跨分镜基础连贯性，重点关注光照语义、镜头轴线、道具承接与高风险转场。
+
+**当前补充**：
+- 已从 `Consistency Checker` 中独立出来，避免把“角色身份一致性”和“镜头连贯性”混成一个 Agent
+- 审计运行包里会落 `continuity-report.json / flagged-transitions.json / continuity-report.md / continuity-metrics.json`
+- `Director` 会在一致性验证后、配音前执行这一层
+
+---
+
+### Agent 8：配音Agent（TTS）
 **文件**：`src/agents/ttsAgent.js`
 
 **职责**：为每段对白生成配音音频，无台词分镜自动跳过；按 `ShotCharacter.isSpeaker / shot.speaker / characters` 解析说话者，并按 `voicePresetId` 决定声线。
@@ -255,7 +276,7 @@ shy expression, medium shot,
 
 ---
 
-### Agent 8：合成Agent（Video Composer）
+### Agent 9：合成Agent（Video Composer）
 **文件**：`src/agents/videoComposer.js`
 
 **职责**：将图像序列 + 配音音频 + 字幕文件用FFmpeg合成最终视频。
@@ -315,8 +336,9 @@ AI-video-factory-pro/
 │   │   ├── promptEngineer.js     # Agent 4：视觉设计
 │   │   ├── imageGenerator.js     # Agent 5：图像生成
 │   │   ├── consistencyChecker.js # Agent 6：一致性验证
-│   │   ├── ttsAgent.js           # Agent 7：配音
-│   │   └── videoComposer.js      # Agent 8：合成
+│   │   ├── continuityChecker.js  # Agent 7：连贯性检查
+│   │   ├── ttsAgent.js           # Agent 8：配音
+│   │   └── videoComposer.js      # Agent 9：合成
 │   ├── llm/
 │   │   ├── client.js             # 统一LLM客户端（多Provider）
 │   │   └── prompts/
@@ -328,6 +350,7 @@ AI-video-factory-pro/
 │   │   └── ttsApi.js             # 讯飞 TTS
 │   ├── domain/
 │   │   ├── assetModel.js         # Keyframe / AnimationClip / Voice / Subtitle / EpisodeCut DTO
+│   │   ├── characterBibleModel.js# CharacterBible DTO
 │   │   ├── characterModel.js     # MainCharacterTemplate / EpisodeCharacter / ShotCharacter DTO
 │   │   ├── entityFactory.js      # 通用实体构造辅助
 │   │   └── projectModel.js       # Project / Script / Episode / ShotPlan DTO
@@ -336,6 +359,7 @@ AI-video-factory-pro/
 │       ├── logger.js             # 日志工具
 │       ├── fileHelper.js         # 文件读写工具
 │       ├── jobStore.js           # RunJob / AgentTaskRun 持久化
+│       ├── characterBibleStore.js# CharacterBible 项目资产存储
 │       ├── projectStore.js       # project/script/episode JSON 存储
 │       └── runArtifacts.js       # Agent 审计成果物目录
 ├── scripts/
@@ -362,10 +386,14 @@ AI-video-factory-pro/
 ```text
 samples/project-example/
 ├── project.json
-└── script.txt
+├── script.txt
+├── script.example.json
+├── episode-1.example.json
+└── character-bibles/
+    └── bible-shenqing.json
 ```
 
-`project.json` 用来说明示例中的 `projectId / scriptId / episodeId`，`script.txt` 保留原始剧本文本。实际运行时，项目模式读取的是 `temp/projects/...` 下预先存在的结构化 `project.json / script.json / episode.json` 数据，而不是直接消费这个示例目录。
+`project.json` 用来说明示例中的 `projectId / scriptId / episodeId`，`script.txt` 保留原始剧本文本。`script.example.json / episode-1.example.json / character-bibles/` 用来展示结构化项目资产应该长什么样。实际运行时，项目模式读取的是 `temp/projects/...` 下预先存在的结构化 `project.json / script.json / episode.json / character-bibles/*.json` 数据，而不是直接消费这个示例目录。
 
 ## 快速开始
 
@@ -468,8 +496,8 @@ node --test tests/jobStore.test.js
 
 **当前边界**：
 - 已做：角色外观一致性
-- 未单独建模：镜头动作衔接、构图连续、视线连续、场面调度连贯性
-- 如果要做“连贯性 Agent”，建议作为新 Agent 单独设计，而不是继续混在 `Consistency Checker`
+- 已做：基础连贯性检查 Agent（光照、轴线、道具承接）
+- 仍未做重型能力：动作衔接识别、视线连续、多人场面调度连续性
 
 **进阶阶段（可选）**：
 - IP-Adapter（参考图引导生成，外观更稳定）

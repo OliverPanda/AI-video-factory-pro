@@ -115,7 +115,16 @@ temp/
                       consistency-metrics.json
                     3-errors/
                       小红-batch-1-error.json
-                  06-tts-agent/
+                  06-continuity-checker/
+                    manifest.json
+                    1-outputs/
+                      continuity-report.json
+                      flagged-transitions.json
+                      continuity-report.md
+                    2-metrics/
+                      continuity-metrics.json
+                    3-errors/
+                  07-tts-agent/
                     manifest.json
                     0-inputs/
                       voice-resolution.json
@@ -126,7 +135,7 @@ temp/
                       tts-metrics.json
                     3-errors/
                       shot_002-error.json
-                  07-video-composer/
+                  08-video-composer/
                     manifest.json
                     0-inputs/
                     1-outputs/
@@ -241,8 +250,10 @@ temp/
 看：
 
 ```text
-06-tts-agent/0-inputs/voice-resolution.json
-06-tts-agent/1-outputs/dialogue-table.md
+06-continuity-checker/1-outputs/continuity-report.md
+06-continuity-checker/1-outputs/flagged-transitions.json
+07-tts-agent/0-inputs/voice-resolution.json
+07-tts-agent/1-outputs/dialogue-table.md
 ```
 
 ### 看 FFmpeg 为什么挂
@@ -250,8 +261,8 @@ temp/
 看：
 
 ```text
-07-video-composer/3-errors/ffmpeg-command.txt
-07-video-composer/3-errors/ffmpeg-stderr.txt
+08-video-composer/3-errors/ffmpeg-command.txt
+08-video-composer/3-errors/ffmpeg-stderr.txt
 ```
 
 ## output/ 和 temp/ 的分工
@@ -282,7 +293,8 @@ summary.md
 03-prompt-engineer/1-outputs/prompts.table.md
 04-image-generator/1-outputs/images.index.json
 05-consistency-checker/1-outputs/consistency-report.md
-06-tts-agent/1-outputs/dialogue-table.md
+06-continuity-checker/1-outputs/continuity-report.md
+07-tts-agent/1-outputs/dialogue-table.md
 ```
 
 这套组合基本能覆盖“内容对不对、图画出来没有、角色稳不稳、声音是不是对的人在说”。

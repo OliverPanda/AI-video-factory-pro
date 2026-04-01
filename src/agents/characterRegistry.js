@@ -26,10 +26,12 @@ function buildRegistryMarkdown(cards) {
     .map(
       (card) =>
         `## ${card.name}\n` +
+        `- Character Bible: ${card.characterBibleId || ''}\n` +
         `- Gender: ${card.gender || ''}\n` +
         `- Age: ${card.age || ''}\n` +
         `- Visual: ${card.visualDescription || ''}\n` +
         `- Tokens: ${card.basePromptTokens || ''}\n` +
+        `- Negative Drift Tokens: ${card.negativeDriftTokens || ''}\n` +
         `- Personality: ${card.personality || ''}\n`
     )
     .join('\n')}\n`;
@@ -71,20 +73,38 @@ function buildCharacterMetrics(cards, sourceCharacters, generatedCharacters = []
   const coveredCount = sourceMappings.filter((mapping) => mapping.hasUsefulProfile).length;
   const fallbackMergedCount = sourceMappings.filter((mapping) => mapping.matchedBy === 'source_fallback').length;
   const missingProfileCount = sourceMappings.filter((mapping) => !mapping.hasUsefulProfile).length;
+  const characterBibleLinkedCount = cards.filter((card) => card?.characterBibleId).length;
 
   return {
     character_count: cards.length,
     registry_coverage_rate: sourceCount > 0 ? Math.min(coveredCount / sourceCount, 1) : 1,
     fallback_merged_count: fallbackMergedCount,
     missing_profile_count: missingProfileCount,
+    character_bible_linked_count: characterBibleLinkedCount,
   };
 }
 
-function writeCharacterRegistryArtifacts(cards, sourceCharacters, generatedCharacters, artifactContext) {
+function writeCharacterRegistryArtifacts(
+  cards,
+  sourceCharacters,
+  generatedCharacters,
+  artifactContext,
+  extraInputs = {}
+) {
   if (!artifactContext) {
     return;
   }
 
+  saveJSON(path.join(artifactContext.inputsDir, 'source-characters.json'), sourceCharacters);
+  if (extraInputs.characterBibles) {
+    saveJSON(path.join(artifactContext.inputsDir, 'character-bibles.json'), extraInputs.characterBibles);
+  }
+  if (extraInputs.mainCharacterTemplates) {
+    saveJSON(
+      path.join(artifactContext.inputsDir, 'main-character-templates.json'),
+      extraInputs.mainCharacterTemplates
+    );
+  }
   saveJSON(path.join(artifactContext.outputsDir, 'character-registry.json'), cards);
   writeTextFile(path.join(artifactContext.outputsDir, 'character-registry.md'), buildRegistryMarkdown(cards));
   saveJSON(
@@ -116,6 +136,26 @@ function writeCharacterRegistryArtifacts(cards, sourceCharacters, generatedChara
 export async function buildCharacterRegistry(characters, scriptContext, style = 'realistic', deps = {}) {
   const runChatJSON = deps.chatJSON || chatJSON;
   logger.info('CharacterRegistry', `构建 ${characters.length} 个角色的视觉档案...`);
+
+  if (Array.isArray(deps.episodeCharacters) && deps.episodeCharacters.length > 0) {
+    const cards = buildEpisodeCharacterRegistry(
+      deps.mainCharacterTemplates || [],
+      deps.episodeCharacters,
+      deps.characterBibles || []
+    );
+    writeCharacterRegistryArtifacts(
+      cards,
+      deps.episodeCharacters,
+      [],
+      deps.artifactContext,
+      {
+        characterBibles: deps.characterBibles || [],
+        mainCharacterTemplates: deps.mainCharacterTemplates || [],
+      }
+    );
+    logger.info('CharacterRegistry', `角色档案构建完成：${cards.map((c) => c.name).join('、')}`);
+    return cards;
+  }
 
   const prompt = `
 根据以下剧本信息，为每个角色创建详细的视觉档案：
@@ -156,7 +196,10 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
 
   const generatedCharacters = result.characters || [];
   const cards = mergeCharacterSources(generatedCharacters, characters);
-  writeCharacterRegistryArtifacts(cards, characters, generatedCharacters, deps.artifactContext);
+  writeCharacterRegistryArtifacts(cards, characters, generatedCharacters, deps.artifactContext, {
+    characterBibles: deps.characterBibles || [],
+    mainCharacterTemplates: deps.mainCharacterTemplates || [],
+  });
   logger.info('CharacterRegistry', `角色档案构建完成：${cards.map((c) => c.name).join('、')}`);
   return cards;
 }
@@ -187,6 +230,7 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
       ...character,
       id: source.id ?? character.id,
       episodeCharacterId: source.episodeCharacterId ?? source.id ?? character.episodeCharacterId ?? character.id,
+      characterBibleId: source.characterBibleId ?? character.characterBibleId ?? null,
       mainCharacterTemplateId:
         source.mainCharacterTemplateId ?? character.mainCharacterTemplateId ?? null,
     };
@@ -196,18 +240,27 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
     ...source,
     id: source.id,
     episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
+    characterBibleId: source.characterBibleId ?? null,
     mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
   }));
 
   return [...mergedCharacters, ...fallbackCharacters];
 }
 
-function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}) {
+function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, characterBible = null) {
+  const bibleCoreTraits = characterBible?.coreTraits ?? {};
+  const bibleHair = bibleCoreTraits.hairStyle ?? null;
+  const bibleSkin = bibleCoreTraits.skinTone ?? null;
+  const bibleFace = bibleCoreTraits.faceShape ?? null;
+  const visualAnchorParts = [bibleFace, bibleHair, bibleSkin].filter(Boolean);
+
   return {
+    ...characterBible,
     ...mainTemplate,
     ...episodeCharacter,
     id: episodeCharacter.id,
     episodeCharacterId: episodeCharacter.id,
+    characterBibleId: episodeCharacter.characterBibleId ?? characterBible?.id ?? null,
     mainCharacterTemplateId: episodeCharacter.mainCharacterTemplateId ?? mainTemplate.id ?? null,
     name: episodeCharacter.name ?? mainTemplate.name ?? '',
     gender: episodeCharacter.gender ?? mainTemplate.gender ?? null,
@@ -215,9 +268,15 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}) {
     visualDescription:
       episodeCharacter.visualOverride ??
       episodeCharacter.visualDescription ??
+      characterBible?.basePromptTokens ??
+      (visualAnchorParts.join(', ') || null) ??
       mainTemplate.visualDescription ??
       null,
-    basePromptTokens: episodeCharacter.basePromptTokens ?? mainTemplate.basePromptTokens ?? null,
+    basePromptTokens:
+      episodeCharacter.basePromptTokens ??
+      characterBible?.basePromptTokens ??
+      mainTemplate.basePromptTokens ??
+      null,
     personality:
       episodeCharacter.personalityOverride ??
       episodeCharacter.personality ??
@@ -228,19 +287,31 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}) {
       episodeCharacter.defaultVoiceProfile ??
       mainTemplate.defaultVoiceProfile ??
       null,
+    negativeDriftTokens: characterBible?.negativeDriftTokens ?? null,
+    lightingAnchor: characterBible?.lightingAnchor ?? {},
+    wardrobeAnchor: characterBible?.wardrobeAnchor ?? {},
+    referenceImages: characterBible?.referenceImages ?? [],
+    coreTraits: characterBible?.coreTraits ?? {},
+    characterBible: characterBible ?? null,
     mainCharacterTemplate: mainTemplate || null,
     episodeCharacter,
   };
 }
 
-export function buildEpisodeCharacterRegistry(mainCharacterTemplates = [], episodeCharacters = []) {
+export function buildEpisodeCharacterRegistry(
+  mainCharacterTemplates = [],
+  episodeCharacters = [],
+  characterBibles = []
+) {
   return episodeCharacters.map((episodeCharacter) => {
     const mainTemplate =
       mainCharacterTemplates.find(
         (template) => template?.id === (episodeCharacter?.mainCharacterTemplateId ?? null)
       ) ?? null;
+    const characterBible =
+      characterBibles.find((bible) => bible?.id === (episodeCharacter?.characterBibleId ?? null)) ?? null;
 
-    return buildMergedEpisodeCharacter(mainTemplate, episodeCharacter);
+    return buildMergedEpisodeCharacter(mainTemplate, episodeCharacter, characterBible);
   });
 }
 
@@ -256,6 +327,7 @@ export function getEpisodeCharacterContext(episodeCharacterId, registry = []) {
     character,
     episodeCharacter: character.episodeCharacter ?? null,
     mainCharacterTemplate: character.mainCharacterTemplate ?? null,
+    characterBible: character.characterBible ?? null,
   };
 }
 

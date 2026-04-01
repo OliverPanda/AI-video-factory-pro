@@ -1,0 +1,16 @@
+{
+  "id": "pilot",
+  "projectId": "project-example",
+  "title": "第一卷：冷宫夜查",
+  "sourceText": "见 script.txt",
+  "mainCharacterTemplates": [
+    {
+      "id": "tpl-shenqing",
+      "name": "沈清",
+      "gender": "female",
+      "age": "20多岁",
+      "personality": "冷静敏锐",
+      "basePromptTokens": "young chinese woman, pale green hanfu, neat fringe"
+    }
+  ]
+}

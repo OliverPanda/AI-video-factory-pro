@@ -34,43 +34,66 @@ test('character registry writes registry outputs metrics and manifest when artif
     });
 
     await buildCharacterRegistry(
-      [
-        { id: 'char_1', name: '小红', gender: 'female' },
-        { id: 'char_2', name: '店长', gender: 'male' },
-      ],
+      [{ id: 'char_1', name: '小红', gender: 'female', characterBibleId: 'bible_red' }],
       '咖啡馆日常',
       'realistic',
       {
-        chatJSON: async () => ({
-          characters: [
-            {
-              name: '小红',
-              visualDescription: 'short hair, cafe apron',
-              basePromptTokens: 'short hair, cafe apron',
-              personality: '开朗',
-            },
-          ],
-        }),
         artifactContext: ctx.agents.characterRegistry,
+        mainCharacterTemplates: [
+          {
+            id: 'tpl_red',
+            name: '小红',
+            gender: 'female',
+            basePromptTokens: 'young cafe worker',
+          },
+        ],
+        episodeCharacters: [
+          {
+            id: 'char_1',
+            name: '小红',
+            gender: 'female',
+            mainCharacterTemplateId: 'tpl_red',
+            characterBibleId: 'bible_red',
+          },
+        ],
+        characterBibles: [
+          {
+            id: 'bible_red',
+            basePromptTokens: 'short hair, cafe apron',
+            negativeDriftTokens: 'different hairstyle',
+            coreTraits: { hairStyle: 'short hair', skinTone: 'fair skin' },
+          },
+        ],
       }
     );
 
+    const sourceCharactersPath = path.join(ctx.agents.characterRegistry.inputsDir, 'source-characters.json');
+    const characterBiblesPath = path.join(ctx.agents.characterRegistry.inputsDir, 'character-bibles.json');
+    const templatesPath = path.join(
+      ctx.agents.characterRegistry.inputsDir,
+      'main-character-templates.json'
+    );
     const registryPath = path.join(ctx.agents.characterRegistry.outputsDir, 'character-registry.json');
     const markdownPath = path.join(ctx.agents.characterRegistry.outputsDir, 'character-registry.md');
     const mappingPath = path.join(ctx.agents.characterRegistry.outputsDir, 'character-name-mapping.json');
     const metricsPath = path.join(ctx.agents.characterRegistry.metricsDir, 'character-metrics.json');
     const manifestPath = ctx.agents.characterRegistry.manifestPath;
 
+    assert.equal(fs.existsSync(sourceCharactersPath), true);
+    assert.equal(fs.existsSync(characterBiblesPath), true);
+    assert.equal(fs.existsSync(templatesPath), true);
+
     const registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
-    assert.equal(registry.length, 2);
+    assert.equal(registry.length, 1);
     assert.equal(registry[0].name, '小红');
     assert.equal(registry[0].basePromptTokens, 'short hair, cafe apron');
-    assert.equal(registry[1].name, '店长');
+    assert.equal(registry[0].characterBibleId, 'bible_red');
+    assert.equal(registry[0].negativeDriftTokens, 'different hairstyle');
 
     const markdown = fs.readFileSync(markdownPath, 'utf-8');
     assert.match(markdown, /## 小红/);
     assert.match(markdown, /Visual: short hair, cafe apron/);
-    assert.match(markdown, /## 店长/);
+    assert.match(markdown, /Negative Drift Tokens: different hairstyle/);
 
     const mapping = JSON.parse(fs.readFileSync(mappingPath, 'utf-8'));
     assert.deepEqual(mapping, [
@@ -81,35 +104,25 @@ test('character registry writes registry outputs metrics and manifest when artif
         registryId: 'char_1',
         registryEpisodeCharacterId: 'char_1',
         registryName: '小红',
-        generatedName: '小红',
-        matchedBy: 'generated_name',
-        hasUsefulProfile: true,
-      },
-      {
-        sourceId: 'char_2',
-        sourceEpisodeCharacterId: 'char_2',
-        sourceName: '店长',
-        registryId: 'char_2',
-        registryEpisodeCharacterId: 'char_2',
-        registryName: '店长',
         generatedName: null,
         matchedBy: 'source_fallback',
-        hasUsefulProfile: false,
+        hasUsefulProfile: true,
       },
     ]);
 
     const metrics = JSON.parse(fs.readFileSync(metricsPath, 'utf-8'));
     assert.deepEqual(metrics, {
-      character_count: 2,
-      registry_coverage_rate: 0.5,
+      character_count: 1,
+      registry_coverage_rate: 1,
       fallback_merged_count: 1,
-      missing_profile_count: 1,
+      missing_profile_count: 0,
+      character_bible_linked_count: 1,
     });
 
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
     assert.deepEqual(manifest, {
       status: 'completed',
-      characterCount: 2,
+      characterCount: 1,
       outputFiles: [
         'character-registry.json',
         'character-registry.md',
@@ -136,8 +149,32 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
     });
 
     const shots = [
-      { id: 'shot_001', scene: '咖啡馆', action: '整理咖啡杯', characters: ['小红'], camera_type: '中景' },
-      { id: 'shot_002', scene: '吧台', action: '抬头微笑', dialogue: '你好', speaker: '小红', characters: ['小红'], camera_type: '特写' },
+      {
+        id: 'shot_001',
+        scene: '咖啡馆',
+        action: '整理咖啡杯',
+        characters: ['小红'],
+        camera_type: '中景',
+        continuityState: {
+          sceneLighting: 'warm indoor morning',
+          continuityRiskTags: ['prop continuity'],
+        },
+      },
+      {
+        id: 'shot_002',
+        scene: '吧台',
+        action: '抬头微笑',
+        dialogue: '你好',
+        speaker: '小红',
+        characters: ['小红'],
+        camera_type: '特写',
+        continuityState: {
+          carryOverFromShotId: 'shot_001',
+          sceneLighting: 'warm indoor morning',
+          propStates: [{ name: 'coffee_cup', holderEpisodeCharacterId: 'char_1' }],
+          continuityRiskTags: ['prop continuity'],
+        },
+      },
     ];
     const registry = [
       {
@@ -146,6 +183,7 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
         name: '小红',
         visualDescription: 'short hair, cafe apron',
         basePromptTokens: 'short hair, cafe apron',
+        negativeDriftTokens: 'different hairstyle',
       },
     ];
     let callCount = 0;
@@ -176,8 +214,10 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
     assert.equal(prompts.length, 2);
     assert.equal(prompts[0].shotId, 'shot_001');
     assert.match(prompts[0].image_prompt, /warm cafe counter scene/);
+    assert.match(prompts[0].image_prompt, /warm indoor morning/);
     assert.equal(prompts[1].shotId, 'shot_002');
     assert.match(prompts[1].image_prompt, /吧台, 抬头微笑/);
+    assert.match(prompts[1].image_prompt, /warm indoor morning/);
     assert.equal(prompts[1].style_notes, '降级生成（LLM调用失败）');
 
     const promptSources = JSON.parse(

@@ -41,6 +41,24 @@ function buildPromptsTable(prompts, promptSources) {
   return `${lines.join('\n')}\n`;
 }
 
+function buildContinuityTokens(shot = {}) {
+  const continuityState = shot.continuityState ?? {};
+  const tokens = [
+    continuityState.sceneLighting,
+    continuityState.cameraAxis ? `camera axis ${continuityState.cameraAxis}` : null,
+    ...(Array.isArray(continuityState.continuityRiskTags) ? continuityState.continuityRiskTags : []),
+    ...(Array.isArray(continuityState.propStates)
+      ? continuityState.propStates.map((item) =>
+          item?.name
+            ? `${item.name}${item.side ? ` ${item.side}` : ''}${item.holderEpisodeCharacterId ? ` held by ${item.holderEpisodeCharacterId}` : ''}`
+            : null
+        )
+      : []),
+  ];
+
+  return tokens.filter(Boolean).join(', ');
+}
+
 function buildPromptMetrics(prompts, promptSources) {
   const llmSuccessCount = promptSources.filter((entry) => entry.source === 'llm').length;
   const fallbackCount = promptSources.filter((entry) => entry.source === 'fallback').length;
@@ -119,6 +137,7 @@ export async function generatePromptForShot(shot, characterRegistry, style = 're
   const enhancedPrompt = [
     charTokens,
     result.image_prompt,
+    buildContinuityTokens(shot),
     cameraKw,
     styleBase.lighting,
     styleBase.quality,
@@ -181,7 +200,9 @@ function fallbackPrompt(shot, style) {
   const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   return {
     shotId: shot.id,
-    image_prompt: `${shot.scene}, ${shot.action}, ${cameraKw}, ${styleBase.quality}`,
+    image_prompt: `${shot.scene}, ${shot.action}, ${buildContinuityTokens(shot)}, ${cameraKw}, ${styleBase.quality}`
+      .replace(/,\s*,/g, ', ')
+      .replace(/,\s*$/, ''),
     negative_prompt: styleBase.negative,
     style_notes: '降级生成（LLM调用失败）',
   };

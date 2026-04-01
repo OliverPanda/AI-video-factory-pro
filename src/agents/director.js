@@ -10,6 +10,7 @@ import { buildCharacterRegistry } from './characterRegistry.js';
 import { generateAllPrompts } from './promptEngineer.js';
 import { generateAllImages, regenerateImage } from './imageGenerator.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
+import { runContinuityCheck } from './continuityChecker.js';
 import { generateAllAudio } from './ttsAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
@@ -18,6 +19,7 @@ import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScr
 import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
 import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
+import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import logger from '../utils/logger.js';
 
@@ -105,6 +107,7 @@ export function createDirector(overrides = {}) {
     generateAllImages,
     regenerateImage,
     runConsistencyCheck,
+    runContinuityCheck,
     generateAllAudio,
     composeVideo,
     saveJSON,
@@ -121,6 +124,7 @@ export function createDirector(overrides = {}) {
     createRunJob,
     finishRunJob,
     appendAgentTaskRun,
+    listCharacterBibles,
     loadVoicePreset,
     logger,
     ...overrides,
@@ -174,6 +178,16 @@ export function createDirector(overrides = {}) {
 
         const shots = Array.isArray(episode.shots) ? episode.shots : [];
         const characters = Array.isArray(script.characters) ? script.characters : [];
+        const mainCharacterTemplates = Array.isArray(script.mainCharacterTemplates)
+          ? script.mainCharacterTemplates
+          : [];
+        const episodeCharacters = Array.isArray(episode.episodeCharacters)
+          ? episode.episodeCharacters
+          : (Array.isArray(episode.characters) ? episode.characters : []);
+        const characterBibles =
+          typeof deps.listCharacterBibles === 'function'
+            ? deps.listCharacterBibles(projectId, options.storeOptions)
+            : [];
         const projectName = project?.name || projectId;
         const scriptTitle = script.title || 'untitled_script';
         const episodeTitle = episode.title || `episode_${episodeId}`;
@@ -292,10 +306,15 @@ export function createDirector(overrides = {}) {
             { message: '构建角色档案' },
             () =>
               deps.buildCharacterRegistry(
-                characters,
+                episodeCharacters.length > 0 ? episodeCharacters : characters,
                 `${scriptTitle}：${buildEpisodeContext(script, episode).slice(0, 500)}`,
                 style,
-                { artifactContext: artifactContext.agents.characterRegistry }
+                {
+                  artifactContext: artifactContext.agents.characterRegistry,
+                  mainCharacterTemplates,
+                  episodeCharacters,
+                  characterBibles,
+                }
               )
           );
           saveState({ characterRegistry });
@@ -358,7 +377,7 @@ export function createDirector(overrides = {}) {
 
         if (!options.skipConsistencyCheck) {
           if (!state.consistencyCheckDone) {
-            deps.logger.info('Director', '【Step 4/6】一致性验证...');
+            deps.logger.info('Director', '【Step 4/7】一致性验证...');
             const { needsRegeneration } = await recordStep(
               'consistency_check',
               { message: '一致性验证' },
@@ -407,17 +426,45 @@ export function createDirector(overrides = {}) {
 
             saveState({ imageResults, consistencyCheckDone: true });
           } else {
-            deps.logger.info('Director', '【Step 4/6】使用缓存的一致性检查结果');
+            deps.logger.info('Director', '【Step 4/7】使用缓存的一致性检查结果');
             appendStepRun('consistency_check', {
               status: 'cached',
               detail: '使用缓存的一致性检查结果',
             });
           }
         } else {
-          deps.logger.info('Director', '【Step 4/6】跳过一致性检查');
+          deps.logger.info('Director', '【Step 4/7】跳过一致性检查');
           appendStepRun('consistency_check', {
             status: 'skipped',
             detail: '跳过一致性检查',
+          });
+        }
+
+        const shouldSkipContinuityCheck = options.skipContinuityCheck === true || options.skipConsistencyCheck === true;
+        if (!shouldSkipContinuityCheck) {
+          if (!state.continuityCheckDone) {
+            deps.logger.info('Director', '【Step 5/7】连贯性检查...');
+            const continuityResult = await recordStep(
+              'continuity_check',
+              { message: '连贯性检查' },
+              () =>
+                deps.runContinuityCheck(shots, imageResults, {
+                  artifactContext: artifactContext.agents.continuityChecker,
+                })
+            );
+            saveState({ continuityCheckDone: true, continuityReport: continuityResult.reports });
+          } else {
+            deps.logger.info('Director', '【Step 5/7】使用缓存的连贯性检查结果');
+            appendStepRun('continuity_check', {
+              status: 'cached',
+              detail: '使用缓存的连贯性检查结果',
+            });
+          }
+        } else {
+          deps.logger.info('Director', '【Step 5/7】跳过连贯性检查');
+          appendStepRun('continuity_check', {
+            status: 'skipped',
+            detail: '跳过连贯性检查',
           });
         }
 
@@ -428,7 +475,7 @@ export function createDirector(overrides = {}) {
         const canReuseAudioCache = state.audioResults && cachedAudioProjectId === voiceProjectId;
         let audioResults = canReuseAudioCache ? state.audioResults : null;
         if (!audioResults) {
-          deps.logger.info('Director', '【Step 5/6】生成配音...');
+          deps.logger.info('Director', '【Step 6/7】生成配音...');
           const audioOptions = voiceProjectId
             ? {
                 projectId: voiceProjectId,
@@ -444,7 +491,7 @@ export function createDirector(overrides = {}) {
           );
           saveState({ audioResults, audioProjectId: voiceProjectId });
         } else {
-          deps.logger.info('Director', '【Step 5/6】使用缓存的音频结果');
+          deps.logger.info('Director', '【Step 6/7】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',
@@ -452,7 +499,7 @@ export function createDirector(overrides = {}) {
           saveState({ audioProjectId: cachedAudioProjectId });
         }
 
-        deps.logger.info('Director', '【Step 6/6】合成视频...');
+        deps.logger.info('Director', '【Step 7/7】合成视频...');
         const outputFileName =
           `${sanitizeFileSegment(scriptTitle, 'script')}_${sanitizeFileSegment(episodeTitle, 'episode')}_${jobId}.mp4`;
         const outputPath = path.join(dirs.output, outputFileName);
@@ -465,6 +512,7 @@ export function createDirector(overrides = {}) {
           deps.composeVideo(shots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
             animationClips,
+            artifactContext: artifactContext.agents.videoComposer,
           })
         );
 

@@ -49,6 +49,11 @@ test('consistency checker writes report flagged shots metrics and manifest when 
         checkCharacterConsistency: async () => ({
           character: '小红',
           overallScore: 6,
+          identityDriftTags: ['hair_drift', 'outfit_drift'],
+          anchorSummary: {
+            hair: 'hairstyle changed slightly',
+            outfit: 'apron missing',
+          },
           problematicImageIndices: [1],
           suggestion: 'match costume',
         }),
@@ -88,6 +93,7 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     assert.match(markdown, /# Consistency Report/);
     assert.match(markdown, /## 小红/);
     assert.match(markdown, /Overall Score: 6/);
+    assert.match(markdown, /Identity Drift Tags: hair_drift, outfit_drift/);
 
     const flaggedShots = JSON.parse(fs.readFileSync(flaggedPath, 'utf-8'));
     assert.deepEqual(flaggedShots, [
@@ -104,6 +110,10 @@ test('consistency checker writes report flagged shots metrics and manifest when 
       checked_shot_count: 2,
       flagged_shot_count: 1,
       avg_consistency_score: 6,
+      identity_drift_tag_counts: {
+        hair_drift: 1,
+        outfit_drift: 1,
+      },
       regeneration_count: 1,
     });
 

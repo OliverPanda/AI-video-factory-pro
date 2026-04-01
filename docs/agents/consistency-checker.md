@@ -7,6 +7,7 @@
 当前这个 Agent 的真实职责是：
 
 - 检查同一角色在多张分镜图中的外观一致性
+- 输出身份漂移标签与锚点摘要
 - 给出评分、问题图索引和重生成建议
 - 为导演提供“哪些镜头该重画”的决策依据
 
@@ -124,7 +125,7 @@
 其中最关键的是：
 
 - `consistency-report.json`
-  - 每个角色的评分、建议、问题索引
+  - 每个角色的评分、建议、问题索引、`identityDriftTags`、`anchorSummary`
 - `flagged-shots.json`
   - 导演真正会消费的“哪些镜头该重生成”
 - `consistency-report.md`
@@ -138,7 +139,19 @@
 - `checked_shot_count`
 - `flagged_shot_count`
 - `avg_consistency_score`
+- `identity_drift_tag_counts`
 - `regeneration_count`
+
+## 新增的身份漂移信号
+
+当前报告会优先沉淀这些“可量化漂移标签”：
+
+- `hair_drift`
+- `outfit_drift`
+- `palette_drift`
+- `age_feel_drift`
+
+如果后面要做更细的质检面板，这几个标签会是第一批可直接聚合统计的字段。
 
 ## 它和导演的关系
 

@@ -61,6 +61,14 @@ export function createShotPlan(input = {}) {
       cameraMovement: null,
       durationSec: null,
       continuitySourceShotId: null,
+      continuityState: {
+        carryOverFromShotId: null,
+        sceneLighting: null,
+        cameraAxis: null,
+        propStates: [],
+        emotionState: {},
+        continuityRiskTags: [],
+      },
       ...input,
     },
     'shotplan'

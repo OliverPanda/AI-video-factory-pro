@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 8 个 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 9 个 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 审查“每个 agent 有没有留下可审计成果物”。
@@ -16,10 +16,12 @@ flowchart TD
     E --> F[Image Generator]
     F --> G[Consistency Checker]
     G -->|needsRegeneration| B
+    F --> K[Continuity Checker]
     D --> H[TTS Agent]
     C --> H
     F --> I[Video Composer]
     H --> I
+    K --> I
     C --> I
     I --> J[output/final-video.mp4]
 ```
@@ -47,6 +49,7 @@ flowchart TD
 
 质检层
 - Consistency Checker
+- Continuity Checker
 
 交付层
 - Video Composer
@@ -63,8 +66,9 @@ flowchart TD
 | Prompt Engineer | `shots + characterRegistry + style` | `prompts` | `03-prompt-engineer/` | Image Generator |
 | Image Generator | `prompts + style + provider route` | `imageResults / KeyframeAsset refs` | `04-image-generator/` | Consistency Checker、Video Composer |
 | Consistency Checker | `characterRegistry + imageResults` | `reports + needsRegeneration` | `05-consistency-checker/` | Director |
-| TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `06-tts-agent/` | Video Composer |
-| Video Composer | `shots + imageResults + audioResults + animationClips` | `final video`、compose artifacts | `07-video-composer/`、`output/` | 最终交付 |
+| Continuity Checker | `shots + imageResults` | `reports + flaggedTransitions` | `06-continuity-checker/` | Director |
+| TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | Video Composer |
+| Video Composer | `shots + imageResults + audioResults + animationClips` | `final video`、compose artifacts | `08-video-composer/`、`output/` | 最终交付 |
 
 ## 详细流转
 
@@ -225,16 +229,62 @@ flowchart TD
 
 关键落盘：
 
-- `06-tts-agent/0-inputs/voice-resolution.json`
-- `06-tts-agent/1-outputs/audio.index.json`
-- `06-tts-agent/1-outputs/dialogue-table.md`
-- `06-tts-agent/3-errors/<shotId>-error.json`
+- `07-tts-agent/0-inputs/voice-resolution.json`
+- `07-tts-agent/1-outputs/audio.index.json`
+- `07-tts-agent/1-outputs/dialogue-table.md`
+- `07-tts-agent/3-errors/<shotId>-error.json`
 
 下游：
 
 - `Video Composer`
 
-### 8. Video Composer
+### 7. Continuity Checker
+
+输入：
+
+- `shots`
+- `imageResults`
+
+输出：
+
+- `reports`
+- `flaggedTransitions`
+
+关键落盘：
+
+- `06-continuity-checker/1-outputs/continuity-report.json`
+- `06-continuity-checker/1-outputs/flagged-transitions.json`
+- `06-continuity-checker/1-outputs/continuity-report.md`
+
+下游：
+
+- `Director`
+
+### 8. TTS Agent
+
+输入：
+
+- `shots`
+- `characterRegistry`
+- `voicePresetLoader`
+
+输出：
+
+- `audioResults`
+- `voiceResolution`
+
+关键落盘：
+
+- `07-tts-agent/0-inputs/voice-resolution.json`
+- `07-tts-agent/1-outputs/audio.index.json`
+- `07-tts-agent/1-outputs/dialogue-table.md`
+- `07-tts-agent/3-errors/<shotId>-error.json`
+
+下游：
+
+- `Video Composer`
+
+### 9. Video Composer
 
 输入：
 
@@ -250,11 +300,11 @@ flowchart TD
 
 关键落盘：
 
-- `07-video-composer/1-outputs/compose-plan.json`
-- `07-video-composer/1-outputs/segment-index.json`
-- `07-video-composer/2-metrics/video-metrics.json`
-- `07-video-composer/3-errors/ffmpeg-command.txt`
-- `07-video-composer/3-errors/ffmpeg-stderr.txt`
+- `08-video-composer/1-outputs/compose-plan.json`
+- `08-video-composer/1-outputs/segment-index.json`
+- `08-video-composer/2-metrics/video-metrics.json`
+- `08-video-composer/3-errors/ffmpeg-command.txt`
+- `08-video-composer/3-errors/ffmpeg-stderr.txt`
 - `output/<...>/final-video.mp4`
 
 ## 审计检查清单
@@ -270,8 +320,9 @@ runs/<runDir>/
   03-prompt-engineer/manifest.json
   04-image-generator/manifest.json
   05-consistency-checker/manifest.json
-  06-tts-agent/manifest.json
-  07-video-composer/manifest.json
+  06-continuity-checker/manifest.json
+  07-tts-agent/manifest.json
+  08-video-composer/manifest.json
 ```
 
 再进一步看每层的核心产物是否存在：
@@ -290,7 +341,7 @@ runs/<runDir>/
 
 - `Consistency Checker`
   - 角色外观一致性
-- 未来可能新增的 `Continuity Checker`
+- `Continuity Checker`
   - 镜头动作衔接
   - 视线连续
   - 构图连续

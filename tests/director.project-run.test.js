@@ -129,6 +129,72 @@ test('runEpisodePipeline sends only the current episode shots to audio and video
   });
 });
 
+test('runEpisodePipeline loads project character bibles into character registry build context', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const buildCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_character_bible_scope',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadProject: () => ({ id: 'project_1', name: '宫墙疑云' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '第一卷',
+        characters: [],
+        mainCharacterTemplates: [
+          { id: 'tpl_hero', name: '沈清', basePromptTokens: 'young noblewoman' },
+        ],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeCharacters: [
+          {
+            id: 'ep_char_1',
+            name: '沈清',
+            mainCharacterTemplateId: 'tpl_hero',
+            characterBibleId: 'bible_shenqing',
+          },
+        ],
+        shots: [{ id: 'shot_ep_1', scene: '宫道', characters: ['沈清'] }],
+      }),
+      listCharacterBibles: () => [
+        {
+          id: 'bible_shenqing',
+          basePromptTokens: 'young woman, pale hanfu',
+          negativeDriftTokens: 'different hairstyle',
+        },
+      ],
+      buildCharacterRegistry: async (...args) => {
+        buildCalls.push(args);
+        return [{ name: '沈清', basePromptTokens: 'young woman, pale hanfu' }];
+      },
+      generateAllPrompts: async () => [{ shotId: 'shot_ep_1', image_prompt: 'prompt', negative_prompt: '' }],
+      generateAllImages: async () => [{ shotId: 'shot_ep_1', imagePath: '/tmp/shot_ep_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_ep_1', audioPath: '/tmp/shot_ep_1.mp3' }],
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: { storeOptions: { baseTempDir: tempRoot } },
+    });
+
+    assert.equal(buildCalls.length, 1);
+    assert.equal(buildCalls[0][0][0].id, 'ep_char_1');
+    assert.equal(buildCalls[0][3].mainCharacterTemplates[0].id, 'tpl_hero');
+    assert.equal(buildCalls[0][3].episodeCharacters[0].characterBibleId, 'bible_shenqing');
+    assert.equal(buildCalls[0][3].characterBibles[0].id, 'bible_shenqing');
+  });
+});
+
 test('runPipeline compatibility mode reuses the same legacy identities and job state across reruns', async () => {
   await withTempRoot(async (tempRoot) => {
     const scriptFilePath = path.join(tempRoot, 'legacy-script.txt');
@@ -477,6 +543,7 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'generate_prompts',
         'generate_images',
         'consistency_check',
+        'continuity_check',
         'generate_audio',
         'compose_video',
       ]
@@ -672,7 +739,8 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['generate_prompts', 'cached'],
         ['generate_images', 'cached'],
         ['consistency_check', 'skipped'],
-        ['generate_audio', 'cached'],
+        ['continuity_check', 'skipped'],
+        ['generate_audio', 'completed'],
         ['compose_video', 'completed'],
       ]
     );

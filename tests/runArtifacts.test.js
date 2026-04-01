@@ -53,6 +53,7 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'promptEngineer',
       'imageGenerator',
       'consistencyChecker',
+      'continuityChecker',
       'ttsAgent',
       'videoComposer',
     ]);

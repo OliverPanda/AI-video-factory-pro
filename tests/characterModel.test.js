@@ -20,7 +20,7 @@ test('createMainCharacterTemplate sets default status and timestamps', () => {
   assert.equal(typeof character.id, 'string');
 });
 
-test('createEpisodeCharacter defaults mainCharacterTemplateId to null', () => {
+test('createEpisodeCharacter defaults identity linkage fields to null', () => {
   const character = createEpisodeCharacter({
     projectId: 'p1',
     scriptId: 's1',
@@ -33,16 +33,24 @@ test('createEpisodeCharacter defaults mainCharacterTemplateId to null', () => {
   assert.equal(character.episodeId, 'e1');
   assert.equal(character.name, '店员');
   assert.equal(character.mainCharacterTemplateId, null);
+  assert.equal(character.characterBibleId, null);
+  assert.equal(character.lookOverride, null);
+  assert.equal(character.wardrobeOverride, null);
+  assert.equal(character.voicePresetId, null);
   assert.equal(character.status, 'draft');
 });
 
-test('createShotCharacter preserves speaker and ordering flags', () => {
+test('createShotCharacter preserves speaker ordering and continuity relation fields', () => {
   const relation = createShotCharacter({
     shotId: 'sh1',
     episodeCharacterId: 'c1',
     isSpeaker: true,
     isPrimary: false,
     sortOrder: 3,
+    poseIntent: 'leaning_forward',
+    relativePosition: 'left',
+    facingDirection: 'right',
+    interactionTargetEpisodeCharacterId: 'c2',
   });
 
   assert.equal(relation.shotId, 'sh1');
@@ -50,6 +58,10 @@ test('createShotCharacter preserves speaker and ordering flags', () => {
   assert.equal(relation.isSpeaker, true);
   assert.equal(relation.isPrimary, false);
   assert.equal(relation.sortOrder, 3);
+  assert.equal(relation.poseIntent, 'leaning_forward');
+  assert.equal(relation.relativePosition, 'left');
+  assert.equal(relation.facingDirection, 'right');
+  assert.equal(relation.interactionTargetEpisodeCharacterId, 'c2');
   assert.equal(typeof relation.id, 'string');
   assert.equal(relation.status, 'draft');
   assert.equal(typeof relation.createdAt, 'string');

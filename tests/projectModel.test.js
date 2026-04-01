@@ -72,7 +72,7 @@ test('createEpisode clamps targetDurationSec above 180 to 180', () => {
   assert.equal(episode.targetDurationSec, 180);
 });
 
-test('createShotPlan preserves core shot fields', () => {
+test('createShotPlan preserves core shot fields and continuity state', () => {
   const shotPlan = createShotPlan({
     projectId: 'p1',
     scriptId: 's1',
@@ -87,6 +87,14 @@ test('createShotPlan preserves core shot fields', () => {
     cameraMovement: 'push_in',
     durationSec: 12,
     continuitySourceShotId: 'sh2',
+    continuityState: {
+      carryOverFromShotId: 'sh2',
+      sceneLighting: 'warm indoor dusk',
+      cameraAxis: 'screen_left_to_right',
+      propStates: [{ name: 'coffee_cup', holderEpisodeCharacterId: 'c1' }],
+      emotionState: { c1: 'nervous' },
+      continuityRiskTags: ['prop continuity'],
+    },
   });
 
   assert.equal(shotPlan.projectId, 'p1');
@@ -95,6 +103,32 @@ test('createShotPlan preserves core shot fields', () => {
   assert.equal(shotPlan.shotNo, 3);
   assert.equal(shotPlan.status, 'draft');
   assert.equal(shotPlan.continuitySourceShotId, 'sh2');
+  assert.deepEqual(shotPlan.continuityState, {
+    carryOverFromShotId: 'sh2',
+    sceneLighting: 'warm indoor dusk',
+    cameraAxis: 'screen_left_to_right',
+    propStates: [{ name: 'coffee_cup', holderEpisodeCharacterId: 'c1' }],
+    emotionState: { c1: 'nervous' },
+    continuityRiskTags: ['prop continuity'],
+  });
+});
+
+test('createShotPlan provides a stable default continuity state object', () => {
+  const shotPlan = createShotPlan({
+    projectId: 'p1',
+    scriptId: 's1',
+    episodeId: 'e1',
+    shotNo: 1,
+  });
+
+  assert.deepEqual(shotPlan.continuityState, {
+    carryOverFromShotId: null,
+    sceneLighting: null,
+    cameraAxis: null,
+    propStates: [],
+    emotionState: {},
+    continuityRiskTags: [],
+  });
 });
 
 test('createKeyframeAsset sets default status', () => {

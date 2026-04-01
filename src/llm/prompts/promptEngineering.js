@@ -24,8 +24,16 @@ export const PROMPT_ENGINEER_USER = (shot, characterCards, style) => `
 镜头：${shot.camera_type}
 </分镜信息>
 
+<连续性约束>
+承接镜头：${shot.continuityState?.carryOverFromShotId || shot.continuitySourceShotId || '无'}
+场景光照：${shot.continuityState?.sceneLighting || '未指定'}
+镜头轴线：${shot.continuityState?.cameraAxis || '未指定'}
+道具状态：${Array.isArray(shot.continuityState?.propStates) && shot.continuityState.propStates.length > 0 ? shot.continuityState.propStates.map((item) => `${item.name}:${item.holderEpisodeCharacterId || item.side || 'unknown'}`).join('；') : '无'}
+连续风险：${Array.isArray(shot.continuityState?.continuityRiskTags) && shot.continuityState.continuityRiskTags.length > 0 ? shot.continuityState.continuityRiskTags.join('、') : '无'}
+</连续性约束>
+
 <角色视觉档案>
-${characterCards.map((c) => `${c.name}：${c.visualDescription}`).join('\n')}
+${characterCards.map((c) => `${c.name}：${c.visualDescription}${c.basePromptTokens ? `；identity=${c.basePromptTokens}` : ''}${c.negativeDriftTokens ? `；avoid=${c.negativeDriftTokens}` : ''}`).join('\n')}
 </角色视觉档案>
 
 <风格>

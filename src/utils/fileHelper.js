@@ -85,6 +85,22 @@ export function getVoicePresetFilePath(projectId, voicePresetId, baseTempDir = T
   );
 }
 
+export function getCharacterBiblesDir(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(
+    baseTempDir,
+    'projects',
+    assertSafePathSegment(projectId, 'projectId'),
+    'character-bibles'
+  );
+}
+
+export function getCharacterBibleFilePath(projectId, characterBibleId, baseTempDir = TEMP_DIR) {
+  return path.join(
+    getCharacterBiblesDir(projectId, baseTempDir),
+    `${assertSafePathSegment(characterBibleId, 'characterBibleId')}.json`
+  );
+}
+
 // 读取文本文件
 export function readTextFile(filePath) {
   return fs.readFileSync(filePath, 'utf-8');
@@ -142,6 +158,8 @@ export default {
   initDirs,
   getVoicePresetsDir,
   getVoicePresetFilePath,
+  getCharacterBiblesDir,
+  getCharacterBibleFilePath,
   readTextFile,
   saveJSON,
   loadJSON,

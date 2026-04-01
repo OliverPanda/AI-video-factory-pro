@@ -12,15 +12,17 @@
 | 4 | 视觉设计Agent（Prompt Engineer） | 为每个分镜生成图像 Prompt，注入角色/风格/镜头词 | `src/agents/promptEngineer.js` |
 | 5 | 图像生成Agent（Image Generator） | 调用图像 API，批量并发出图并重试 | `src/agents/imageGenerator.js` |
 | 6 | 一致性验证Agent（Consistency Checker） | 使用多模态 LLM 检查角色外观一致性并触发重生成 | `src/agents/consistencyChecker.js` |
-| 7 | 配音Agent（TTS） | 批量合成对白音频，自动区分角色音色 | `src/agents/ttsAgent.js` |
-| 8 | 合成Agent（Video Composer） | 图像+音频+字幕合成最终视频，生成 1080×1920 输出 | `src/agents/videoComposer.js` |
+| 7 | 连贯性检查Agent（Continuity Checker） | 检查跨分镜的基础连贯性并标记问题转场 | `src/agents/continuityChecker.js` |
+| 8 | 配音Agent（TTS） | 批量合成对白音频，自动区分角色音色 | `src/agents/ttsAgent.js` |
+| 9 | 合成Agent（Video Composer） | 图像+音频+字幕合成最终视频，生成 1080×1920 输出 | `src/agents/videoComposer.js` |
 
 ## 执行顺序
 
 1. 导演Agent 读取剧本与运行状态，按顺序触发子 Agent。
 2. 编剧Agent → 角色设定Agent → 视觉设计Agent 顺序构建分镜与 Prompt。
 3. 图像生成Agent 负责批量出图，随后一致性验证Agent 检查并在必要时触发重试。
-4. 配音Agent 生成对白音频，合成Agent 最终拼装图像、配音与字幕。
+4. 一致性验证之后，连贯性检查Agent 评估跨分镜承接。
+5. 配音Agent 生成对白音频，合成Agent 最终拼装图像、配音与字幕。
 
 ## 详细文档入口
 
@@ -30,6 +32,7 @@
 - [视觉设计 Agent（Prompt Engineer）](prompt-engineer.md)
 - [图像生成 Agent（Image Generator）](image-generator.md)
 - [一致性验证 Agent（Consistency Checker）](consistency-checker.md)
+- [连贯性检查 Agent（Continuity Checker）](continuity-checker.md)
 - [配音 Agent（TTS）](tts-agent.md)
 - [合成 Agent 详细说明（Video Composer）](video-composer.md)
 - [视觉设计链路说明](visual-design.md)

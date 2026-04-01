@@ -14,7 +14,14 @@ export const CONSISTENCY_CHECK_SYSTEM = `你是一位专业的视觉一致性审
 10分 = 完全一致，同一人物无疑
 7-9分 = 基本一致，细节有轻微偏差
 4-6分 = 中等偏差，需要关注
-1-3分 = 严重不一致，需要重新生成`;
+1-3分 = 严重不一致，需要重新生成
+
+请特别关注并标注这些身份锚点是否漂移：
+- 发型/发色
+- 主服装/服装轮廓
+- 主配色
+- 年龄感/面部成熟度
+- 光照导致的误判`;
 
 export const CONSISTENCY_CHECK_USER = (characterName, characterCard, imageCount) => `
 请检查以上${imageCount}张图片中，角色"${characterName}"的外观一致性。
@@ -32,6 +39,13 @@ ${characterCard.visualDescription}
     "hair": "发型一致性描述",
     "outfit": "服装一致性描述",
     "bodyShape": "体型一致性描述"
+  },
+  "identityDriftTags": ["hair_drift", "outfit_drift", "palette_drift", "age_feel_drift"],
+  "anchorSummary": {
+    "hair": "发型/发色是否稳定",
+    "outfit": "服装轮廓是否稳定",
+    "palette": "主配色是否稳定",
+    "ageFeel": "年龄感是否稳定"
   },
   "problematicImageIndices": [需要重新生成的图片索引，从0开始],
   "suggestion": "改进建议（如何调整Prompt提升一致性）"

@@ -1,0 +1,25 @@
+{
+  "id": "bible-shenqing",
+  "projectId": "project-example",
+  "name": "沈清",
+  "aliases": [
+    "沈答应"
+  ],
+  "referenceImages": [],
+  "coreTraits": {
+    "hairStyle": "neat fringe with tied black hair",
+    "skinTone": "fair skin",
+    "faceShape": "delicate oval face"
+  },
+  "wardrobeAnchor": {
+    "silhouette": "long pale green hanfu",
+    "palette": "pale green and ivory"
+  },
+  "lightingAnchor": {
+    "preferredKeyLight": "cold lantern light"
+  },
+  "basePromptTokens": "young chinese woman, pale green hanfu, neat fringe, fair skin",
+  "negativeDriftTokens": "different hairstyle, heavy makeup, deep blue robe, modern clothes",
+  "notes": "夜查冷宫阶段保持素净、克制、警觉。",
+  "tier": "lead"
+}
