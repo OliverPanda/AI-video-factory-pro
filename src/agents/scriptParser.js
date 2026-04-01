@@ -2,6 +2,8 @@
  * 编剧Agent - 将剧本文本拆解为分集与分镜 JSON
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { chatJSON as defaultChatJSON } from '../llm/client.js';
 import {
   SCRIPT_DECOMPOSITION_SYSTEM,
@@ -9,7 +11,71 @@ import {
   EPISODE_STORYBOARD_SYSTEM,
   EPISODE_STORYBOARD_USER,
 } from '../llm/prompts/scriptAnalysis.js';
+import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import logger from '../utils/logger.js';
+
+function writeTextFile(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function buildShotsTable(shots) {
+  const lines = [
+    '| Shot ID | Scene | Characters | Action | Dialogue | Duration |',
+    '| --- | --- | --- | --- | --- | --- |',
+  ];
+
+  for (const shot of shots) {
+    lines.push(
+      `| ${shot.id} | ${shot.scene || ''} | ${(shot.characters || []).join(', ')} | ${shot.action || ''} | ${shot.dialogue || ''} | ${shot.duration || 0} |`
+    );
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function buildParserMetrics(result) {
+  const shots = Array.isArray(result?.shots) ? result.shots : [];
+  return {
+    shot_count: shots.length,
+    dialogue_shot_count: shots.filter((shot) => shot.dialogue).length,
+    silent_shot_count: shots.filter((shot) => !shot.dialogue).length,
+    character_count: Array.isArray(result?.characters) ? result.characters.length : 0,
+    total_duration_sec: Number(result?.totalDuration) || shots.reduce((sum, shot) => sum + (shot.duration || 0), 0),
+    avg_shot_duration_sec:
+      shots.length > 0
+        ? (shots.reduce((sum, shot) => sum + (shot.duration || 0), 0) / shots.length)
+        : 0,
+  };
+}
+
+function writeParserArtifacts(scriptText, result, artifactContext) {
+  if (!artifactContext) {
+    return;
+  }
+
+  writeTextFile(path.join(artifactContext.inputsDir, 'source-script.txt'), scriptText);
+  saveJSON(path.join(artifactContext.inputsDir, 'parser-config.json'), {
+    mode: 'legacy-flat-parse',
+    decompositionPrompt: 'script_decomposition',
+    storyboardPrompt: 'episode_storyboard',
+  });
+  saveJSON(path.join(artifactContext.outputsDir, 'shots.flat.json'), result.shots);
+  writeTextFile(path.join(artifactContext.outputsDir, 'shots.table.md'), buildShotsTable(result.shots));
+  saveJSON(path.join(artifactContext.outputsDir, 'characters.extracted.json'), result.characters);
+  saveJSON(path.join(artifactContext.metricsDir, 'parser-metrics.json'), buildParserMetrics(result));
+  saveJSON(artifactContext.manifestPath, {
+    status: 'completed',
+    outputFiles: [
+      'characters.extracted.json',
+      'shots.flat.json',
+      'shots.table.md',
+      'parser-metrics.json',
+    ],
+    shotCount: result.shots.length,
+    characterCount: result.characters.length,
+  });
+}
 
 /**
  * 解析剧本为分集数据
@@ -94,6 +160,7 @@ export async function parseScript(scriptText, deps = {}) {
   };
 
   validateLegacyScriptData(result);
+  writeParserArtifacts(scriptText, result, deps.artifactContext);
   logger.info('ScriptParser', `解析完成：${result.shots.length} 个分镜，共 ${result.characters.length} 个角色`);
   return result;
 }

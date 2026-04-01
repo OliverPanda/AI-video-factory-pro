@@ -540,7 +540,10 @@ export function createDirector(overrides = {}) {
               shots: existingEpisode.shots || [],
             };
           } else {
-            scriptData = await deps.parseScript(scriptText);
+            const bootstrapArtifactContext = options.artifactContext?.agents?.scriptParser;
+            scriptData = await deps.parseScript(scriptText, {
+              artifactContext: bootstrapArtifactContext,
+            });
           }
         }
 
