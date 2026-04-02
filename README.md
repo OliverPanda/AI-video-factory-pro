@@ -26,6 +26,11 @@ project
 
 仓库里的 `samples/project-example/` 只是说明性的最小示例，用来帮助理解项目元数据和原始剧本文本如何对应；项目模式真正读取的是 `temp/projects/...` 下已经存在的结构化数据。
 
+运行时目录说明见：
+
+- [docs/runtime/temp-structure.md](docs/runtime/temp-structure.md)
+- [docs/runtime/output-structure.md](docs/runtime/output-structure.md)
+
 ## 系统架构
 
 ```
@@ -254,6 +259,10 @@ shy expression, medium shot,
 - 审计运行包里会落 `continuity-report.json / flagged-transitions.json / continuity-report.md / continuity-metrics.json`
 - `Director` 会在一致性验证后、配音前执行这一层
 
+**重要说明**：
+- `06-continuity-checker/` 只有在流程真正走到 `continuity_check` 这一步时才会写入成果物
+- 如果在一致性重生成阶段提前失败，例如 `regenerate_inconsistent_images` 被上游生图接口 `503` 打断，那么该目录会只保留初始化时的空骨架和 `pending` manifest，这不是“剧本不支持”，而是流程尚未执行到该步骤
+
 ---
 
 ### Agent 8：配音Agent（TTS）
@@ -410,9 +419,16 @@ cp .env.example .env
 ```
 
 编辑 `.env`，填入API Key（阶段1最少需要）：
-- `DEEPSEEK_API_KEY` — [api.deepseek.com](https://api.deepseek.com)
-- `TOGETHER_API_KEY` — [api.together.xyz](https://api.together.xyz)（写实风格图像）
-- 或 `STABILITY_API_KEY` — [platform.stability.ai](https://platform.stability.ai)（3D风格）
+- `QWEN_API_KEY` — 文本 LLM 首选
+- `DEEPSEEK_API_KEY` — 文本 LLM 备选
+- `LAOZHANG_API_KEY` — 图像路由
+- `XFYUN_APP_ID / XFYUN_API_KEY / XFYUN_API_SECRET` — 讯飞 TTS
+
+默认推荐：
+
+- `LLM_PROVIDER=qwen`
+- `PRIMARY_API_PROVIDER=laozhang`
+- `TTS_PROVIDER=xfyun`
 
 ### 3. 安装 FFmpeg
 
@@ -457,9 +473,15 @@ node scripts/run.js your_script.txt
 当前仓库里有两类“测试”入口，它们的用途不同：
 
 - `pnpm test`
-  实际上会执行 `node scripts/run.js samples/test_script.txt`，属于带真实 LLM/API 依赖的端到端 smoke run；如果本地未配置可用凭证，会像当前一样报 `401`，不适合作为离线回归入口。
+  当前会执行 `node scripts/run-tests.js`，属于稳定的本地测试入口。
 - `node --test ...`
   这是本次多项目升级新增和扩展的稳定单测入口，适合本地回归。
+
+与角色一致性直接相关的 focused tests：
+
+```bash
+pnpm run test:character-consistency
+```
 
 本轮多项目升级验证使用的 focused tests：
 
@@ -498,6 +520,11 @@ node --test tests/jobStore.test.js
 - 已做：角色外观一致性
 - 已做：基础连贯性检查 Agent（光照、轴线、道具承接）
 - 仍未做重型能力：动作衔接识别、视线连续、多人场面调度连续性
+
+**输入边界**：
+- 只提供小说原文时，系统可以先自动拆分镜、出图，再做“弱一致性”检查
+- 但如果希望角色一致性更可控，仍推荐补充 `CharacterBible`
+- 原因是小说原文通常不足以稳定提供发型、服装轮廓、负向漂移词等身份锚点
 
 **进阶阶段（可选）**：
 - IP-Adapter（参考图引导生成，外观更稳定）
