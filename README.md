@@ -305,6 +305,16 @@ shy expression, medium shot,
 
 完整 Agent 文档入口见 [docs/agents/README.md](docs/agents/README.md)。
 
+最终交付目录当前统一为：
+
+```text
+output/
+  项目名__projectId/
+    第01集__episodeId/
+      final-video.mp4
+      delivery-summary.md
+```
+
 ---
 
 ## 技术栈

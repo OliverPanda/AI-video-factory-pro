@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import { createDirector } from '../src/agents/director.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-pipeline-acceptance-'));
@@ -99,6 +100,16 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     });
 
     assert.equal(fs.existsSync(outputPath), true);
+    assert.equal(
+      outputPath,
+      path.join(
+        dirs.output,
+        buildProjectDirName('验收项目', 'project_1'),
+        buildEpisodeDirName({ episodeNo: 1, id: 'episode_1' }),
+        'final-video.mp4'
+      )
+    );
+    assert.equal(fs.existsSync(path.join(path.dirname(outputPath), 'delivery-summary.md')), true);
     assert.equal(runJobs.length, 1);
 
     const artifactContext = createRunArtifactContext({

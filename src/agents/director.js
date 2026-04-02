@@ -3,6 +3,7 @@
  * 支持分集级别执行，并保留旧剧本文件入口的兼容桥接
  */
 
+import fs from 'node:fs';
 import path from 'path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parseScript } from './scriptParser.js';
@@ -16,11 +17,12 @@ import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
-import { generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
+import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
 import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
+import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
 import logger from '../utils/logger.js';
 
 function sanitizeFileSegment(value, fallback) {
@@ -97,6 +99,30 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
 
 function normalizeProjectId(projectId) {
   return projectId ?? null;
+}
+
+function createDeliverySummary({
+  projectName,
+  projectId,
+  scriptTitle,
+  episodeTitle,
+  outputPath,
+  runJobId,
+  jobId,
+  style,
+}) {
+  return [
+    '# Delivery Summary',
+    '',
+    `- 项目：${projectName} (${projectId})`,
+    `- 剧本：${scriptTitle}`,
+    `- 分集：${episodeTitle}`,
+    `- 风格：${style}`,
+    `- RunJob：${runJobId}`,
+    `- Job：${jobId}`,
+    `- 成片：${path.basename(outputPath)}`,
+    '',
+  ].join('\n');
 }
 
 export function createDirector(overrides = {}) {
@@ -188,7 +214,7 @@ export function createDirector(overrides = {}) {
           typeof deps.listCharacterBibles === 'function'
             ? deps.listCharacterBibles(projectId, options.storeOptions)
             : [];
-        const projectName = project?.name || projectId;
+        const projectName = project?.name || script?.title || projectId;
         const scriptTitle = script.title || 'untitled_script';
         const episodeTitle = episode.title || `episode_${episodeId}`;
         runJobRef = {
@@ -500,9 +526,14 @@ export function createDirector(overrides = {}) {
         }
 
         deps.logger.info('Director', '【Step 7/7】合成视频...');
-        const outputFileName =
-          `${sanitizeFileSegment(scriptTitle, 'script')}_${sanitizeFileSegment(episodeTitle, 'episode')}_${jobId}.mp4`;
-        const outputPath = path.join(dirs.output, outputFileName);
+        const outputDir = ensureDir(
+          path.join(
+            dirs.output,
+            buildProjectDirName(projectName, projectId),
+            buildEpisodeDirName({ episodeNo: episode.episodeNo, id: episodeId })
+          )
+        );
+        const outputPath = path.join(outputDir, 'final-video.mp4');
         const animationClips = buildAnimationClipBridge(
           imageResults,
           state.animationClips || episode.animationClips || []
@@ -516,7 +547,24 @@ export function createDirector(overrides = {}) {
           })
         );
 
-        saveState({ outputPath, completedAt: new Date().toISOString() });
+        const deliverySummaryPath = path.join(outputDir, 'delivery-summary.md');
+        ensureDir(path.dirname(deliverySummaryPath));
+        fs.writeFileSync(
+          deliverySummaryPath,
+          createDeliverySummary({
+            projectName,
+            projectId,
+            scriptTitle,
+            episodeTitle,
+            outputPath,
+            runJobId: runJobRef.id,
+            jobId,
+            style,
+          }),
+          'utf-8'
+        );
+
+        saveState({ outputPath, deliverySummaryPath, completedAt: new Date().toISOString() });
         if (runJobCreated) {
           tryObservabilityWrite(
             () =>

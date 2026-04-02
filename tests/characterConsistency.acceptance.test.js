@@ -10,6 +10,7 @@ import { generateAllPrompts } from '../src/agents/promptEngineer.js';
 import { runConsistencyCheck } from '../src/agents/consistencyChecker.js';
 import { runContinuityCheck } from '../src/agents/continuityChecker.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-character-consistency-'));
@@ -156,7 +157,7 @@ test('character consistency acceptance run writes bible anchors identity report 
       },
     });
 
-    await director.runEpisodePipeline({
+    const outputPath = await director.runEpisodePipeline({
       projectId: 'project_1',
       scriptId: 'script_1',
       episodeId: 'episode_1',
@@ -167,6 +168,16 @@ test('character consistency acceptance run writes bible anchors identity report 
     });
 
     assert.equal(runJobs.length, 1);
+    assert.equal(
+      outputPath,
+      path.join(
+        dirs.output,
+        buildProjectDirName('宫墙疑云', 'project_1'),
+        buildEpisodeDirName({ episodeNo: 1, id: 'episode_1' }),
+        'final-video.mp4'
+      )
+    );
+    assert.equal(fs.existsSync(path.join(path.dirname(outputPath), 'delivery-summary.md')), true);
     const artifactContext = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_1',

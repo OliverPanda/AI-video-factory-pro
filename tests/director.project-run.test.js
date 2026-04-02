@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createDirector } from '../src/agents/director.js';
+import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-director-'));
@@ -65,7 +66,12 @@ test('runEpisodePipeline returns the requested episode artifact path', async () 
 
     assert.equal(
       outputPath,
-      path.join(dirs.output, '宫墙疑云_第二集_job_episode_1.mp4')
+      path.join(
+        dirs.output,
+        buildProjectDirName('宫墙疑云', 'project_1'),
+        buildEpisodeDirName({ episodeNo: undefined, id: 'episode_2' }),
+        'final-video.mp4'
+      )
     );
   });
 });
@@ -274,6 +280,18 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
     const [project] = [...projects.values()];
     const [script] = [...scripts.values()];
     const [episode] = [...episodes.values()];
+
+    assert.equal(
+      firstOutput,
+      path.join(
+        tempRoot,
+        runJobs[0].jobId,
+        'output',
+        buildProjectDirName('旧入口兼容', project.id),
+        buildEpisodeDirName({ episodeNo: 1, id: episode.id }),
+        'final-video.mp4'
+      )
+    );
 
     assert.equal(script.projectId, project.id);
     assert.equal(episode.projectId, project.id);
@@ -613,7 +631,15 @@ test('runEpisodePipeline degrades gracefully when observability writes fail', as
       options: {},
     });
 
-    assert.equal(outputPath, path.join(dirs.output, '观测降级_第一集_job_observability_failures.mp4'));
+    assert.equal(
+      outputPath,
+      path.join(
+        dirs.output,
+        buildProjectDirName('观测降级', 'project_1'),
+        buildEpisodeDirName({ episodeNo: undefined, id: 'episode_1' }),
+        'final-video.mp4'
+      )
+    );
     assert.equal(appendCalls, 0);
     assert.equal(finishCalls, 0);
     assert.equal(
