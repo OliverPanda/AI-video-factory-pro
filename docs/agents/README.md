@@ -38,6 +38,8 @@
 - [视觉设计链路说明](visual-design.md)
 - [Agent 间输入输出关系图](agent-io-map.md)
 - [运行包目录示例](run-package-example.md)
+- [temp/ 目录说明](../runtime/temp-structure.md)
+- [output/ 目录说明](../runtime/output-structure.md)
 
 主 README 的“Agent 详细说明”节提供整体职责、输入输出与系统架构背景，请参考：  
 [README.md 中的 Agent 详细说明](../../README.md#agent-详细说明)
