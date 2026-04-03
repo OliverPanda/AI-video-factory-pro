@@ -201,7 +201,9 @@ runs/
     05-consistency-checker/
     06-continuity-checker/
     07-tts-agent/
-    08-video-composer/
+    08-tts-qa/
+    08b-lipsync-agent/
+    09-video-composer/
 ```
 
 适合人工 review、排障、验收。
@@ -295,9 +297,9 @@ runs/
 先看：
 
 ```text
-08-video-composer/1-outputs/compose-plan.json
-08-video-composer/3-errors/ffmpeg-command.txt
-08-video-composer/3-errors/ffmpeg-stderr.txt
+09-video-composer/1-outputs/compose-plan.json
+09-video-composer/3-errors/ffmpeg-command.txt
+09-video-composer/3-errors/ffmpeg-stderr.txt
 ```
 
 如果你怀疑角色不稳：
@@ -380,7 +382,7 @@ timeline.json
 03-prompt-engineer/1-outputs/prompts.table.md
 04-image-generator/1-outputs/images.index.json
 05-consistency-checker/1-outputs/consistency-report.md
-08-video-composer/3-errors/ffmpeg-stderr.txt
+09-video-composer/3-errors/ffmpeg-stderr.txt
 ```
 
 ## 相关文档

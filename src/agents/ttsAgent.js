@@ -15,6 +15,29 @@ function writeTextFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
+function findVoiceCastEntry(speaker, voiceCast = []) {
+  if (!speaker || !Array.isArray(voiceCast) || voiceCast.length === 0) {
+    return null;
+  }
+
+  const speakerCard = speaker.character || {};
+  const identifiers = new Set(
+    [
+      speakerCard.id,
+      speakerCard.episodeCharacterId,
+      speakerCard.mainCharacterTemplateId,
+      speaker.name,
+      speakerCard.name,
+    ].filter(Boolean)
+  );
+
+  return voiceCast.find((entry) =>
+    [entry?.characterId, entry?.episodeCharacterId, entry?.displayName, entry?.name]
+      .filter(Boolean)
+      .some((value) => identifiers.has(value))
+  ) || null;
+}
+
 function writeTtsArtifacts(results, voiceResolution, artifactContext) {
   if (!artifactContext) {
     return;
@@ -99,6 +122,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
   const {
     voicePresetLoader,
     projectId,
+    voiceCast = [],
     textToSpeech: runTextToSpeech = textToSpeech,
   } = options;
   logger.info('TTSAgent', `开始为 ${shots.length} 个分镜生成配音...`);
@@ -124,6 +148,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
               status: 'skipped',
               audioPath: null,
               voicePresetId: null,
+              voiceSource: 'none',
             });
             return { shotId: shot.id, audioPath: null, hasDialogue: false };
           }
@@ -134,13 +159,38 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
           const gender = speaker?.character?.gender || 'female';
           const speakerCard = speaker?.character || null;
           const ttsOptions = { gender };
-          let usedDefaultVoiceFallback = !speakerCard?.voicePresetId;
+          let usedDefaultVoiceFallback = true;
+          let voiceSource = 'gender_fallback';
+          const voiceCastEntry = findVoiceCastEntry(speaker, voiceCast);
+          const voiceProfile = voiceCastEntry?.voiceProfile || null;
 
           if (!speaker?.relation?.isSpeaker && !shot.speaker && participants.length > 1) {
             logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${participants.length} 个角色出场）`);
           }
 
-          if (speakerCard?.voicePresetId && voicePresetLoader) {
+          if (voiceProfile) {
+            for (const [sourceKey, targetKey] of [
+              ['provider', 'provider'],
+              ['voice', 'voice'],
+              ['voiceId', 'voice'],
+              ['mode', 'mode'],
+              ['rate', 'rate'],
+              ['pitch', 'pitch'],
+              ['volume', 'volume'],
+              ['referenceAudio', 'referenceAudio'],
+              ['referenceId', 'referenceId'],
+              ['referenceText', 'referenceText'],
+              ['promptText', 'promptText'],
+              ['instructText', 'instructText'],
+              ['zeroShotSpeakerId', 'zeroShotSpeakerId'],
+            ]) {
+              if (voiceProfile[sourceKey] !== undefined && ttsOptions[targetKey] === undefined) {
+                ttsOptions[targetKey] = voiceProfile[sourceKey];
+              }
+            }
+            usedDefaultVoiceFallback = false;
+            voiceSource = 'voice_cast';
+          } else if (speakerCard?.voicePresetId && voicePresetLoader) {
             try {
               const preset = await voicePresetLoader(speakerCard.voicePresetId, {
                 projectId,
@@ -153,10 +203,12 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
                   if (preset[key] !== undefined) ttsOptions[key] = preset[key];
                 }
                 usedDefaultVoiceFallback = false;
+                voiceSource = 'voice_preset';
               }
             } catch (err) {
               logger.warn('TTSAgent', `${shot.id} 加载语音预设失败，回退性别默认值：${err.message}`);
               usedDefaultVoiceFallback = true;
+              voiceSource = 'gender_fallback';
             }
           }
 
@@ -173,6 +225,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
               status: 'synthesized',
               audioPath,
               voicePresetId: speakerCard?.voicePresetId || null,
+              voiceSource,
             });
 
           return { shotId: shot.id, audioPath, hasDialogue: true };
@@ -195,6 +248,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
           audioPath: null,
           error: err.message,
           voicePresetId: speaker?.character?.voicePresetId || null,
+          voiceSource: 'gender_fallback',
         });
         return { shotId: shot.id, audioPath: null, hasDialogue: true, error: err.message };
       })
@@ -204,5 +258,6 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
   const successCount = results.filter((r) => r.audioPath).length;
   logger.info('TTSAgent', `配音完成：${successCount} 个有台词分镜成功合成`);
   writeTtsArtifacts(results, voiceResolution, options.artifactContext);
+  results.voiceResolution = voiceResolution;
   return results;
 }

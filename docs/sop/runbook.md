@@ -81,9 +81,9 @@
 先看：
 
 - `run-jobs/*.json`
-- `08-video-composer/manifest.json`
-- `08-video-composer/3-errors/ffmpeg-command.txt`
-- `08-video-composer/3-errors/ffmpeg-stderr.txt`
+- `09-video-composer/manifest.json`
+- `09-video-composer/3-errors/ffmpeg-command.txt`
+- `09-video-composer/3-errors/ffmpeg-stderr.txt`
 
 ### 生图失败或部分镜头缺图
 
@@ -122,6 +122,15 @@
 - `07-tts-agent/1-outputs/dialogue-table.md`
 - `07-tts-agent/3-errors/<shotId>-error.json`
 
+### 口型结果不对或 fallback 频繁
+
+先看：
+
+- `08b-lipsync-agent/manifest.json`
+- `08b-lipsync-agent/2-metrics/lipsync-report.json`
+- `08b-lipsync-agent/1-outputs/lipsync-report.md`
+- `08b-lipsync-agent/3-errors/<shotId>-lipsync-error.json`
+
 ### Prompt 看起来不对
 
 先看：
@@ -148,8 +157,10 @@
   先看 `06-continuity-checker/1-outputs/flagged-transitions.json`
 - `TTS Agent`
   先看 `07-tts-agent/0-inputs/voice-resolution.json`
+- `Lip-sync Agent`
+  先看 `08b-lipsync-agent/manifest.json`
 - `Video Composer`
-  先看 `08-video-composer/1-outputs/compose-plan.json`
+  先看 `09-video-composer/1-outputs/compose-plan.json`
 
 ## 缓存与重跑
 

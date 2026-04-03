@@ -78,6 +78,24 @@ export function getVoicePresetsDir(projectId, baseTempDir = TEMP_DIR) {
   return path.join(baseTempDir, 'projects', assertSafePathSegment(projectId, 'projectId'), 'voice-presets');
 }
 
+export function getVoiceCastFilePath(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(
+    baseTempDir,
+    'projects',
+    assertSafePathSegment(projectId, 'projectId'),
+    'voice-cast.json'
+  );
+}
+
+export function getPronunciationLexiconFilePath(projectId, baseTempDir = TEMP_DIR) {
+  return path.join(
+    baseTempDir,
+    'projects',
+    assertSafePathSegment(projectId, 'projectId'),
+    'pronunciation-lexicon.json'
+  );
+}
+
 export function getVoicePresetFilePath(projectId, voicePresetId, baseTempDir = TEMP_DIR) {
   return path.join(
     getVoicePresetsDir(projectId, baseTempDir),
@@ -156,6 +174,8 @@ export default {
   getScriptFilePath,
   getEpisodeFilePath,
   initDirs,
+  getVoiceCastFilePath,
+  getPronunciationLexiconFilePath,
   getVoicePresetsDir,
   getVoicePresetFilePath,
   getCharacterBiblesDir,

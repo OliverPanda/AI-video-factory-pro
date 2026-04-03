@@ -146,7 +146,7 @@ output/
 
 - 文件大小是否异常小
 - FFmpeg 是否中途退出
-- `08-video-composer/3-errors/ffmpeg-stderr.txt`
+- `09-video-composer/3-errors/ffmpeg-stderr.txt`
 
 ### 3. 有视频，但内容不对
 
@@ -173,7 +173,7 @@ output/
 如果没有成片：
 
 - 不要继续盯 `output/`
-- 直接去 `temp/.../08-video-composer/3-errors/`
+- 直接去 `temp/.../09-video-composer/3-errors/`
 
 ## 交付成功后的最小检查清单
 
@@ -182,7 +182,7 @@ output/
 1. `output/` 下有 `.mp4`
 2. 文件大小正常，不是空文件
 3. `runs/<runDir>/manifest.json` 显示整轮不是 failed
-4. `08-video-composer/manifest.json` 不是 failed
+4. `09-video-composer/manifest.json` 不是 failed
 
 ## 与 `temp/` 的分工
 

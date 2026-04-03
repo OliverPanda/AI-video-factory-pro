@@ -175,6 +175,55 @@ test('buildCompositionPlan supports ShotPlan camelCase duration fields', () => {
   assert.equal(plan[0].duration, 5);
 });
 
+test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
+  const shots = [{ id: 'shot_1', dialogue: '第一句', duration: 4 }];
+  const imageResults = [
+    {
+      shotId: 'shot_1',
+      keyframeAssetId: 'keyframe_1',
+      imagePath: '/tmp/shot_1.png',
+      success: true,
+    },
+  ];
+  const animationClips = [
+    {
+      id: 'clip_1',
+      shotId: 'shot_1',
+      videoPath: '/tmp/shot_1-anim.mp4',
+      durationSec: 5,
+      status: 'ready',
+    },
+  ];
+  const lipsyncClips = [
+    {
+      shotId: 'shot_1',
+      videoPath: '/tmp/shot_1-lipsync.mp4',
+      durationSec: 4,
+      status: 'completed',
+    },
+  ];
+  const audioResults = [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }];
+
+  const plan = buildCompositionPlan(
+    shots,
+    imageResults,
+    audioResults,
+    animationClips,
+    lipsyncClips
+  );
+
+  assert.deepEqual(plan, [
+    {
+      shotId: 'shot_1',
+      visualType: 'lipsync_clip',
+      videoPath: '/tmp/shot_1-lipsync.mp4',
+      audioPath: '/tmp/shot_1.mp3',
+      dialogue: '第一句',
+      duration: 4,
+    },
+  ]);
+});
+
 test('buildVideoMetrics summarizes composition outputs', () => {
   const metrics = __testables.buildVideoMetrics(
     [

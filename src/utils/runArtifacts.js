@@ -17,7 +17,9 @@ export const AGENT_ARTIFACT_LAYOUT = {
   consistencyChecker: '05-consistency-checker',
   continuityChecker: '06-continuity-checker',
   ttsAgent: '07-tts-agent',
-  videoComposer: '08-video-composer',
+  ttsQaAgent: '08-tts-qa',
+  lipsyncAgent: '08b-lipsync-agent',
+  videoComposer: '09-video-composer',
 };
 
 function createAgentContext(runDir, agentDirName) {
@@ -72,6 +74,8 @@ export function createRunArtifactContext(input) {
       consistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.consistencyChecker),
       continuityChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.continuityChecker),
       ttsAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsAgent),
+      ttsQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsQaAgent),
+      lipsyncAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.lipsyncAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
     },
   };

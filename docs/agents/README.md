@@ -16,7 +16,8 @@
 | 6 | 一致性验证Agent（Consistency Checker） | 使用多模态 LLM 检查角色外观一致性并触发重生成 | `src/agents/consistencyChecker.js` |
 | 7 | 连贯性检查Agent（Continuity Checker） | 检查跨分镜的基础连贯性并标记问题转场 | `src/agents/continuityChecker.js` |
 | 8 | 配音Agent（TTS） | 批量合成对白音频，自动区分角色音色 | `src/agents/ttsAgent.js` |
-| 9 | 合成Agent（Video Composer） | 图像+音频+字幕合成最终视频，生成 1080×1920 输出 | `src/agents/videoComposer.js` |
+| 9 | TTS QA Agent | 对配音结果做最小自动验收，输出 `pass / warn / block` | `src/agents/ttsQaAgent.js` |
+| 10 | 合成Agent（Video Composer） | 图像+音频+字幕合成最终视频，生成 1080×1920 输出 | `src/agents/videoComposer.js` |
 
 ## 执行顺序
 
@@ -24,7 +25,8 @@
 2. 编剧Agent → 角色设定Agent → 视觉设计Agent 顺序构建分镜与 Prompt。
 3. 图像生成Agent 负责批量出图，随后一致性验证Agent 检查并在必要时触发重试。
 4. 一致性验证之后，连贯性检查Agent 评估跨分镜承接。
-5. 配音Agent 生成对白音频，合成Agent 最终拼装图像、配音与字幕。
+5. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
+6. 合成Agent 最终拼装图像、配音与字幕。
 
 ## 详细文档入口
 

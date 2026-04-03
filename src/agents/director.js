@@ -12,7 +12,10 @@ import { applyContinuityRepairHints, generateAllPrompts } from './promptEngineer
 import { generateAllImages, regenerateImage } from './imageGenerator.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
 import { runContinuityCheck } from './continuityChecker.js';
+import { normalizeDialogueShots } from './dialogueNormalizer.js';
 import { generateAllAudio } from './ttsAgent.js';
+import { runTtsQa } from './ttsQaAgent.js';
+import { runLipsync } from './lipsyncAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
@@ -21,6 +24,8 @@ import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } 
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
 import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
+import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
+import { loadVoiceCast } from '../utils/voiceCastStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
 import logger from '../utils/logger.js';
@@ -110,7 +115,30 @@ function createDeliverySummary({
   runJobId,
   jobId,
   style,
+  ttsQaReport,
+  lipsyncReport,
 }) {
+  const manualReviewShots = Array.isArray(lipsyncReport?.manualReviewShots)
+    ? lipsyncReport.manualReviewShots
+    : [];
+  const ttsManualReviewShots = Array.isArray(ttsQaReport?.manualReviewPlan?.recommendedShotIds)
+    ? ttsQaReport.manualReviewPlan.recommendedShotIds
+    : [];
+  const mergedManualReviewShots = Array.from(new Set([...ttsManualReviewShots, ...manualReviewShots]));
+  const downgradedCount = Number.isFinite(lipsyncReport?.downgradedCount)
+    ? lipsyncReport.downgradedCount
+    : 0;
+  const fallbackEntries = Array.isArray(lipsyncReport?.entries)
+    ? lipsyncReport.entries.filter((entry) => (lipsyncReport?.fallbackShots || []).includes(entry?.shotId))
+    : [];
+  const fallbackShots = Array.isArray(lipsyncReport?.fallbackShots) ? lipsyncReport.fallbackShots : [];
+  const fallbackCount = Number.isFinite(lipsyncReport?.fallbackCount) ? lipsyncReport.fallbackCount : fallbackShots.length;
+  const fallbackSummary = fallbackEntries.length > 0
+    ? fallbackEntries
+        .map((entry) => `${entry.shotId}:${entry.fallbackFrom || 'unknown'}->${entry.provider || 'unknown'}`)
+        .join('；')
+    : (fallbackShots.length > 0 ? fallbackShots.join(', ') : '无');
+
   return [
     '# Delivery Summary',
     '',
@@ -121,6 +149,19 @@ function createDeliverySummary({
     `- RunJob：${runJobId}`,
     `- Job：${jobId}`,
     `- 成片：${path.basename(outputPath)}`,
+    `- TTS QA：${ttsQaReport?.status || 'not_run'}`,
+    `- Lip-sync QA：${lipsyncReport?.status || 'not_run'}`,
+    `- 人工抽查建议：${ttsManualReviewShots.length > 0 ? ttsManualReviewShots.join(', ') : '无'}`,
+    `- 人工复核镜头：${mergedManualReviewShots.length > 0 ? mergedManualReviewShots.join(', ') : '无'}`,
+    `- 降级镜头数：${downgradedCount}`,
+    `- Lip-sync Fallback Count：${fallbackCount}`,
+    `- Lip-sync Fallback Shots：${fallbackSummary}`,
+    ttsQaReport?.warnings?.length
+      ? `- TTS Warnings：${ttsQaReport.warnings.join('；')}`
+      : '- TTS Warnings：无',
+    lipsyncReport?.warnings?.length
+      ? `- Lip-sync Warnings：${lipsyncReport.warnings.join('；')}`
+      : '- Lip-sync Warnings：无',
     '',
   ].join('\n');
 }
@@ -142,7 +183,10 @@ export function createDirector(overrides = {}) {
     regenerateImage,
     runConsistencyCheck,
     runContinuityCheck,
+    normalizeDialogueShots,
     generateAllAudio,
+    runTtsQa,
+    runLipsync,
     composeVideo,
     saveJSON,
     loadJSON,
@@ -159,6 +203,8 @@ export function createDirector(overrides = {}) {
     finishRunJob,
     appendAgentTaskRun,
     listCharacterBibles,
+    loadPronunciationLexicon,
+    loadVoiceCast,
     loadVoicePreset,
     logger,
     ...overrides,
@@ -625,27 +671,60 @@ export function createDirector(overrides = {}) {
         const voiceProjectId = normalizeProjectId(
           options.voiceProjectId === undefined ? projectId : options.voiceProjectId
         );
+
+        let normalizedShots = Array.isArray(state.normalizedShots) ? state.normalizedShots : null;
+        if (!normalizedShots) {
+          deps.logger.info('Director', '【Step 6/8】标准化对白...');
+          const pronunciationLexiconProjectId = voiceProjectId ?? projectId;
+          const pronunciationLexicon = pronunciationLexiconProjectId
+            ? deps.loadPronunciationLexicon(
+                pronunciationLexiconProjectId,
+                options.storeOptions
+              )
+            : [];
+          normalizedShots = await recordStep('normalize_dialogue', { message: '标准化对白' }, () =>
+            deps.normalizeDialogueShots(shots, {
+              artifactContext: artifactContext.agents.ttsAgent,
+              pronunciationLexicon:
+                options.pronunciationLexicon || pronunciationLexicon || [],
+            })
+          );
+          saveState({ normalizedShots });
+        } else {
+          deps.logger.info('Director', '【Step 6/8】使用缓存的对白标准化结果');
+          appendStepRun('normalize_dialogue', {
+            status: 'cached',
+            detail: '使用缓存的对白标准化结果',
+          });
+        }
+
+        const voiceCast = voiceProjectId
+          ? deps.loadVoiceCast(voiceProjectId, options.storeOptions) || []
+          : [];
         const cachedAudioProjectId = normalizeProjectId(state.audioProjectId);
         const canReuseAudioCache = state.audioResults && cachedAudioProjectId === voiceProjectId;
         let audioResults = canReuseAudioCache ? state.audioResults : null;
+        let audioVoiceResolution = Array.isArray(state.audioVoiceResolution) ? state.audioVoiceResolution : [];
         if (!audioResults) {
-          deps.logger.info('Director', '【Step 6/7】生成配音...');
+          deps.logger.info('Director', '【Step 7/8】生成配音...');
           const audioOptions = voiceProjectId
             ? {
                 projectId: voiceProjectId,
+                voiceCast,
                 voicePresetLoader: (voicePresetId, loadOptions = {}) =>
                   deps.loadVoicePreset(voiceProjectId, voicePresetId, loadOptions),
               }
             : {};
           audioResults = await recordStep('generate_audio', { message: '生成配音' }, () =>
-            deps.generateAllAudio(shots, characterRegistry, dirs.audio, {
+            deps.generateAllAudio(normalizedShots, characterRegistry, dirs.audio, {
               ...audioOptions,
               artifactContext: artifactContext.agents.ttsAgent,
             })
           );
-          saveState({ audioResults, audioProjectId: voiceProjectId });
+          audioVoiceResolution = Array.isArray(audioResults.voiceResolution) ? audioResults.voiceResolution : [];
+          saveState({ audioResults, audioVoiceResolution, audioProjectId: voiceProjectId });
         } else {
-          deps.logger.info('Director', '【Step 6/7】使用缓存的音频结果');
+          deps.logger.info('Director', '【Step 7/8】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',
@@ -653,7 +732,41 @@ export function createDirector(overrides = {}) {
           saveState({ audioProjectId: cachedAudioProjectId });
         }
 
-        deps.logger.info('Director', '【Step 7/7】合成视频...');
+        const ttsQaReport = await recordStep('tts_qa', { message: 'TTS 验收' }, async () => {
+          const qaResult = await deps.runTtsQa(normalizedShots, audioResults, audioVoiceResolution, {
+            artifactContext: artifactContext.agents.ttsQaAgent,
+          });
+          if (qaResult.status === 'block') {
+            throw new Error(`TTS QA 阻断交付：${qaResult.blockers.join('；')}`);
+          }
+          return qaResult;
+        });
+
+        let lipsyncResults = Array.isArray(state.lipsyncResults) ? state.lipsyncResults : null;
+        let lipsyncReport = state.lipsyncReport || null;
+        if (!lipsyncResults) {
+          deps.logger.info('Director', '【Step 8/9】生成口型同步片段...');
+          const lipsyncRun = await recordStep('lipsync', { message: '生成口型同步片段' }, () =>
+            deps.runLipsync(normalizedShots, imageResults, audioResults, {
+              artifactContext: artifactContext.agents.lipsyncAgent,
+            })
+          );
+          lipsyncResults = Array.isArray(lipsyncRun?.results) ? lipsyncRun.results : [];
+          lipsyncReport = lipsyncRun?.report || null;
+          saveState({ lipsyncResults, lipsyncReport });
+        } else {
+          deps.logger.info('Director', '【Step 8/9】使用缓存的口型同步结果');
+          appendStepRun('lipsync', {
+            status: 'cached',
+            detail: '使用缓存的口型同步结果',
+          });
+        }
+
+        if (lipsyncReport?.status === 'block') {
+          throw new Error(`Lip-sync QA 阻断交付：${(lipsyncReport.blockers || []).join('；')}`);
+        }
+
+        deps.logger.info('Director', '【Step 9/9】合成视频...');
         const outputDir = ensureDir(
           path.join(
             dirs.output,
@@ -668,9 +781,10 @@ export function createDirector(overrides = {}) {
         );
 
         await recordStep('compose_video', { message: '合成视频' }, () =>
-          deps.composeVideo(shots, imageResults, audioResults, outputPath, {
+          deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
             animationClips,
+            lipsyncClips: lipsyncResults,
             artifactContext: artifactContext.agents.videoComposer,
           })
         );
@@ -688,6 +802,8 @@ export function createDirector(overrides = {}) {
             runJobId: runJobRef.id,
             jobId,
             style,
+            ttsQaReport,
+            lipsyncReport,
           }),
           'utf-8'
         );

@@ -1,16 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createRunPipeline } from '../src/agents/director.js';
+import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'director-voice-preset-'));
-  t.after(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-  return dir;
+  return makeManagedTempDir(t, 'director-voice-preset', 'tts');
 }
 
 function createDirectorHarness(t, overrides = {}) {
@@ -39,6 +35,8 @@ function createDirectorHarness(t, overrides = {}) {
   ];
   const audioCalls = [];
   const loadVoicePresetCalls = [];
+  const loadPronunciationLexiconCalls = [];
+  const qaCalls = [];
   let persistedState = null;
 
   const deps = {
@@ -51,6 +49,10 @@ function createDirectorHarness(t, overrides = {}) {
     generateAllAudio: async (inputShots, inputRegistry, audioDir, options = {}) => {
       audioCalls.push({ inputShots, inputRegistry, audioDir, options });
       return [{ shotId: 'shot-1', audioPath: path.join(audioDir, 'shot-1.mp3'), hasDialogue: true }];
+    },
+    runTtsQa: async (inputShots, audioResults, voiceResolution, options = {}) => {
+      qaCalls.push({ inputShots, audioResults, voiceResolution, options });
+      return { status: 'pass', blockers: [], warnings: [] };
     },
     composeVideo: async (inputShots, imageResults, audioResults, outputPath) => {
       fs.writeFileSync(outputPath, JSON.stringify({ inputShots, imageResults, audioResults }), 'utf8');
@@ -70,6 +72,10 @@ function createDirectorHarness(t, overrides = {}) {
       loadVoicePresetCalls.push({ projectId, voicePresetId, options });
       return { id: voicePresetId, voice: 'alice-voice' };
     },
+    loadPronunciationLexicon: (projectId) => {
+      loadPronunciationLexiconCalls.push(projectId);
+      return [{ source: 'Alice', target: '艾丽丝' }];
+    },
     ...overrides,
   };
 
@@ -79,7 +85,9 @@ function createDirectorHarness(t, overrides = {}) {
     shots,
     characterRegistry,
     audioCalls,
+    qaCalls,
     loadVoicePresetCalls,
+    loadPronunciationLexiconCalls,
   };
 }
 
@@ -96,6 +104,13 @@ test('director passes projectId and a working voice preset loader into generateA
   assert.equal(audioCall.audioDir, harness.dirs.audio);
   assert.equal(audioCall.options.projectId, 'project-123');
   assert.equal(typeof audioCall.options.voicePresetLoader, 'function');
+  assert.equal(audioCall.inputShots[0].dialogue, '你好。');
+  assert.equal(Number.isFinite(audioCall.inputShots[0].dialogueDurationMs), true);
+  assert.deepEqual(audioCall.inputShots[0].dialogueSegments, ['你好。']);
+  assert.deepEqual(harness.loadPronunciationLexiconCalls, ['project-123']);
+
+  assert.equal(harness.qaCalls.length, 1);
+  assert.equal(Number.isFinite(harness.qaCalls[0].inputShots[0].dialogueDurationMs), true);
 
   const preset = await audioCall.options.voicePresetLoader('preset-alice', { fromTest: true });
   assert.deepEqual(preset, { id: 'preset-alice', voice: 'alice-voice' });
@@ -116,7 +131,10 @@ test('director keeps audio generation backward-compatible when projectId is abse
   });
 
   assert.equal(harness.audioCalls.length, 1);
-  assert.deepEqual(harness.audioCalls[0].options, {});
+  assert.equal(typeof harness.audioCalls[0].options, 'object');
+  assert.ok(harness.audioCalls[0].options.artifactContext);
+  assert.equal('projectId' in harness.audioCalls[0].options, false);
+  assert.equal('voicePresetLoader' in harness.audioCalls[0].options, false);
   assert.deepEqual(harness.loadVoicePresetCalls, []);
 });
 

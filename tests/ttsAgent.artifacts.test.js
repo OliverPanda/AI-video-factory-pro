@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,19 +6,10 @@ import assert from 'node:assert/strict';
 import { runConsistencyCheck } from '../src/agents/consistencyChecker.js';
 import { generateAllAudio } from '../src/agents/ttsAgent.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-tts-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
-
-test('consistency checker writes report flagged shots metrics and manifest when artifactContext is present', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('consistency checker writes report flagged shots metrics and manifest when artifactContext is present', async (t) => {
+  await withManagedTempRoot(t, 'aivf-tts-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -132,8 +122,8 @@ test('consistency checker writes report flagged shots metrics and manifest when 
   });
 });
 
-test('tts agent writes voice resolution audio index dialogue table metrics manifest and per-shot error files when artifactContext is present', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('tts agent writes voice resolution audio index dialogue table metrics manifest and per-shot error files when artifactContext is present', async (t) => {
+  await withManagedTempRoot(t, 'aivf-tts-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -212,6 +202,7 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
       status: 'synthesized',
       audioPath: path.join(audioDir, 'shot_001.mp3'),
       voicePresetId: 'preset-red',
+      voiceSource: 'voice_preset',
     });
     assert.equal(voiceResolution[1].shotId, 'shot_002');
     assert.equal(voiceResolution[1].status, 'failed');

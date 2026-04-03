@@ -83,6 +83,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
       }),
       generateAllAudio: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, audioPath: path.join(dirs.audio, `${shot.id}.mp3`) })),
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
       composeVideo: async (_shots, _images, _audio, outputPath) => {
         fs.writeFileSync(outputPath, 'video');
         return outputPath;
@@ -133,6 +134,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.consistencyChecker.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.continuityChecker.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.ttsAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.ttsQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
   });
 });

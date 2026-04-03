@@ -118,7 +118,8 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
     shots,
     imageResults,
     audioResults,
-    options.animationClips || []
+    options.animationClips || [],
+    options.lipsyncClips || []
   );
   if (plan.length === 0) throw new Error('没有可合成的分镜（无可用动画片段或静态图像）');
   const safePlan = validatePlanPaths(plan, { allowedRoots });
@@ -207,11 +208,12 @@ export function buildCompositionPlan(
   shots,
   imageResults = [],
   audioResults = [],
-  animationClips = []
+  animationClips = [],
+  lipsyncClips = []
 ) {
   return shots
     .map((shot) => {
-      const visual = resolveShotVisual(shot, imageResults, animationClips);
+      const visual = resolveShotVisual(shot, imageResults, animationClips, lipsyncClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
       if (!visual) return null;
 
@@ -226,8 +228,17 @@ export function buildCompositionPlan(
     .filter(Boolean);
 }
 
-function resolveShotVisual(shot, imageResults, animationClips) {
+function resolveShotVisual(shot, imageResults, animationClips, lipsyncClips) {
   const shotDuration = shot.duration || shot.durationSec || 3;
+  const lipsyncClip = lipsyncClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
+  if (lipsyncClip) {
+    return {
+      visualType: 'lipsync_clip',
+      videoPath: lipsyncClip.videoPath,
+      duration: lipsyncClip.durationSec || shotDuration,
+    };
+  }
+
   const animationClip = animationClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
   if (animationClip) {
     return {
@@ -260,7 +271,7 @@ function validatePlanPaths(plan, options = {}) {
           })
         : item.imagePath,
     videoPath:
-      item.visualType === 'animation_clip'
+      item.visualType === 'animation_clip' || item.visualType === 'lipsync_clip'
         ? assertSafeWorkspacePath(item.videoPath, `分镜 ${item.shotId} 动画`, {
             mustExist: true,
             allowedRoots: options.allowedRoots,
@@ -354,7 +365,7 @@ function createVisualSegments(plan, outputPath) {
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
   const tasks = segmentJobs.map((job) => {
-    if (job.visualType === 'animation_clip') {
+    if (job.visualType === 'animation_clip' || job.visualType === 'lipsync_clip') {
       return transcodeAnimationClip(job, job.segmentPath).then(() => job.segmentPath);
     }
     return renderStaticImageSegment(job, job.segmentPath).then(() => job.segmentPath);

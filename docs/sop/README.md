@@ -19,6 +19,7 @@
 - [接手 SOP](onboarding.md)
 - [运行排障 Runbook](runbook.md)
 - [QA 验收 SOP](qa-acceptance.md)
+- [TTS 落地方案（2026-04）](2026-04-03-tts-landing-plan.zh-CN.md)
 - [Agent 验收矩阵](agent-matrix.md)
 - [变更检查清单](change-checklist.md)
 

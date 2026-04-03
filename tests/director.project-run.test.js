@@ -54,6 +54,7 @@ test('runEpisodePipeline returns the requested episode artifact path', async () 
       generateAllImages: async () => [{ shotId: 'shot_b', imagePath: '/tmp/shot_b.png', success: true }],
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
       generateAllAudio: async () => [{ shotId: 'shot_b', audioPath: '/tmp/shot_b.mp3' }],
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async () => {},
     });
 
@@ -118,6 +119,7 @@ test('runEpisodePipeline sends only the current episode shots to audio and video
         audioCalls.push(shots.map((shot) => shot.id));
         return shots.map((shot) => ({ shotId: shot.id, audioPath: `/tmp/${shot.id}.mp3` }));
       },
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async (shots) => {
         composeCalls.push(shots.map((shot) => shot.id));
       },
@@ -183,6 +185,7 @@ test('runEpisodePipeline loads project character bibles into character registry 
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
       runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
       generateAllAudio: async () => [{ shotId: 'shot_ep_1', audioPath: '/tmp/shot_ep_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async () => {},
     });
 
@@ -258,6 +261,7 @@ test('runPipeline compatibility mode reuses the same legacy identities and job s
         audioCalls += 1;
         return shots.map((shot) => ({ shotId: shot.id, audioPath: `/tmp/${shot.id}.mp3` }));
       },
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async (_shots, _images, _audio, outputPath) => {
         outputs.push(outputPath);
       },
@@ -357,6 +361,7 @@ test('runPipeline compatibility mode invalidates cached script data when file co
         audioCalls += 1;
         return shots.map((shot) => ({ shotId: shot.id, audioPath: `/tmp/${shot.id}.mp3` }));
       },
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async () => {},
     });
 
@@ -469,6 +474,7 @@ test('runEpisodePipeline applies regenerated keyframe-shaped results during cons
         success: true,
       }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async (_shots, imageResults) => {
         composeCalls.push(structuredClone(imageResults));
       },
@@ -546,6 +552,7 @@ test('runEpisodePipeline keeps original image when consistency regeneration fail
         error: 'socket hang up',
       }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async (_shots, imageResults) => {
         composeCalls.push(structuredClone(imageResults));
       },
@@ -662,6 +669,7 @@ test('runEpisodePipeline applies continuity repair regeneration and records repa
         prompt,
       }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async (_shots, imageResults) => {
         composeCalls.push(structuredClone(imageResults));
       },
@@ -722,6 +730,8 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         },
       ],
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [] }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
       composeVideo: async () => {},
     });
@@ -749,7 +759,10 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'generate_images',
         'consistency_check',
         'continuity_check',
+        'normalize_dialogue',
         'generate_audio',
+        'tts_qa',
+        'lipsync',
         'compose_video',
       ]
     );
@@ -807,6 +820,7 @@ test('runEpisodePipeline degrades gracefully when observability writes fail', as
         },
       ],
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runLipsync: async () => ({ results: [] }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
       composeVideo: async () => {},
     });
@@ -884,6 +898,7 @@ test('runEpisodePipeline still finalizes the run job after task-run writes start
         },
       ],
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runLipsync: async () => ({ results: [] }),
       generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
       composeVideo: async () => {},
     });
@@ -935,6 +950,8 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
       createRunJob: () => {},
       appendAgentTaskRun: (_runJobRef, taskRun) => taskRuns.push(structuredClone(taskRun)),
       finishRunJob: () => {},
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [] }),
       composeVideo: async () => {},
     });
 
@@ -953,9 +970,288 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['generate_images', 'cached'],
         ['consistency_check', 'skipped'],
         ['continuity_check', 'skipped'],
+        ['normalize_dialogue', 'completed'],
         ['generate_audio', 'completed'],
+        ['tts_qa', 'completed'],
+        ['lipsync', 'completed'],
         ['compose_video', 'completed'],
       ]
     );
+  });
+});
+
+test('runEpisodePipeline runs TTS QA after audio generation and before composition', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const callOrder = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_tts_qa_order',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '观测测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'], dialogue: '你来了。', duration: 3 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          imagePath: '/tmp/shot_1.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => {
+        callOrder.push('generate_audio');
+        return [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3', hasDialogue: true }];
+      },
+      runTtsQa: async (_shots, _audioResults, _voiceResolution, options) => {
+        callOrder.push('tts_qa');
+        assert.ok(options.artifactContext);
+        return { status: 'pass', blockers: [], warnings: [] };
+      },
+      runLipsync: async (_shots, _images, _audioResults, options) => {
+        callOrder.push('lipsync');
+        assert.ok(options.artifactContext);
+        return { results: [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4' }] };
+      },
+      composeVideo: async () => {
+        callOrder.push('compose_video');
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.deepEqual(callOrder, ['generate_audio', 'tts_qa', 'lipsync', 'compose_video']);
+  });
+});
+
+test('runEpisodePipeline passes lipsync results into video composition', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const composeCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_lipsync_bridge',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '口型桥接',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'], dialogue: '你来了。', camera_type: '特写', duration: 3 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3', hasDialogue: true }],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({
+        results: [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', status: 'completed' }],
+      }),
+      composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
+        composeCalls.push(options);
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.deepEqual(composeCalls[0].lipsyncClips, [
+      { shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', status: 'completed' },
+    ]);
+  });
+});
+
+test('runEpisodePipeline blocks delivery when lip-sync QA returns block', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    let composeCalled = false;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_lipsync_block',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '口型阻断',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'], dialogue: '你来了。', camera_type: '特写', duration: 3 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3', hasDialogue: true }],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({
+        results: [
+          {
+            shotId: 'shot_1',
+            status: 'failed',
+            qaStatus: 'block',
+            qaBlockers: ['critical_lipsync_failed'],
+            manualReviewRequired: true,
+          },
+        ],
+        report: {
+          status: 'block',
+          blockers: ['shot_1:critical_lipsync_failed'],
+          warnings: [],
+          manualReviewShots: ['shot_1'],
+        },
+      }),
+      composeVideo: async () => {
+        composeCalled = true;
+      },
+    });
+
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      }),
+      /Lip-sync QA 阻断交付/
+    );
+
+    assert.equal(composeCalled, false);
+  });
+});
+
+test('runEpisodePipeline writes delivery summary with lipsync review and downgrade details', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_delivery_summary',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '交付摘要',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'], dialogue: '你来了。', camera_type: '特写', duration: 3 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3', hasDialogue: true }],
+      runTtsQa: async () => ({
+        status: 'warn',
+        blockers: [],
+        warnings: ['fallback 使用率 100.0%'],
+        manualReviewPlan: {
+          recommendedShotIds: ['shot_1', 'shot_3'],
+        },
+      }),
+      runLipsync: async () => ({
+        results: [
+          {
+            shotId: 'shot_1',
+            status: 'completed',
+            qaStatus: 'warn',
+            qaWarnings: ['manual_review_required_without_evaluator'],
+            manualReviewRequired: true,
+            downgradeApplied: false,
+            fallbackApplied: true,
+            fallbackFrom: 'funcineforge',
+            provider: 'mock',
+          },
+          {
+            shotId: 'shot_2',
+            status: 'failed',
+            qaStatus: 'warn',
+            qaWarnings: ['lipsync_failed_downgraded_to_standard_comp'],
+            manualReviewRequired: false,
+            downgradeApplied: true,
+            downgradeReason: 'provider_error',
+          },
+        ],
+        report: {
+          status: 'warn',
+          blockers: [],
+          warnings: [
+            'shot_1:manual_review_required_without_evaluator',
+            'shot_2:lipsync_failed_downgraded_to_standard_comp',
+          ],
+          entries: [
+            {
+              shotId: 'shot_1',
+              fallbackApplied: true,
+              fallbackFrom: 'funcineforge',
+              provider: 'mock',
+            },
+            {
+              shotId: 'shot_2',
+              fallbackApplied: false,
+              fallbackFrom: null,
+              provider: null,
+            },
+          ],
+          fallbackCount: 1,
+          fallbackShots: ['shot_1'],
+          manualReviewShots: ['shot_1'],
+          downgradedCount: 1,
+        },
+      }),
+      composeVideo: async () => {},
+    });
+
+    const outputPath = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    const summaryPath = path.join(path.dirname(outputPath), 'delivery-summary.md');
+    const summary = fs.readFileSync(summaryPath, 'utf-8');
+    assert.match(summary, /TTS QA：warn/);
+    assert.match(summary, /Lip-sync QA：warn/);
+    assert.match(summary, /人工抽查建议：shot_1, shot_3/);
+    assert.match(summary, /人工复核镜头：shot_1/);
+    assert.match(summary, /降级镜头数：1/);
+    assert.match(summary, /Lip-sync Fallback Count：1/);
+    assert.match(summary, /Lip-sync Fallback Shots：shot_1:funcineforge->mock/);
   });
 });
