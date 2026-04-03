@@ -1255,3 +1255,87 @@ test('runEpisodePipeline writes delivery summary with lipsync review and downgra
     assert.match(summary, /Lip-sync Fallback Shots：shot_1:funcineforge->mock/);
   });
 });
+
+test('runEpisodePipeline writes block qa-overview when the run fails before final delivery', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_failed_overview',
+      loadJSON: () => null,
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '失败验收项目' }),
+      loadScript: () => ({ id: 'script_1', title: '第一卷', characters: [{ name: '沈清' }] }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_001', scene: '宫道', dialogue: '你好', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_001', image_prompt: 'prompt', negative_prompt: '' }],
+      generateAllImages: async () => [{ shotId: 'shot_001', imagePath: path.join(dirs.images, 'shot_001.png'), success: true }],
+      runConsistencyCheck: async () => ({ reports: [], needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [{ shotId: 'shot_001', audioPath: path.join(dirs.audio, 'shot_001.mp3') }],
+      runTtsQa: async () => ({
+        status: 'pass',
+        blockers: [],
+        warnings: [],
+        dialogueShotCount: 1,
+        budgetPassRate: 1,
+        fallbackCount: 0,
+        fallbackRate: 0,
+      }),
+      runLipsync: async () => ({
+        results: [],
+        report: {
+          status: 'pass',
+          blockers: [],
+          warnings: [],
+          triggeredCount: 0,
+          generatedCount: 0,
+          failedCount: 0,
+          fallbackCount: 0,
+          manualReviewCount: 0,
+        },
+      }),
+      composeVideo: async () => {
+        throw new Error('ffmpeg failed');
+      },
+    });
+
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {
+          storeOptions: { baseTempDir: tempRoot },
+          startedAt: '2026-04-03T12:00:00.000Z',
+          runAttemptId: 'run_failed_overview',
+        },
+      }),
+      /ffmpeg failed/
+    );
+
+    const runDir = path.join(
+      tempRoot,
+      'projects',
+      '失败验收项目__project_1',
+      'scripts',
+      '第一卷__script_1',
+      'episodes',
+      '第01集__episode_1',
+      'runs',
+      '2026-04-03_120000__run_failed_overview'
+    );
+    const qaOverview = JSON.parse(fs.readFileSync(path.join(runDir, 'qa-overview.json'), 'utf-8'));
+    assert.equal(qaOverview.status, 'block');
+    assert.equal(qaOverview.releasable, false);
+    assert.match(qaOverview.headline, /阻断状态/);
+  });
+});

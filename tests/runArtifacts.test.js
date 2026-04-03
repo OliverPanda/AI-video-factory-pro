@@ -56,8 +56,17 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'continuityChecker',
       'ttsAgent',
       'ttsQaAgent',
+      'lipsyncAgent',
       'videoComposer',
     ]);
+    assert.equal(
+      ctx.qaOverviewJsonPath,
+      path.join(ctx.runDir, 'qa-overview.json')
+    );
+    assert.equal(
+      ctx.qaOverviewMarkdownPath,
+      path.join(ctx.runDir, 'qa-overview.md')
+    );
     assert.equal(
       ctx.projectDir,
       path.join(tempRoot, 'projects', '咖啡馆相遇__project_123')

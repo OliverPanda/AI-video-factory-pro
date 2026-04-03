@@ -247,8 +247,9 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
   const passCount = agentSummaries.filter((item) => item.status === 'pass').length;
   const warnCount = agentSummaries.filter((item) => item.status === 'warn').length;
   const blockCount = agentSummaries.filter((item) => item.status === 'block').length;
-  const status = blockCount > 0 ? 'block' : warnCount > 0 ? 'warn' : 'pass';
-  const topIssues = [
+  const releasable = options.releasable ?? blockCount === 0;
+  let status = blockCount > 0 ? 'block' : warnCount > 0 ? 'warn' : 'pass';
+  let topIssues = [
     ...agentSummaries
       .filter((item) => item.status === 'block')
       .flatMap((item) => (item.blockItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
@@ -256,6 +257,11 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
       .filter((item) => item.status === 'warn')
       .flatMap((item) => (item.warnItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
   ].slice(0, 5);
+
+  if (!releasable) {
+    status = 'block';
+    topIssues = topIssues.length > 0 ? topIssues : ['Director: 本轮运行未完成，当前不能交付'];
+  }
 
   const headline =
     status === 'pass'
@@ -273,7 +279,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
 
   return {
     status,
-    releasable: options.releasable ?? blockCount === 0,
+    releasable,
     headline,
     summary,
     passCount,
