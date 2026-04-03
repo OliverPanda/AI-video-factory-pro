@@ -498,6 +498,193 @@ test('runEpisodePipeline applies regenerated keyframe-shaped results during cons
   });
 });
 
+test('runEpisodePipeline keeps original image when consistency regeneration fails after retries', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const composeCalls = [];
+    const errorLogs = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_regen_failure_contract',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      logger: {
+        info: () => {},
+        error: (...args) => errorLogs.push(args),
+      },
+      loadScript: () => ({
+        id: 'script_1',
+        title: '重绘失败测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'old prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_old',
+          imagePath: '/tmp/shot_1_old.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({
+        needsRegeneration: [{ shotId: 'shot_1', suggestion: 'keep costume identical' }],
+      }),
+      regenerateImage: async () => ({
+        shotId: 'shot_1',
+        keyframeAssetId: 'keyframe_failed',
+        imagePath: null,
+        success: false,
+        error: 'socket hang up',
+      }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async (_shots, imageResults) => {
+        composeCalls.push(structuredClone(imageResults));
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.deepEqual(composeCalls[0], [
+      {
+        shotId: 'shot_1',
+        keyframeAssetId: 'keyframe_old',
+        imagePath: '/tmp/shot_1_old.png',
+        success: true,
+        characters: ['沈清'],
+      },
+    ]);
+    assert.equal(
+      errorLogs.some(([, message]) => String(message).includes('一致性重生成失败，保留原图继续流程：shot_1 - socket hang up')),
+      true
+    );
+  });
+});
+
+test('runEpisodePipeline applies continuity repair regeneration and records repair attempts', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const savedWrites = [];
+    const composeCalls = [];
+    const runJobRef = {
+      id: 'run_job_continuity_repair_20260402120000000_deadbeef',
+      jobId: 'job_continuity_repair',
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+    };
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_continuity_repair',
+      loadJSON: (filePath) => {
+        if (filePath.endsWith('repair-attempts.json')) {
+          return [];
+        }
+        return null;
+      },
+      saveJSON: (filePath, data) => savedWrites.push([filePath, structuredClone(data)]),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '宫墙疑云' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '重绘测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'old prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_old',
+          imagePath: '/tmp/shot_1_old.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({
+        reports: [
+          {
+            previousShotId: 'shot_0',
+            shotId: 'shot_1',
+            continuityScore: 6,
+            hardViolations: [{ code: 'camera_axis_flip', severity: 'high', message: 'flip' }],
+            softWarnings: [],
+            repairHints: ['keep actor on left side'],
+            recommendedAction: 'regenerate_prompt_and_image',
+            repairMethod: 'prompt_regen',
+            continuityTargets: ['camera_axis_flip'],
+          },
+        ],
+        flaggedTransitions: [
+          {
+            previousShotId: 'shot_0',
+            shotId: 'shot_1',
+            continuityScore: 6,
+            hardViolationCodes: ['camera_axis_flip'],
+            violations: ['camera_axis_flip'],
+            repairHints: ['keep actor on left side'],
+            recommendedAction: 'regenerate_prompt_and_image',
+            repairMethod: 'prompt_regen',
+            continuityTargets: ['camera_axis_flip'],
+          },
+        ],
+      }),
+      regenerateImage: async (_shotId, prompt) => ({
+        shotId: 'shot_1',
+        keyframeAssetId: 'keyframe_new',
+        imagePath: '/tmp/shot_1_new.png',
+        success: true,
+        prompt,
+      }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      composeVideo: async (_shots, imageResults) => {
+        composeCalls.push(structuredClone(imageResults));
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {
+        startedAt: '2026-04-02T12:00:00.000Z',
+      },
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.equal(composeCalls[0][0].keyframeAssetId, 'keyframe_new');
+    const stateWrites = savedWrites.filter(([filePath]) => String(filePath).endsWith('state.json'));
+    const finalState = stateWrites.at(-1)?.[1];
+    assert.ok(finalState, 'expected final state to be written');
+    assert.equal(finalState.imageResults[0].keyframeAssetId, 'keyframe_new');
+  });
+});
+
 test('runEpisodePipeline records a run job with major step task runs', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));

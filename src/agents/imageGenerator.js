@@ -199,14 +199,62 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
 export async function regenerateImage(shotId, prompt, negativePrompt, imagesDir, options = {}) {
   logger.info('ImageGenerator', `重新生成图像：${shotId}`);
   const style = options.style || process.env.IMAGE_STYLE || 'realistic';
+  const runGenerateImage = options.generateImage || generateImage;
+  const providerConfig = buildProviderConfigSnapshot(options);
   const outputPath = path.join(imagesDir, `${shotId}.png`);
-  const imagePath = await generateImage(prompt, negativePrompt, outputPath, options);
-  return createKeyframeResult({
+  const request = buildRequestContext(
+    {
+      shotId,
+      prompt,
+      negativePrompt,
+      outputPath,
+    },
+    providerConfig
+  );
+  const retryHistory = [];
+
+  return queueWithRetry(
+    imageQueue,
+    async () => {
+      const imagePath = await runGenerateImage(prompt, negativePrompt, outputPath, options);
+      return createKeyframeResult({
+        shotId,
+        prompt,
+        negativePrompt,
+        imagePath,
+        style,
+        success: true,
+        request,
+      });
+    },
+    3,
     shotId,
-    prompt,
-    negativePrompt,
-    imagePath,
-    style,
-    success: true,
+    {
+      onRetry: ({ taskName, attempt, maxRetries, delay, error }) => {
+        retryHistory.push({
+          ...request,
+          taskName,
+          attempt,
+          maxRetries,
+          delay,
+          error: error.message,
+        });
+      },
+    }
+  ).catch((err) => {
+    logger.error('ImageGenerator', `${shotId} 重生成失败：${err.message}`);
+    return {
+      ...createKeyframeResult({
+        shotId,
+        prompt,
+        negativePrompt,
+        imagePath: null,
+        style,
+        success: false,
+        error: err.message,
+        request,
+      }),
+      retryHistory,
+    };
   });
 }

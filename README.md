@@ -305,6 +305,8 @@ shy expression, medium shot,
 
 完整 Agent 文档入口见 [docs/agents/README.md](docs/agents/README.md)。
 
+如果你更关心接手、排障、验收和提交流程，入口见 [docs/sop/README.md](docs/sop/README.md)。
+
 最终交付目录当前统一为：
 
 ```text

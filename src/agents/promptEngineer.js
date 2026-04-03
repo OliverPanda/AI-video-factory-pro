@@ -59,6 +59,17 @@ function buildContinuityTokens(shot = {}) {
   return tokens.filter(Boolean).join(', ');
 }
 
+export function applyContinuityRepairHints(basePrompt, report = {}) {
+  const hints = Array.isArray(report.repairHints) ? report.repairHints : [];
+  const targets = Array.isArray(report.continuityTargets) ? report.continuityTargets : [];
+  const continuityPatch = [...targets, ...hints].filter(Boolean).join(', ');
+  if (!continuityPatch) {
+    return basePrompt;
+  }
+
+  return [basePrompt, `continuity repair`, continuityPatch].filter(Boolean).join(', ');
+}
+
 function buildPromptMetrics(prompts, promptSources) {
   const llmSuccessCount = promptSources.filter((entry) => entry.source === 'llm').length;
   const fallbackCount = promptSources.filter((entry) => entry.source === 'fallback').length;

@@ -232,9 +232,14 @@ test('character consistency acceptance run writes bible anchors identity report 
       {
         previousShotId: 'shot_001',
         shotId: 'shot_002',
+        triggerSource: 'llm_score',
+        hardViolationCodes: [],
         continuityScore: 6,
         violations: ['prop_position_jump'],
         repairHints: ['keep letter in right hand'],
+        recommendedAction: 'regenerate_prompt_and_image',
+        repairMethod: 'prompt_regen',
+        continuityTargets: ['prop_position_jump'],
       },
     ]);
   });

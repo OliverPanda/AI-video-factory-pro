@@ -90,6 +90,15 @@ output/
 
 所以它们应该始终留在 `temp/` 的 run package 里。
 
+同理，下面这些旧式中间文件如果残留在 `output/`，也都属于可清理产物：
+
+- `*.ass`
+- `*_concat.txt`
+- `*_visual.mp4`
+- `*_segments/`
+
+它们是合成过程中的中间文件，不是最终交付物。
+
 ## 当前推荐结构
 
 ```text
@@ -106,6 +115,19 @@ output/
 - 项目级交付物不混在一起
 - 分集成片更容易定位
 - 交付和审计边界更清晰
+
+## 清理后的目录纪律
+
+现在推荐把 `output/` 约束成：
+
+- 保留：
+  - `项目名__projectId/第01集__episodeId/final-video.mp4`
+  - `项目名__projectId/第01集__episodeId/delivery-summary.md`
+- 清理：
+  - 所有平铺在 `output/` 根目录的旧式文件
+  - 所有 `.ass / _concat.txt / _visual.mp4 / _segments/` 中间文件
+
+如果某次运行结束后你又在 `output/` 里看到了这些中间文件，优先把它视为“需要继续收口的运行产物”，而不是正式交付的一部分。
 
 ## 现在最常见的失败模式
 

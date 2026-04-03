@@ -2,6 +2,8 @@
 
 本文档作为 agents 相关内容的入口，按执行顺序列出全部 Agent，并指向更细的链路文档与主 README。
 
+如果你现在更关心“怎么接手、怎么排障、怎么验收”，请先看 [docs/sop/README.md](/d:/My-Project/AI-video-factory-pro/docs/sop/README.md)。
+
 ## Agent 总览
 
 | 序号 | 名称 | 关键职责 | 代码位置 |
@@ -40,6 +42,9 @@
 - [运行包目录示例](run-package-example.md)
 - [temp/ 目录说明](../runtime/temp-structure.md)
 - [output/ 目录说明](../runtime/output-structure.md)
+- [SOP 总览](../sop/README.md)
+- [运行排障 Runbook](../sop/runbook.md)
+- [QA 验收 SOP](../sop/qa-acceptance.md)
 
 主 README 的“Agent 详细说明”节提供整体职责、输入输出与系统架构背景，请参考：  
 [README.md 中的 Agent 详细说明](../../README.md#agent-详细说明)

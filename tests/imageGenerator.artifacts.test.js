@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { generateAllImages } from '../src/agents/imageGenerator.js';
+import { generateAllImages, regenerateImage } from '../src/agents/imageGenerator.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 
 function withTempRoot(fn) {
@@ -149,5 +149,41 @@ test('image generator writes provider config index metrics retry log manifest an
     });
     assert.equal(Array.isArray(terminalError.retryHistory), true);
     assert.equal(terminalError.retryHistory.length, 2);
+  });
+});
+
+test('regenerateImage retries transient failures and returns a failed result instead of throwing', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagesDir = path.join(tempRoot, 'images');
+    fs.mkdirSync(imagesDir, { recursive: true });
+    let attempts = 0;
+
+    const result = await regenerateImage('shot_009', 'regen prompt', 'regen neg', imagesDir, {
+      style: 'realistic',
+      generateImage: async () => {
+        attempts += 1;
+        throw new Error('socket hang up');
+      },
+    });
+
+    assert.equal(attempts, 3);
+    assert.equal(result.shotId, 'shot_009');
+    assert.equal(result.success, false);
+    assert.equal(result.imagePath, null);
+    assert.match(result.error, /socket hang up/);
+    assert.equal(Array.isArray(result.retryHistory), true);
+    assert.equal(result.retryHistory.length, 2);
+    assert.deepEqual(result.request, {
+      shotId: 'shot_009',
+      prompt: 'regen prompt',
+      negativePrompt: 'regen neg',
+      outputPath: path.join(imagesDir, 'shot_009.png'),
+      providerConfig: {
+        style: 'realistic',
+        taskType: 'realistic_image',
+        provider: 'laozhang',
+        model: process.env.REALISTIC_IMAGE_MODEL || 'flux-kontext-pro',
+      },
+    });
   });
 });

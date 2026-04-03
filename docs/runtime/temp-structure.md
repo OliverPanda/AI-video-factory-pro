@@ -33,22 +33,20 @@
 
 ## 顶层结构
 
-当前 `temp/` 里主要有两类内容：
+当前建议把 `temp/` 顶层尽量收敛成：
 
 ```text
 temp/
-  <legacy-job-id>/
   projects/
 ```
 
-含义分别是：
+其中：
 
-- `temp/<legacy-job-id>/`
-  - 旧单文件入口的兼容缓存
-  - 典型内容：`state.json / images / audio`
 - `temp/projects/`
-  - 新项目模式的结构化存储根目录
+  - 结构化存储根目录
   - 包含项目资产、分集数据、run jobs、可审计运行包
+
+兼容旧单文件入口时，历史上也出现过 `temp/<legacy-job-id>/` 这类平铺缓存目录。它们现在属于可清理的旧产物，不建议继续长期保留。
 
 ## 兼容模式结构
 
@@ -326,6 +324,49 @@ runs/
 - 让 `temp/` 可读
 - 让 `temp/` 可追踪
 - 需要时再手工清理旧 run
+
+## 建议保留的测试目录
+
+如果你现在还要继续跑和复盘“角色一致性”相关测试，建议优先保留这 4 个目录：
+
+```text
+temp/projects/character-consistency-demo/
+temp/projects/multi-scene-character-demo/
+temp/projects/角色一致性测试项目__character-consistency-demo/
+temp/projects/多角色多场景一致性测试__multi-scene-character-demo/
+```
+
+它们的用途分别是：
+
+- `temp/projects/character-consistency-demo/`
+  - 角色一致性最小测试项目的源资产
+- `temp/projects/multi-scene-character-demo/`
+  - 多角色多场景测试项目的源资产
+- `temp/projects/角色一致性测试项目__character-consistency-demo/`
+  - 上面那个最小测试项目跑出来的结构化运行目录
+- `temp/projects/多角色多场景一致性测试__multi-scene-character-demo/`
+  - 复杂测试项目跑出来的结构化运行目录
+
+如果你只是想清理自动生成的冗余成果物，通常不要先删这 4 个目录。
+
+## 现在可以放心清理的旧产物
+
+下面这些通常都属于历史调试/兼容遗留物，可以按需删除：
+
+```text
+temp/<legacy-job-id>/
+temp/projects/legacy-script__legacy_project_*/
+temp/projects/旧入口兼容__legacy_project_*/
+temp/projects/第一版__legacy_project_*/
+temp/projects/第二版__legacy_project_*/
+temp/projects/*__project_1/
+```
+
+它们的共同特点是：
+
+- 主要服务于旧入口兼容或阶段性调试
+- 和当前推荐保留的 demo 项目没有直接绑定关系
+- 名称可读性差，长期保留只会增加排障成本
 
 ## 你最该先学会看的 8 个文件
 

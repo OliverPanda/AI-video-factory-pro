@@ -8,7 +8,7 @@ import path from 'path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parseScript } from './scriptParser.js';
 import { buildCharacterRegistry } from './characterRegistry.js';
-import { generateAllPrompts } from './promptEngineer.js';
+import { applyContinuityRepairHints, generateAllPrompts } from './promptEngineer.js';
 import { generateAllImages, regenerateImage } from './imageGenerator.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
 import { runContinuityCheck } from './continuityChecker.js';
@@ -125,6 +125,14 @@ function createDeliverySummary({
   ].join('\n');
 }
 
+function readJSONSafe(loadJSONFn, filePath, fallback) {
+  try {
+    return loadJSONFn(filePath) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function createDirector(overrides = {}) {
   const deps = {
     parseScript,
@@ -174,10 +182,14 @@ export function createDirector(overrides = {}) {
       let runJobRef = null;
       let runJobCreated = false;
       let taskRunWritesEnabled = true;
+      let activeArtifactContext = options.artifactContext || null;
 
       function saveState(update) {
         Object.assign(state, update);
         deps.saveJSON(stateFile, state);
+        if (activeArtifactContext?.runDir) {
+          deps.saveJSON(path.join(activeArtifactContext.runDir, 'state.snapshot.json'), state);
+        }
       }
 
       function tryObservabilityWrite(action, label) {
@@ -237,6 +249,7 @@ export function createDirector(overrides = {}) {
             runJobId: runJobRef.id,
             startedAt: runStartedAt,
           });
+        activeArtifactContext = artifactContext;
 
         initializeRunArtifacts(artifactContext, {
           projectId,
@@ -437,12 +450,19 @@ export function createDirector(overrides = {}) {
                       { style }
                     ));
 
+                    if (regeneratedResult.success === false) {
+                      deps.logger.error(
+                        'Director',
+                        `一致性重生成失败，保留原图继续流程：${item.shotId} - ${regeneratedResult.error || 'unknown error'}`
+                      );
+                      continue;
+                    }
+
                     const index = imageResults.findIndex((result) => result.shotId === item.shotId);
                     if (index >= 0) {
                       imageResults[index] = {
                         ...imageResults[index],
                         ...regeneratedResult,
-                        success: true,
                       };
                     }
                   }
@@ -478,7 +498,115 @@ export function createDirector(overrides = {}) {
                   artifactContext: artifactContext.agents.continuityChecker,
                 })
             );
-            saveState({ continuityCheckDone: true, continuityReport: continuityResult.reports });
+
+            const repairAttemptsPath = path.join(
+              artifactContext.agents.continuityChecker.outputsDir,
+              'repair-attempts.json'
+            );
+            const repairAttempts = readJSONSafe(deps.loadJSON, repairAttemptsPath, []);
+            const flaggedTransitions = Array.isArray(continuityResult.flaggedTransitions)
+              ? continuityResult.flaggedTransitions
+              : [];
+
+            if (flaggedTransitions.length > 0) {
+              deps.logger.info(
+                'Director',
+                `处理 ${flaggedTransitions.length} 个连贯性问题转场...`
+              );
+
+              await recordStep(
+                'repair_continuity_transitions',
+                { message: `处理 ${flaggedTransitions.length} 个连贯性问题转场` },
+                async () => {
+                  for (const item of flaggedTransitions) {
+                    if (item.recommendedAction === 'pass') {
+                      repairAttempts.push({
+                        shotId: item.shotId,
+                        attempted: false,
+                        repairMethod: item.repairMethod || null,
+                        success: true,
+                        reason: 'pass',
+                      });
+                      continue;
+                    }
+
+                    if (item.recommendedAction === 'manual_review') {
+                      repairAttempts.push({
+                        shotId: item.shotId,
+                        attempted: false,
+                        repairMethod: item.repairMethod || 'manual_review',
+                        success: true,
+                        reason: 'manual_review',
+                      });
+                      continue;
+                    }
+
+                    const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
+                    if (!originalPrompt) {
+                      repairAttempts.push({
+                        shotId: item.shotId,
+                        attempted: true,
+                        repairMethod: item.repairMethod || 'prompt_regen',
+                        success: false,
+                        error: 'missing original prompt',
+                      });
+                      continue;
+                    }
+
+                    const adjustedPrompt = applyContinuityRepairHints(originalPrompt.image_prompt, item);
+                    const regeneratedResult = ensureImageResultIdentity(
+                      await deps.regenerateImage(
+                        item.shotId,
+                        adjustedPrompt,
+                        originalPrompt.negative_prompt,
+                        dirs.images,
+                        { style }
+                      )
+                    );
+
+                    if (regeneratedResult.success === false) {
+                      deps.logger.error(
+                        'Director',
+                        `连贯性重生成失败，保留原图继续流程：${item.shotId} - ${regeneratedResult.error || 'unknown error'}`
+                      );
+                      repairAttempts.push({
+                        shotId: item.shotId,
+                        attempted: true,
+                        repairMethod: item.repairMethod || 'prompt_regen',
+                        success: false,
+                        error: regeneratedResult.error || 'unknown error',
+                      });
+                      continue;
+                    }
+
+                    const shot = shots.find((entry) => entry.id === item.shotId);
+                    const index = imageResults.findIndex((result) => result.shotId === item.shotId);
+                    if (index >= 0) {
+                      imageResults[index] = {
+                        ...imageResults[index],
+                        ...regeneratedResult,
+                        characters: shot?.characters || imageResults[index]?.characters || [],
+                      };
+                    }
+
+                    repairAttempts.push({
+                      shotId: item.shotId,
+                      attempted: true,
+                      repairMethod: item.repairMethod || 'prompt_regen',
+                      success: true,
+                    });
+                  }
+                }
+              );
+            }
+
+            deps.saveJSON(repairAttemptsPath, repairAttempts);
+            saveState({
+              imageResults,
+              continuityCheckDone: true,
+              continuityReport: continuityResult.reports,
+              continuityFlaggedTransitions: flaggedTransitions,
+            });
           } else {
             deps.logger.info('Director', '【Step 5/7】使用缓存的连贯性检查结果');
             appendStepRun('continuity_check', {
@@ -614,10 +742,14 @@ export function createDirector(overrides = {}) {
       const dirs = deps.initDirs(legacy.jobId);
       const stateFile = path.join(dirs.root, 'state.json');
       const state = deps.loadJSON(stateFile) || {};
+      let activeArtifactContext = options.artifactContext || null;
 
       function saveState(update) {
         Object.assign(state, update);
         deps.saveJSON(stateFile, state);
+        if (activeArtifactContext?.runDir) {
+          deps.saveJSON(path.join(activeArtifactContext.runDir, 'state.snapshot.json'), state);
+        }
       }
 
       try {
@@ -691,6 +823,7 @@ export function createDirector(overrides = {}) {
             runJobId: runAttemptId,
             startedAt: runStartedAt,
           });
+        activeArtifactContext = finalArtifactContext;
 
         if (bootstrapParserArtifactContext && !options.artifactContext) {
           adoptAgentArtifacts(

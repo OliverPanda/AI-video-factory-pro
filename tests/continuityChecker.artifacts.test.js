@@ -74,13 +74,18 @@ test('continuity checker writes reports flagged transitions metrics and manifest
     const report = JSON.parse(
       fs.readFileSync(path.join(ctx.agents.continuityChecker.outputsDir, 'continuity-report.json'), 'utf-8')
     );
-    assert.deepEqual(report, [
+    assert.equal(report.length, 1);
+    assert.equal(report[0].previousShotId, 'shot_001');
+    assert.equal(report[0].shotId, 'shot_002');
+    assert.equal(report[0].continuityScore, 6);
+    assert.equal(report[0].recommendedAction, 'regenerate_prompt_and_image');
+    assert.deepEqual(report[0].repairHints, ['keep characters on original screen sides']);
+    assert.deepEqual(report[0].hardViolations, []);
+    assert.deepEqual(report[0].softWarnings, [
       {
-        previousShotId: 'shot_001',
-        shotId: 'shot_002',
-        continuityScore: 6,
-        violations: ['camera axis drift'],
-        repairHints: ['keep characters on original screen sides'],
+        code: 'camera axis drift',
+        severity: 'medium',
+        message: 'camera axis drift',
       },
     ]);
 
@@ -91,11 +96,35 @@ test('continuity checker writes reports flagged transitions metrics and manifest
       {
         previousShotId: 'shot_001',
         shotId: 'shot_002',
+        triggerSource: 'llm_score',
+        hardViolationCodes: [],
         continuityScore: 6,
         violations: ['camera axis drift'],
         repairHints: ['keep characters on original screen sides'],
+        recommendedAction: 'regenerate_prompt_and_image',
+        repairMethod: 'prompt_regen',
+        continuityTargets: ['camera axis drift'],
       },
     ]);
+
+    const repairPlan = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.continuityChecker.outputsDir, 'repair-plan.json'), 'utf-8')
+    );
+    assert.deepEqual(repairPlan, [
+      {
+        shotId: 'shot_002',
+        previousShotId: 'shot_001',
+        recommendedAction: 'regenerate_prompt_and_image',
+        repairMethod: 'prompt_regen',
+        continuityTargets: ['camera axis drift'],
+        repairHints: ['keep characters on original screen sides'],
+      },
+    ]);
+
+    const repairAttempts = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.continuityChecker.outputsDir, 'repair-attempts.json'), 'utf-8')
+    );
+    assert.deepEqual(repairAttempts, []);
 
     const markdown = fs.readFileSync(
       path.join(ctx.agents.continuityChecker.outputsDir, 'continuity-report.md'),
@@ -111,6 +140,13 @@ test('continuity checker writes reports flagged transitions metrics and manifest
       checked_transition_count: 1,
       flagged_transition_count: 1,
       avg_continuity_score: 6,
+      hard_violation_count: 0,
+      soft_warning_count: 1,
+      hard_rule_fail_count: 0,
+      llm_review_fail_count: 1,
+      action_pass_count: 0,
+      action_regenerate_count: 1,
+      action_manual_review_count: 0,
     });
 
     const manifest = JSON.parse(fs.readFileSync(ctx.agents.continuityChecker.manifestPath, 'utf-8'));
@@ -121,6 +157,8 @@ test('continuity checker writes reports flagged transitions metrics and manifest
       outputFiles: [
         'continuity-report.json',
         'flagged-transitions.json',
+        'repair-plan.json',
+        'repair-attempts.json',
         'continuity-report.md',
         'continuity-metrics.json',
       ],

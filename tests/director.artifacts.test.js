@@ -85,6 +85,7 @@ test('director creates manifest timeline and agent directories for an episode ru
 
     assert.equal(fs.existsSync(path.join(expectedRunDir, 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, 'timeline.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, 'state.snapshot.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser', 'manifest.json')), true);
 
@@ -105,6 +106,19 @@ test('director creates manifest timeline and agent directories for an episode ru
       runJobId: manifest.runJobId,
       jobId: 'job_artifacts',
     });
+
+    const stateSnapshot = JSON.parse(
+      fs.readFileSync(path.join(expectedRunDir, 'state.snapshot.json'), 'utf-8')
+    );
+    assert.match(
+      stateSnapshot.outputPath,
+      /output[\\/].+__project_123[\\/]第01集__episode_001[\\/]final-video\.mp4$/
+    );
+    assert.match(
+      stateSnapshot.deliverySummaryPath,
+      /output[\\/].+__project_123[\\/]第01集__episode_001[\\/]delivery-summary\.md$/
+    );
+    assert.equal(typeof stateSnapshot.completedAt, 'string');
 
     const agentManifest = JSON.parse(
       fs.readFileSync(path.join(expectedRunDir, '01-script-parser', 'manifest.json'), 'utf-8')
