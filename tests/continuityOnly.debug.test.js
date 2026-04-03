@@ -143,6 +143,38 @@ test('continuity-only debug run keeps artifacts under repo temp for manual inspe
       success: true,
     }),
     generateAllAudio: async () => [],
+    runTtsQa: async () => ({
+      status: 'pass',
+      blockers: [],
+      warnings: [],
+      dialogueShotCount: 0,
+      fallbackCount: 0,
+      fallbackRate: 0,
+      budgetCheckedCount: 0,
+      budgetPassingCount: 0,
+      budgetPassRate: 1,
+      manualReviewPlan: { categories: {}, recommendedShotIds: [] },
+      entries: [],
+    }),
+    runLipsync: async () => ({
+      clips: [],
+      results: [],
+      report: {
+        status: 'pass',
+        triggeredCount: 0,
+        generatedCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+        downgradedCount: 0,
+        fallbackCount: 0,
+        fallbackShots: [],
+        manualReviewCount: 0,
+        manualReviewShots: [],
+        blockers: [],
+        warnings: [],
+        entries: [],
+      },
+    }),
     composeVideo: async (_shots, _images, _audio, outputPath) => {
       fs.writeFileSync(outputPath, 'video');
       return outputPath;

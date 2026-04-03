@@ -8,6 +8,7 @@
     "start": "node scripts/run.js",
     "test": "node scripts/run-tests.js",
     "test:tts": "node scripts/run-tts-tests.js",
+    "test:continuity": "node scripts/run-continuity-tests.js",
     "test:tts:keep-artifacts": "node scripts/run-tts-tests.js --keep-artifacts",
     "test:character-consistency": "node scripts/run-tests.js characterBible consistencyChecker.identity continuityChecker director.artifacts pipeline.acceptance characterConsistency.acceptance promptEngineer.artifacts"
   },
