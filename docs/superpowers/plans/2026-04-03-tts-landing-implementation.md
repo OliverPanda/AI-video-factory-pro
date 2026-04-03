@@ -172,3 +172,30 @@
 - [x] **Step 1: Update run-package examples from legacy `08-video-composer` references to the current `09-video-composer` path**
 - [x] **Step 2: Add `08b-lipsync-agent` to troubleshooting guidance so lip-sync failures and fallback evidence have a clear lookup path**
 - [x] **Step 3: Verify the updated docs no longer point primary FFmpeg troubleshooting to the old directory numbering**
+
+## Task 13: Add Beginner-friendly QA Summaries Across Agents
+
+**Files:**
+- Create: `src/utils/qaSummary.js`
+- Modify: `src/agents/director.js`
+- Modify: `src/agents/scriptParser.js`
+- Modify: `src/agents/characterRegistry.js`
+- Modify: `src/agents/promptEngineer.js`
+- Modify: `src/agents/imageGenerator.js`
+- Modify: `src/agents/consistencyChecker.js`
+- Modify: `src/agents/continuityChecker.js`
+- Modify: `src/agents/ttsAgent.js`
+- Modify: `src/agents/ttsQaAgent.js`
+- Modify: `src/agents/lipsyncAgent.js`
+- Modify: `src/agents/videoComposer.js`
+- Modify: `docs/agents/README.md`
+- Modify: `docs/sop/qa-acceptance.md`
+- Test: `tests/ttsAgent.artifacts.test.js`
+- Test: `tests/pipeline.acceptance.test.js`
+
+- [x] **Step 1: Add a shared QA summary writer so agents can emit a uniform `qa-summary.md/json` pair**
+- [x] **Step 2: Teach major agents to write beginner-friendly QA headlines, pass items, risks, blockers, next steps, and evidence paths**
+- [x] **Step 3: Make Director aggregate per-agent summaries into run-level `qa-overview.md/json`**
+- [x] **Step 4: Update focused tests to verify agent-level summaries and run-level overview files are produced**
+- [x] **Step 5: Update QA docs so the repository no longer claims a unified QA summary layer is missing**
+- [x] **Step 6: Run `pnpm run test:tts` and verify the focused TTS suite passes**

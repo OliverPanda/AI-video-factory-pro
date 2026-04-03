@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { createLipsyncClip } from '../apis/lipsyncApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 function writeTextFile(filePath, content) {
@@ -159,6 +160,50 @@ function writeArtifacts(report, results, artifactContext) {
     manualReviewShots: report.manualReviewShots,
     outputFiles: ['lipsync.index.json', 'lipsync-report.json', 'lipsync-report.md'],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'lipsyncAgent',
+      agentName: 'Lip-sync Agent',
+      status: report.status,
+      headline:
+        report.status === 'pass'
+          ? `已完成 ${report.generatedCount} 个口型镜头生成`
+          : report.status === 'warn'
+            ? `口型链路可继续，但有 ${report.warnings.length} 个风险提醒`
+            : `口型链路被阻断，有 ${report.blockers.length} 个关键问题`,
+      summary:
+        report.status === 'pass'
+          ? '当前口型镜头已达到最小可交付状态。'
+          : report.status === 'warn'
+            ? '部分镜头已降级或需要人工复核，但主链路仍可继续。'
+            : '关键口型镜头存在阻断问题，建议先修复再交付。',
+      passItems: [
+        `触发镜头数：${report.triggeredCount}`,
+        `成功生成数：${report.generatedCount}`,
+      ],
+      warnItems: report.warnings,
+      blockItems: report.blockers,
+      nextAction:
+        report.status === 'pass'
+          ? '可以继续进入最终视频合成。'
+          : report.status === 'warn'
+            ? '优先查看需要人工复核和发生 fallback 的镜头。'
+            : '先修复阻断镜头，再重新运行口型同步。',
+      evidenceFiles: [
+        '2-metrics/lipsync-report.json',
+        '1-outputs/lipsync-report.md',
+        '1-outputs/lipsync.index.json',
+      ],
+      metrics: {
+        triggeredCount: report.triggeredCount,
+        generatedCount: report.generatedCount,
+        failedCount: report.failedCount,
+        fallbackCount: report.fallbackCount,
+        manualReviewCount: report.manualReviewCount,
+      },
+    },
+    artifactContext
+  );
 }
 
 export async function runLipsync(shots, imageResults = [], audioResults = [], options = {}) {

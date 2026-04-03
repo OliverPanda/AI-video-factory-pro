@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON } from '../llm/client.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色创建详细的视觉设定档案。
@@ -124,6 +125,40 @@ function writeCharacterRegistryArtifacts(
       'character-metrics.json',
     ],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'characterRegistry',
+      agentName: 'Character Registry',
+      status: metrics.missing_profile_count > 0 ? 'warn' : 'pass',
+      headline:
+        metrics.missing_profile_count > 0
+          ? `有 ${metrics.missing_profile_count} 个角色档案还不完整`
+          : `已完成 ${cards.length} 个角色的建档`,
+      summary:
+        metrics.missing_profile_count > 0
+          ? '大部分角色已完成映射，但仍有角色缺少可直接用于后续生成的完整视觉信息。'
+          : '角色映射和视觉锚点已准备好，可供 Prompt 和配音链路继续使用。',
+      passItems: [
+        `角色档案数：${cards.length}`,
+        `Character Bible 关联数：${metrics.character_bible_linked_count}`,
+      ],
+      warnItems:
+        metrics.missing_profile_count > 0
+          ? [`缺少完整 profile 的角色数：${metrics.missing_profile_count}`]
+          : [],
+      nextAction:
+        metrics.missing_profile_count > 0
+          ? '建议优先补齐缺 profile 的关键角色，再继续追求高质量产出。'
+          : '可以继续进入 Prompt 生成阶段。',
+      evidenceFiles: [
+        '1-outputs/character-registry.json',
+        '1-outputs/character-name-mapping.json',
+        '2-metrics/character-metrics.json',
+      ],
+      metrics,
+    },
+    artifactContext
+  );
 }
 
 /**

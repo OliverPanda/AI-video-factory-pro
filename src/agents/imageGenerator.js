@@ -7,6 +7,7 @@ import path from 'path';
 import { generateImage, resolveImageRoute, resolveImageTaskType } from '../apis/imageApi.js';
 import { createKeyframeAsset } from '../domain/assetModel.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { imageQueue, queueWithRetry } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
@@ -83,7 +84,7 @@ function writeImageArtifacts(results, retryLog, artifactContext, providerConfig)
 
   const successCount = results.filter((result) => result.success).length;
   const failureCount = results.length - successCount;
-  saveJSON(path.join(artifactContext.metricsDir, 'image-metrics.json'), {
+  const metrics = {
     request_count: results.length,
     success_count: successCount,
     failure_count: failureCount,
@@ -92,7 +93,8 @@ function writeImageArtifacts(results, retryLog, artifactContext, providerConfig)
     http_403_count: countErrorCode(results, 403),
     http_429_count: countErrorCode(results, 429),
     http_503_count: countErrorCode(results, 503),
-  });
+  };
+  saveJSON(path.join(artifactContext.metricsDir, 'image-metrics.json'), metrics);
   saveJSON(path.join(artifactContext.errorsDir, 'retry-log.json'), retryLog);
 
   for (const result of results.filter((entry) => !entry.success)) {
@@ -110,6 +112,35 @@ function writeImageArtifacts(results, retryLog, artifactContext, providerConfig)
     failureCount,
     outputFiles: ['provider-config.json', 'images.index.json', 'image-metrics.json', 'retry-log.json'],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'imageGenerator',
+      agentName: 'Image Generator',
+      status: failureCount === 0 ? 'pass' : successCount === 0 ? 'block' : 'warn',
+      headline:
+        failureCount === 0
+          ? `已成功生成 ${successCount} 张图`
+          : successCount === 0
+            ? '所有镜头出图都失败了'
+            : `已有 ${successCount} 张图成功，但仍有 ${failureCount} 张失败`,
+      summary:
+        failureCount === 0
+          ? '当前图像资产已经具备继续进入一致性和视频合成的基础。'
+          : successCount === 0
+            ? '目前没有可用图像，后续视觉链路会被阻断。'
+            : '部分镜头可继续使用，但失败镜头需要优先补齐或重跑。',
+      passItems: [`成功数：${successCount}`, `成功率：${(metrics.success_rate * 100).toFixed(1)}%`],
+      warnItems: failureCount > 0 && successCount > 0 ? [`失败镜头数：${failureCount}`] : [],
+      blockItems: successCount === 0 && failureCount > 0 ? [`失败镜头数：${failureCount}`] : [],
+      nextAction:
+        failureCount === 0
+          ? '可以继续进入一致性检查。'
+          : '先看 retry-log 和单镜头错误文件，决定重试还是人工补图。',
+      evidenceFiles: ['1-outputs/images.index.json', '2-metrics/image-metrics.json', '3-errors/retry-log.json'],
+      metrics,
+    },
+    artifactContext
+  );
 }
 
 /**

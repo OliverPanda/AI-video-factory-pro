@@ -4,6 +4,18 @@
 
 如果你现在更关心“怎么接手、怎么排障、怎么验收”，请先看 [docs/sop/README.md](/d:/My-Project/AI-video-factory-pro/docs/sop/README.md)。
 
+从当前版本开始，大多数运行中的 agent 在产出核心成果物后，还会额外写出一份面向非研发读者的轻量 QA 摘要：
+
+- `1-outputs/qa-summary.md`
+- `2-metrics/qa-summary.json`
+
+Director 还会在 run 根目录汇总生成：
+
+- `qa-overview.md`
+- `qa-overview.json`
+
+如果你只想先快速判断“这一轮有没有达标、最该先看什么问题”，建议先看这两层摘要，再决定是否深入看原始证据。
+
 ## Agent 总览
 
 | 序号 | 名称 | 关键职责 | 代码位置 |

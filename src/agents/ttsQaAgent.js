@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { saveJSON, ensureDir } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -178,6 +179,50 @@ function writeArtifacts(report, artifactContext) {
     warnings: report.warnings.length,
     outputFiles: ['tts-qa.json', 'asr-report.json', 'voice-cast-report.md', 'manual-review-sample.md'],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'ttsQaAgent',
+      agentName: 'TTS QA Agent',
+      status: report.status,
+      headline:
+        report.status === 'pass'
+          ? '配音质量检查通过'
+          : report.status === 'warn'
+            ? `配音可继续交付，但有 ${report.warnings.length} 个风险提醒`
+            : `配音被阻断，有 ${report.blockers.length} 个关键问题`,
+      summary:
+        report.status === 'pass'
+          ? '音频存在、时长预算和文本回写都在可接受范围内。'
+          : report.status === 'warn'
+            ? '主链路可继续，但建议先处理或记录这些风险后再交付。'
+            : '当前配音结果不满足最小交付要求，需要先修复阻断项。',
+      passItems: [
+        `对白镜头数：${report.dialogueShotCount}`,
+        `预算通过率：${((report.budgetPassRate || 0) * 100).toFixed(1)}%`,
+      ],
+      warnItems: report.warnings,
+      blockItems: report.blockers,
+      nextAction:
+        report.status === 'pass'
+          ? '可以继续进入 lip-sync 或视频合成。'
+          : report.status === 'warn'
+            ? '优先抽查 voice-cast-report 和 manual-review-sample。'
+            : '先修复阻断镜头，再重新运行配音链路。',
+      evidenceFiles: [
+        '2-metrics/tts-qa.json',
+        '2-metrics/asr-report.json',
+        '1-outputs/voice-cast-report.md',
+        '1-outputs/manual-review-sample.md',
+      ],
+      metrics: {
+        dialogueShotCount: report.dialogueShotCount,
+        fallbackCount: report.fallbackCount,
+        fallbackRate: report.fallbackRate,
+        budgetPassRate: report.budgetPassRate,
+      },
+    },
+    artifactContext
+  );
 }
 
 export async function runTtsQa(shots, audioResults, voiceResolution = [], options = {}) {

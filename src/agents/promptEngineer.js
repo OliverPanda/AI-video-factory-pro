@@ -17,6 +17,7 @@ import {
   getShotCharacterTokens,
 } from './characterRegistry.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { llmQueue } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
@@ -93,12 +94,42 @@ function writePromptArtifacts(prompts, promptSources, artifactContext) {
   saveJSON(path.join(artifactContext.outputsDir, 'prompts.json'), prompts);
   saveJSON(path.join(artifactContext.outputsDir, 'prompt-sources.json'), promptSources);
   writeTextFile(path.join(artifactContext.outputsDir, 'prompts.table.md'), buildPromptsTable(prompts, promptSources));
-  saveJSON(path.join(artifactContext.metricsDir, 'prompt-metrics.json'), buildPromptMetrics(prompts, promptSources));
+  const metrics = buildPromptMetrics(prompts, promptSources);
+  saveJSON(path.join(artifactContext.metricsDir, 'prompt-metrics.json'), metrics);
   saveJSON(artifactContext.manifestPath, {
     status: 'completed',
     promptCount: prompts.length,
     outputFiles: ['prompts.json', 'prompt-sources.json', 'prompts.table.md', 'prompt-metrics.json'],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'promptEngineer',
+      agentName: 'Prompt Engineer',
+      status: metrics.fallback_count > 0 ? 'warn' : 'pass',
+      headline:
+        metrics.fallback_count > 0
+          ? `有 ${metrics.fallback_count} 个镜头使用了降级 Prompt`
+          : `已为 ${prompts.length} 个镜头生成 Prompt`,
+      summary:
+        metrics.fallback_count > 0
+          ? '主链路已产出完整 Prompt，但部分镜头使用了降级方案，建议抽查这些镜头。'
+          : '所有镜头都通过主生成链路拿到了 Prompt，可继续出图。',
+      passItems: [`Prompt 数：${metrics.prompt_count}`, `LLM 成功数：${metrics.llm_success_count}`],
+      warnItems:
+        metrics.fallback_count > 0 ? [`Fallback Prompt 数：${metrics.fallback_count}`] : [],
+      nextAction:
+        metrics.fallback_count > 0
+          ? '优先抽查 fallback 镜头的 prompts.table.md，确认是否还能接受。'
+          : '可以继续进入图像生成阶段。',
+      evidenceFiles: [
+        '1-outputs/prompts.json',
+        '1-outputs/prompt-sources.json',
+        '1-outputs/prompts.table.md',
+      ],
+      metrics,
+    },
+    artifactContext
+  );
 }
 
 function writePromptFallbackEvidence(shot, style, error, fallbackResult, artifactContext) {

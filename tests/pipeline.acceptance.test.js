@@ -128,6 +128,8 @@ test('pipeline acceptance writes all major agent manifests including continuity 
 
     assert.equal(fs.existsSync(path.join(artifactContext.runDir, 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(artifactContext.runDir, 'timeline.json')), true);
+    assert.equal(fs.existsSync(path.join(artifactContext.runDir, 'qa-overview.json')), true);
+    assert.equal(fs.existsSync(path.join(artifactContext.runDir, 'qa-overview.md')), true);
     assert.equal(fs.existsSync(artifactContext.agents.characterRegistry.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.promptEngineer.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.imageGenerator.manifestPath), true);
@@ -136,5 +138,11 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.ttsAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.ttsQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
+
+    const qaOverview = JSON.parse(
+      fs.readFileSync(path.join(artifactContext.runDir, 'qa-overview.json'), 'utf-8')
+    );
+    assert.equal(qaOverview.status, 'pass');
+    assert.equal(qaOverview.releasable, true);
   });
 });

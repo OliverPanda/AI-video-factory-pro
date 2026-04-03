@@ -9,6 +9,7 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 const VIDEO_WIDTH = parseInt(process.env.VIDEO_WIDTH || '1080', 10);
@@ -91,6 +92,35 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
     composedShotCount: plan.length,
     outputFiles: ['compose-plan.json', 'segment-index.json', 'video-metrics.json'],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'videoComposer',
+      agentName: 'Video Composer',
+      status: extras.status === 'failed' ? 'block' : 'pass',
+      headline:
+        extras.status === 'failed'
+          ? '成片合成失败，当前没有可签收视频'
+          : `已成功合成 ${plan.length} 个镜头的视频`,
+      summary:
+        extras.status === 'failed'
+          ? 'FFmpeg 或上游素材导致最终成片未成功产出。'
+          : '最终视频已经输出，主交付物已准备好。',
+      passItems: extras.status === 'failed' ? [] : [`合成镜头数：${plan.length}`, `输出文件：${path.basename(outputPath)}`],
+      blockItems: extras.status === 'failed' ? ['final-video.mp4 未成功产出'] : [],
+      nextAction:
+        extras.status === 'failed'
+          ? '优先查看 ffmpeg-command 和 ffmpeg-stderr，定位合成失败原因。'
+          : '可以进入最终验收和交付。',
+      evidenceFiles: [
+        '1-outputs/compose-plan.json',
+        '1-outputs/segment-index.json',
+        '2-metrics/video-metrics.json',
+        ...(extras.status === 'failed' ? ['3-errors/ffmpeg-command.txt', '3-errors/ffmpeg-stderr.txt'] : []),
+      ],
+      metrics: buildVideoMetrics(plan, outputPath),
+    },
+    artifactContext
+  );
 }
 
 /**

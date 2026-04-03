@@ -91,9 +91,24 @@
 
 每个 agent 对应的推荐测试见 [agent-matrix.md](agent-matrix.md)。
 
-## 当前已知限制
+## 当前运行时 QA 能力
 
-当前仓库尚未实现统一的 `qa auditor` 运行时 agent，因此：
+当前仓库已经补上一层轻量统一 QA 汇总：
 
-- `pass / warn / block` 仍由人工按本 SOP 判断
-- 需要人工把问题与证据文件路径关联起来
+- 每个已接入的 agent 会在自己的目录下输出：
+  - `1-outputs/qa-summary.md`
+  - `2-metrics/qa-summary.json`
+- Director 会在 run 根目录汇总输出：
+  - `qa-overview.md`
+  - `qa-overview.json`
+
+这层汇总的目标不是替代原始证据，而是让非研发或新同学也能先快速回答：
+
+- 这个 agent 达标了吗
+- 是提醒还是阻断
+- 应该先看哪份证据
+
+但它仍然是“轻量 QA 总结”，不是全自动签收系统，所以：
+
+- 最终是否放行，仍要结合原始成果物和错误证据判断
+- 遇到 `warn / block` 时，仍建议回看对应 agent 的原始报告和 `3-errors/`

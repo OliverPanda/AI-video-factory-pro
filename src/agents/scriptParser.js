@@ -12,6 +12,7 @@ import {
   EPISODE_STORYBOARD_USER,
 } from '../llm/prompts/scriptAnalysis.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 function writeTextFile(filePath, content) {
@@ -75,6 +76,31 @@ function writeParserArtifacts(scriptText, result, artifactContext) {
     shotCount: result.shots.length,
     characterCount: result.characters.length,
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'scriptParser',
+      agentName: 'Script Parser',
+      status: result.shots.length > 0 ? 'pass' : 'block',
+      headline:
+        result.shots.length > 0
+          ? `已成功解析 ${result.shots.length} 个镜头`
+          : '没有解析出可用镜头',
+      summary:
+        result.shots.length > 0
+          ? `镜头结构已生成，后续角色、配音和视频合成都可以直接消费这些结果。`
+          : '当前没有可继续下游处理的镜头数据。',
+      passItems: [
+        `镜头数：${result.shots.length}`,
+        `角色数：${result.characters.length}`,
+      ],
+      blockItems: result.shots.length > 0 ? [] : ['shots.flat.json 为空，无法继续后续流程'],
+      nextAction:
+        result.shots.length > 0 ? '可以继续进入角色建档和下游生产。' : '先修复剧本解析结果，再继续运行。',
+      evidenceFiles: ['1-outputs/shots.flat.json', '1-outputs/shots.table.md', '2-metrics/parser-metrics.json'],
+      metrics: buildParserMetrics(result),
+    },
+    artifactContext
+  );
 }
 
 /**

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'path';
 import { textToSpeech } from '../apis/ttsApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { ttsQueue, queueWithRetry } from '../utils/queue.js';
 import { resolveShotParticipants, resolveShotSpeaker } from './characterRegistry.js';
 import logger from '../utils/logger.js';
@@ -108,6 +109,40 @@ function writeTtsArtifacts(results, voiceResolution, artifactContext) {
       'tts-metrics.json',
     ],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'ttsAgent',
+      agentName: 'TTS Agent',
+      status: failureCount > 0 ? 'warn' : 'pass',
+      headline:
+        failureCount > 0
+          ? `有 ${failureCount} 个对白镜头没有成功生成音频`
+          : `已成功合成 ${synthesizedCount} 个对白镜头音频`,
+      summary:
+        failureCount > 0
+          ? '主链路已经跑通，但仍有镜头配音失败，需要结合后续 TTS QA 一起判断是否阻断交付。'
+          : '配音产物已准备好，可继续进入 TTS QA 和后续视频合成。',
+      passItems: [
+        `对白镜头数：${dialogueShotCount}`,
+        `成功合成数：${synthesizedCount}`,
+      ],
+      warnItems: failureCount > 0 ? [`失败镜头数：${failureCount}`] : [],
+      nextAction:
+        failureCount > 0
+          ? '先看失败镜头错误文件，再结合 TTS QA 判断是否允许放行。'
+          : '可以继续进入 TTS QA。',
+      evidenceFiles: ['0-inputs/voice-resolution.json', '1-outputs/audio.index.json', '2-metrics/tts-metrics.json'],
+      metrics: {
+        dialogueShotCount,
+        synthesizedCount,
+        skippedCount,
+        failureCount,
+        defaultVoiceFallbackCount,
+        uniqueVoiceCount,
+      },
+    },
+    artifactContext
+  );
 }
 
 /**

@@ -66,6 +66,8 @@ export function createRunArtifactContext(input) {
     runDir,
     manifestPath: path.join(runDir, 'manifest.json'),
     timelinePath: path.join(runDir, 'timeline.json'),
+    qaOverviewJsonPath: path.join(runDir, 'qa-overview.json'),
+    qaOverviewMarkdownPath: path.join(runDir, 'qa-overview.md'),
     agents: {
       scriptParser: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.scriptParser),
       characterRegistry: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRegistry),

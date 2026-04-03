@@ -7,6 +7,7 @@ import path from 'path';
 import { visionChat, parseJSONResponse } from '../llm/client.js';
 import { CONSISTENCY_CHECK_SYSTEM, CONSISTENCY_CHECK_USER } from '../llm/prompts/consistencyCheck.js';
 import { imageToBase64, saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 const SCORE_THRESHOLD = parseInt(process.env.CONSISTENCY_THRESHOLD || '7', 10);
@@ -259,7 +260,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
       path.join(deps.artifactContext.outputsDir, 'consistency-report.md'),
       buildConsistencyMarkdown(reports, needsRegeneration)
     );
-    saveJSON(path.join(deps.artifactContext.metricsDir, 'consistency-metrics.json'), {
+    const metrics = {
       checked_character_count: reports.length,
       checked_shot_count: imageResults.filter((result) => result.success).length,
       flagged_shot_count: needsRegeneration.length,
@@ -269,7 +270,8 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
           : 0,
       identity_drift_tag_counts: driftCounts,
       regeneration_count: needsRegeneration.length,
-    });
+    };
+    saveJSON(path.join(deps.artifactContext.metricsDir, 'consistency-metrics.json'), metrics);
     saveJSON(deps.artifactContext.manifestPath, {
       status: 'completed',
       checkedCharacterCount: reports.length,
@@ -281,6 +283,37 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
         'consistency-metrics.json',
       ],
     });
+    writeAgentQaSummary(
+      {
+        agentKey: 'consistencyChecker',
+        agentName: 'Consistency Checker',
+        status: needsRegeneration.length > 0 ? 'warn' : 'pass',
+        headline:
+          needsRegeneration.length > 0
+            ? `发现 ${needsRegeneration.length} 个需要重生成的一致性问题镜头`
+            : `已完成 ${reports.length} 个角色的一致性检查`,
+        summary:
+          needsRegeneration.length > 0
+            ? '检查器已经找到高风险镜头，说明这一步工作有效，但这些镜头还需要后续处理。'
+            : '当前没有发现需要立即重生成的高风险一致性问题。',
+        passItems: [`已检查角色数：${reports.length}`, `平均一致性分：${metrics.avg_consistency_score}`],
+        warnItems:
+          needsRegeneration.length > 0
+            ? [`待重生成镜头数：${needsRegeneration.length}`]
+            : [],
+        nextAction:
+          needsRegeneration.length > 0
+            ? '优先处理 flagged-shots.json 中的镜头，再决定是否继续合成。'
+            : '可以继续进入连贯性或下游流程。',
+        evidenceFiles: [
+          '1-outputs/consistency-report.json',
+          '1-outputs/consistency-report.md',
+          '1-outputs/flagged-shots.json',
+        ],
+        metrics,
+      },
+      deps.artifactContext
+    );
   }
 
   return { reports, needsRegeneration };

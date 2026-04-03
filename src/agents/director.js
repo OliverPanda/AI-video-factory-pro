@@ -25,6 +25,7 @@ import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStor
 import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
+import { writeRunQaOverview } from '../utils/qaSummary.js';
 import { loadVoiceCast } from '../utils/voiceCastStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
@@ -172,6 +173,115 @@ function readJSONSafe(loadJSONFn, filePath, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function mapManifestStatusToQaStatus(status) {
+  if (status === 'failed') return 'block';
+  if (status === 'completed_with_errors') return 'warn';
+  if (status === 'completed') return 'pass';
+  return 'pending';
+}
+
+function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
+  if (!artifactContext?.agents) {
+    return null;
+  }
+
+  const agentNameMap = {
+    scriptParser: 'Script Parser',
+    characterRegistry: 'Character Registry',
+    promptEngineer: 'Prompt Engineer',
+    imageGenerator: 'Image Generator',
+    consistencyChecker: 'Consistency Checker',
+    continuityChecker: 'Continuity Checker',
+    ttsAgent: 'TTS Agent',
+    ttsQaAgent: 'TTS QA Agent',
+    lipsyncAgent: 'Lip-sync Agent',
+    videoComposer: 'Video Composer',
+  };
+
+  const orderedKeys = [
+    'scriptParser',
+    'characterRegistry',
+    'promptEngineer',
+    'imageGenerator',
+    'consistencyChecker',
+    'continuityChecker',
+    'ttsAgent',
+    'ttsQaAgent',
+    'lipsyncAgent',
+    'videoComposer',
+  ];
+
+  const agentSummaries = orderedKeys
+    .map((agentKey) => {
+      const ctx = artifactContext.agents[agentKey];
+      if (!ctx) return null;
+
+      const qaSummary = readJSONSafe(loadJSONFn, path.join(ctx.metricsDir, 'qa-summary.json'), null);
+      if (qaSummary) {
+        return qaSummary;
+      }
+
+      const manifest = readJSONSafe(loadJSONFn, ctx.manifestPath, null);
+      if (!manifest || manifest.status === 'pending') {
+        return null;
+      }
+
+      return {
+        agentKey,
+        agentName: agentNameMap[agentKey] || agentKey,
+        status: mapManifestStatusToQaStatus(manifest.status),
+        headline: `执行状态：${manifest.status}`,
+        summary: '当前只有执行层信息，尚未生成更详细的小白 QA 摘要。',
+        passItems: [],
+        warnItems: [],
+        blockItems: [],
+        nextAction: '如需详细判断，请继续查看该 agent 的 manifest 和核心产物。',
+        evidenceFiles: ['manifest.json'],
+        metrics: {},
+      };
+    })
+    .filter(Boolean);
+
+  const passCount = agentSummaries.filter((item) => item.status === 'pass').length;
+  const warnCount = agentSummaries.filter((item) => item.status === 'warn').length;
+  const blockCount = agentSummaries.filter((item) => item.status === 'block').length;
+  const status = blockCount > 0 ? 'block' : warnCount > 0 ? 'warn' : 'pass';
+  const topIssues = [
+    ...agentSummaries
+      .filter((item) => item.status === 'block')
+      .flatMap((item) => (item.blockItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
+    ...agentSummaries
+      .filter((item) => item.status === 'warn')
+      .flatMap((item) => (item.warnItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
+  ].slice(0, 5);
+
+  const headline =
+    status === 'pass'
+      ? '本轮主要 agent 都已达标'
+      : status === 'warn'
+        ? `本轮可继续交付，但有 ${warnCount} 个 agent 需要留意`
+        : `本轮有 ${blockCount} 个 agent 处于阻断状态`;
+
+  const summary =
+    status === 'pass'
+      ? '核心成果物已经齐备，当前没有明显阻断问题。'
+      : status === 'warn'
+        ? '主要链路已经跑通，但仍有风险项需要研发或人工复查。'
+        : '至少有一个关键 agent 未达标，需要先修复后再交付。';
+
+  return {
+    status,
+    releasable: options.releasable ?? blockCount === 0,
+    headline,
+    summary,
+    passCount,
+    warnCount,
+    blockCount,
+    agentSummaries,
+    topIssues,
+  };
 }
 
 export function createDirector(overrides = {}) {
@@ -807,6 +917,10 @@ export function createDirector(overrides = {}) {
           }),
           'utf-8'
         );
+        writeRunQaOverview(
+          collectRunQaOverview(deps.loadJSON, artifactContext, { releasable: true }),
+          artifactContext
+        );
 
         saveState({ outputPath, deliverySummaryPath, completedAt: new Date().toISOString() });
         if (runJobCreated) {
@@ -828,6 +942,12 @@ export function createDirector(overrides = {}) {
         deps.logger.error('Director', `任务失败：${err.message}`);
         deps.logger.error('Director', err.stack);
         saveState({ lastError: err.message, failedAt: new Date().toISOString() });
+        if (activeArtifactContext) {
+          writeRunQaOverview(
+            collectRunQaOverview(deps.loadJSON, activeArtifactContext, { releasable: false }),
+            activeArtifactContext
+          );
+        }
         if (runJobRef && runJobCreated) {
           tryObservabilityWrite(
             () =>

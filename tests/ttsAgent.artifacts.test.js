@@ -181,6 +181,14 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
       fs.existsSync(path.join(ctx.agents.ttsAgent.metricsDir, 'tts-metrics.json')),
       true
     );
+    assert.equal(
+      fs.existsSync(path.join(ctx.agents.ttsAgent.metricsDir, 'qa-summary.json')),
+      true
+    );
+    assert.equal(
+      fs.existsSync(path.join(ctx.agents.ttsAgent.outputsDir, 'qa-summary.md')),
+      true
+    );
     assert.equal(fs.existsSync(ctx.agents.ttsAgent.manifestPath), true);
 
     const voiceResolution = JSON.parse(
@@ -266,6 +274,13 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
         'tts-metrics.json',
       ],
     });
+
+    const qaSummary = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsAgent.metricsDir, 'qa-summary.json'), 'utf-8')
+    );
+    assert.equal(qaSummary.agentName, 'TTS Agent');
+    assert.equal(qaSummary.status, 'warn');
+    assert.match(qaSummary.headline, /没有成功生成音频/);
 
     const errorFiles = fs.readdirSync(ctx.agents.ttsAgent.errorsDir);
     assert.equal(errorFiles.some((fileName) => /shot_002/i.test(fileName)), true);

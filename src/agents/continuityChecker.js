@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { saveJSON } from '../utils/fileHelper.js';
+import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 function writeTextFile(filePath, content) {
@@ -326,7 +327,8 @@ function writeContinuityArtifacts(reports, flaggedTransitions, artifactContext) 
     path.join(artifactContext.outputsDir, 'continuity-report.md'),
     buildContinuityMarkdown(reports, flaggedTransitions)
   );
-  saveJSON(path.join(artifactContext.metricsDir, 'continuity-metrics.json'), buildMetrics(reports, flaggedTransitions));
+  const metrics = buildMetrics(reports, flaggedTransitions);
+  saveJSON(path.join(artifactContext.metricsDir, 'continuity-metrics.json'), metrics);
   saveJSON(artifactContext.manifestPath, {
     status: flaggedTransitions.length > 0 ? 'completed_with_errors' : 'completed',
     checkedTransitionCount: reports.length,
@@ -340,6 +342,40 @@ function writeContinuityArtifacts(reports, flaggedTransitions, artifactContext) 
       'continuity-metrics.json',
     ],
   });
+  writeAgentQaSummary(
+    {
+      agentKey: 'continuityChecker',
+      agentName: 'Continuity Checker',
+      status: flaggedTransitions.length > 0 ? 'warn' : 'pass',
+      headline:
+        flaggedTransitions.length > 0
+          ? `发现 ${flaggedTransitions.length} 个需要处理的转场问题`
+          : `已完成 ${reports.length} 个转场检查`,
+      summary:
+        flaggedTransitions.length > 0
+          ? '连贯性检查已经定位到风险转场，建议先根据 repair-plan 处理这些问题。'
+          : '当前没有发现明显会影响交付的转场问题。',
+      passItems: [
+        `已检查转场数：${reports.length}`,
+        `平均连贯性分：${metrics.avg_continuity_score}`,
+      ],
+      warnItems:
+        flaggedTransitions.length > 0
+          ? [`待处理转场数：${flaggedTransitions.length}`]
+          : [],
+      nextAction:
+        flaggedTransitions.length > 0
+          ? '优先查看 continuity-report 和 repair-plan，处理关键转场。'
+          : '可以继续进入下游交付阶段。',
+      evidenceFiles: [
+        '1-outputs/continuity-report.json',
+        '1-outputs/continuity-report.md',
+        '1-outputs/repair-plan.json',
+      ],
+      metrics,
+    },
+    artifactContext
+  );
 }
 
 export async function runContinuityCheck(shots, imageResults, options = {}) {
