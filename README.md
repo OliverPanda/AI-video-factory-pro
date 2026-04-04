@@ -172,6 +172,7 @@ output/
 - [temp 目录说明](docs/runtime/temp-structure.md)
 - [output 目录说明](docs/runtime/output-structure.md)
 - [断点续跑说明](docs/runtime/resume-from-step.md)
+- [Phase 1 验收报告](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase1-acceptance.md)
 
 ### SOP
 

@@ -347,3 +347,16 @@ flowchart TD
 - `video composer` 成为后期总装层
 - 新 agent 全部进入现有 artifact / QA / resume 体系
 - 没有 `RUNWAY_API_KEY` 或视频生成失败时，系统仍可显式 fallback 到静图路径继续交付
+
+## 10. 验收入口
+
+Phase 1 收口与最终验收结论见：
+
+- [Phase 1 验收报告](../plans/2026-04-04-dynamic-shortdrama-phase1-acceptance.md)
+
+该报告固定说明：
+
+- 完成度矩阵
+- 工程验收与产品验收的边界
+- 最终验收命令集
+- 进入 Phase 2 的门槛
