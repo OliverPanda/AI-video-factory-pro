@@ -68,6 +68,66 @@ function buildVideoMetrics(plan, outputPath) {
   };
 }
 
+function buildArtifactIndex(artifactContext, extras = {}) {
+  if (!artifactContext) {
+    return {
+      composePlanUri: null,
+      segmentIndexUri: null,
+      metricsUri: null,
+      qaOverviewUri: null,
+      ffmpegCommandUri: extras.ffmpegCommand ? 'inline:ffmpeg-command' : null,
+      ffmpegStderrUri: extras.ffmpegStderr ? 'inline:ffmpeg-stderr' : null,
+    };
+  }
+
+  return {
+    composePlanUri: path.join(artifactContext.outputsDir, 'compose-plan.json'),
+    segmentIndexUri: path.join(artifactContext.outputsDir, 'segment-index.json'),
+    metricsUri: path.join(artifactContext.metricsDir, 'video-metrics.json'),
+    qaOverviewUri: path.join(artifactContext.metricsDir, 'qa-summary.json'),
+    ffmpegCommandUri: extras.ffmpegCommand
+      ? path.join(artifactContext.errorsDir, 'ffmpeg-command.txt')
+      : null,
+    ffmpegStderrUri: extras.ffmpegStderr
+      ? path.join(artifactContext.errorsDir, 'ffmpeg-stderr.txt')
+      : null,
+  };
+}
+
+function buildDeliveryReport(plan, options = {}) {
+  const manualReviewShots = Array.from(
+    new Set([
+      ...(options.ttsQaReport?.manualReviewPlan?.recommendedShotIds || []),
+      ...(options.lipsyncReport?.manualReviewShots || []),
+    ])
+  );
+  const blockedReasons = [...(options.blockedReasons || [])];
+  const warnings = [...(options.warnings || [])];
+  const downgradedShotCount = Number.isFinite(options.lipsyncReport?.downgradedCount)
+    ? options.lipsyncReport.downgradedCount
+    : 0;
+
+  return {
+    composedShotCount: plan.length,
+    downgradedShotCount,
+    blockedReasons,
+    warnings,
+    manualReviewShots,
+    fallbackCount: Number.isFinite(options.lipsyncReport?.fallbackCount)
+      ? options.lipsyncReport.fallbackCount
+      : 0,
+    fallbackShots: Array.isArray(options.lipsyncReport?.fallbackShots)
+      ? options.lipsyncReport.fallbackShots
+      : [],
+    qaSummary: {
+      audioSync: blockedReasons.length > 0 ? 'block' : warnings.length > 0 ? 'warn' : 'pass',
+      subtitleLayout: blockedReasons.length > 0 ? 'block' : 'pass',
+      lipsyncCoverage: options.lipsyncReport?.status || 'pass',
+      deliveryReadiness: blockedReasons.length > 0 ? 'block' : warnings.length > 0 ? 'warn' : 'pass',
+    },
+  };
+}
+
 function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) {
   if (!artifactContext) {
     return;
@@ -123,6 +183,20 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
   );
 }
 
+function buildCompositionResult(status, outputPath, artifactContext, plan, extras = {}) {
+  return {
+    jobId: extras.jobId || null,
+    status,
+    outputVideo: {
+      type: 'video',
+      uri: outputPath,
+      format: path.extname(outputPath).replace('.', '').toLowerCase() || 'mp4',
+    },
+    report: buildDeliveryReport(plan, extras),
+    artifacts: buildArtifactIndex(artifactContext, extras),
+  };
+}
+
 /**
  * 合成最终视频
  * @param {Array} shots - 分镜列表（含 duration）
@@ -132,24 +206,63 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
  * @param {Object} options - { title, animationClips }
  */
 export async function composeVideo(shots, imageResults, audioResults, outputPath, options = {}) {
+  return composeFromLegacy(
+    {
+      shots,
+      imageResults,
+      audioResults,
+      animationClips: options.animationClips || [],
+      lipsyncResults: options.lipsyncClips || [],
+      ttsQaReport: options.ttsQaReport,
+      lipsyncReport: options.lipsyncReport,
+    },
+    outputPath,
+    options
+  );
+}
+
+export async function composeFromLegacy(input, outputPath, options = {}) {
   logger.info('VideoComposer', '开始合成视频...');
 
   const runCheckFFmpeg = options.checkFFmpeg || checkFFmpeg;
   const runGenerateSubtitleFile = options.generateSubtitleFile || generateSubtitleFile;
   const runMergeWithFFmpeg = options.mergeWithFFmpeg || mergeWithFFmpeg;
   const allowedRoots = options.allowedRoots || [];
+  const blockedReasons = [];
+  const warnings = [
+    ...(input?.ttsQaReport?.status === 'warn' ? input.ttsQaReport.warnings || ['tts_qa_warn'] : []),
+    ...(input?.lipsyncReport?.status === 'warn' ? input.lipsyncReport.warnings || ['lipsync_warn'] : []),
+  ];
+
+  if (input?.ttsQaReport?.status === 'block') {
+    blockedReasons.push(...(input.ttsQaReport.blockers || ['tts_qa_blocked']));
+  }
+  if (input?.lipsyncReport?.status === 'block') {
+    blockedReasons.push(...(input.lipsyncReport.blockers || ['lipsync_blocked']));
+  }
+
+  if (blockedReasons.length > 0) {
+    return buildCompositionResult('blocked', outputPath, options.artifactContext, [], {
+      blockedReasons,
+      warnings,
+      ttsQaReport: input?.ttsQaReport,
+      lipsyncReport: input?.lipsyncReport,
+      jobId: options.jobId || input?.jobId || null,
+    });
+  }
 
   await runCheckFFmpeg();
 
   const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频', { allowedRoots });
   ensureDir(path.dirname(safeOutputPath));
 
+  const adaptedInput = adaptLegacyComposeInput(input);
   const plan = buildCompositionPlan(
-    shots,
-    imageResults,
-    audioResults,
-    options.animationClips || [],
-    options.lipsyncClips || []
+    adaptedInput.shots,
+    adaptedInput.imageResults,
+    adaptedInput.audioResults,
+    adaptedInput.animationClips,
+    adaptedInput.lipsyncResults
   );
   if (plan.length === 0) throw new Error('没有可合成的分镜（无可用动画片段或静态图像）');
   const safePlan = validatePlanPaths(plan, { allowedRoots });
@@ -157,10 +270,10 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
   logger.info('VideoComposer', `合成计划：${safePlan.length} 个分镜`);
 
   const subtitlePath = safeOutputPath.replace(/\.mp4$/i, '.ass');
-  runGenerateSubtitleFile(safePlan, subtitlePath);
+  runGenerateSubtitleFile(safePlan, subtitlePath, { allowedRoots });
 
   try {
-    await runMergeWithFFmpeg(safePlan, subtitlePath, safeOutputPath);
+    await runMergeWithFFmpeg(safePlan, subtitlePath, safeOutputPath, { allowedRoots });
   } catch (error) {
     writeComposerArtifacts(safePlan, safeOutputPath, options.artifactContext, {
       status: 'failed',
@@ -175,7 +288,188 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
   });
 
   logger.info('VideoComposer', `视频合成完成：${safeOutputPath}`);
-  return safeOutputPath;
+  return buildCompositionResult(
+    warnings.length > 0 ? 'completed_with_warnings' : 'completed',
+    safeOutputPath,
+    options.artifactContext,
+    safePlan,
+    {
+      warnings,
+      ttsQaReport: input?.ttsQaReport,
+      lipsyncReport: input?.lipsyncReport,
+      jobId: options.jobId || input?.jobId || null,
+    }
+  );
+}
+
+export async function composeFromJob(job, outputPath, options = {}) {
+  const legacyInput = adaptCompositionJobToLegacy(job);
+  return composeFromLegacy(legacyInput, outputPath, {
+    ...options,
+    jobId: job?.jobId || options.jobId || null,
+  });
+}
+
+function normalizeLegacyShot(shot, order) {
+  const durationSec = Number(shot?.duration ?? shot?.durationSec ?? 3);
+  const dialogue = shot?.dialogue || '';
+
+  return {
+    shotId: shot?.id,
+    order,
+    durationMs: Math.round(normalizeDuration(durationSec) * 1000),
+    dialogue,
+    speakerId: shot?.speaker || '',
+    subtitleSource: dialogue,
+    metadata: {
+      dialogueDurationMs: shot?.dialogueDurationMs ?? null,
+      camera_type: shot?.camera_type,
+      cameraType: shot?.cameraType,
+      isCloseUp: shot?.isCloseUp,
+      visualSpeechRequired: shot?.visualSpeechRequired,
+    },
+  };
+}
+
+function buildLegacyAssetBundle(input = {}) {
+  return {
+    visuals: (input.imageResults || [])
+      .filter((entry) => entry?.imagePath)
+      .map((entry) => ({
+        assetId: entry.keyframeAssetId || `visual_${entry.shotId}`,
+        shotId: entry.shotId,
+        type: 'image',
+        uri: entry.imagePath,
+        format: path.extname(entry.imagePath).replace('.', '').toLowerCase() || 'png',
+      })),
+    audios: (input.audioResults || [])
+      .filter((entry) => entry?.audioPath)
+      .map((entry) => ({
+        assetId: `audio_${entry.shotId}`,
+        shotId: entry.shotId,
+        type: 'audio',
+        uri: entry.audioPath,
+        format: path.extname(entry.audioPath).replace('.', '').toLowerCase() || 'mp3',
+      })),
+    clips: [
+      ...((input.animationClips || [])
+        .filter((entry) => entry?.videoPath)
+        .map((entry) => ({
+          assetId: `animation_${entry.shotId}`,
+          shotId: entry.shotId,
+          role: 'animation',
+          type: 'video',
+          uri: entry.videoPath,
+          durationSec: entry.durationSec ?? null,
+          format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
+        }))),
+      ...((input.lipsyncResults || [])
+        .filter((entry) => entry?.videoPath)
+        .map((entry) => ({
+          assetId: `lipsync_${entry.shotId}`,
+          shotId: entry.shotId,
+          role: 'lipsync',
+          type: 'video',
+          uri: entry.videoPath,
+          durationSec: entry.durationSec ?? null,
+          format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
+        }))),
+    ],
+  };
+}
+
+function adaptLegacyComposeInput(input = {}) {
+  const normalizedShots = (input.shots || []).map((shot, index) => normalizeLegacyShot(shot, index));
+
+  return {
+    shots: normalizedShots.map((shot) => ({
+      id: shot.shotId,
+      durationSec: shot.durationMs / 1000,
+      dialogue: shot.dialogue,
+      speaker: shot.speakerId,
+      subtitleSource: shot.subtitleSource,
+      ...shot.metadata,
+    })),
+    imageResults: input.imageResults || [],
+    audioResults: input.audioResults || [],
+    animationClips: input.animationClips || [],
+    lipsyncResults: input.lipsyncResults || [],
+    assets: buildLegacyAssetBundle(input),
+    normalizedShots,
+  };
+}
+
+function adaptCompositionJobToLegacy(job = {}) {
+  const assetIndex = new Map();
+  for (const list of [
+    ...(job?.assets?.visuals ? [job.assets.visuals] : []),
+    ...(job?.assets?.audios ? [job.assets.audios] : []),
+    ...(job?.assets?.clips ? [job.assets.clips] : []),
+  ]) {
+    for (const item of list) {
+      if (item?.shotId) {
+        const bucket = assetIndex.get(item.shotId) || [];
+        bucket.push(item);
+        assetIndex.set(item.shotId, bucket);
+      }
+    }
+  }
+
+  const sortedShots = [...(job?.shots || [])].sort((left, right) => (left.order || 0) - (right.order || 0));
+
+  return {
+    jobId: job?.jobId || null,
+    shots: sortedShots.map((shot) => ({
+      id: shot.shotId,
+      durationSec: (shot.durationMs || 3000) / 1000,
+      dialogue: shot.dialogue || '',
+      speaker: shot.speakerId || '',
+    })),
+    imageResults: sortedShots.map((shot) => {
+      const entries = assetIndex.get(shot.shotId) || [];
+      const visual = entries.find((entry) => entry.type === 'image' && entry.uri === shot.visualRef) ||
+        entries.find((entry) => entry.type === 'image');
+      return {
+        shotId: shot.shotId,
+        imagePath: visual?.uri || null,
+        success: Boolean(visual?.uri),
+      };
+    }),
+    audioResults: sortedShots.map((shot) => {
+      const entries = assetIndex.get(shot.shotId) || [];
+      const audio = entries.find((entry) => entry.type === 'audio' && entry.uri === shot.audioRef) ||
+        entries.find((entry) => entry.type === 'audio');
+      return {
+        shotId: shot.shotId,
+        audioPath: audio?.uri || null,
+      };
+    }),
+    animationClips: sortedShots
+      .map((shot) => {
+        const entries = assetIndex.get(shot.shotId) || [];
+        const clip = entries.find((entry) => entry.role === 'animation' && entry.uri === shot.animationRef) ||
+          entries.find((entry) => entry.role === 'animation');
+        return clip ? {
+          shotId: shot.shotId,
+          videoPath: clip.uri,
+          durationSec: clip.durationSec || null,
+        } : null;
+      })
+      .filter(Boolean),
+    lipsyncResults: sortedShots
+      .map((shot) => {
+        const entries = assetIndex.get(shot.shotId) || [];
+        const clip = entries.find((entry) => entry.role === 'lipsync' && entry.uri === shot.lipsyncRef) ||
+          entries.find((entry) => entry.role === 'lipsync');
+        return clip ? {
+          shotId: shot.shotId,
+          videoPath: clip.uri,
+          durationSec: clip.durationSec || null,
+          status: 'completed',
+        } : null;
+      })
+      .filter(Boolean),
+  };
 }
 
 function assertSafeWorkspacePath(targetPath, label, options = {}) {
@@ -316,8 +610,10 @@ function validatePlanPaths(plan, options = {}) {
   }));
 }
 
-function generateSubtitleFile(plan, subtitlePath) {
-  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件');
+function generateSubtitleFile(plan, subtitlePath, options = {}) {
+  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', {
+    allowedRoots: options.allowedRoots,
+  });
   let currentTime = 0;
   const dialogues = [];
 
@@ -369,19 +665,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   logger.debug('VideoComposer', `字幕文件生成：${path.basename(safeSubtitlePath)}（${dialogues.length} 条）`);
 }
 
-async function mergeWithFFmpeg(plan, subtitlePath, outputPath) {
-  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', { mustExist: true });
-  const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频');
+async function mergeWithFFmpeg(plan, subtitlePath, outputPath, options = {}) {
+  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', {
+    mustExist: true,
+    allowedRoots: options.allowedRoots,
+  });
+  const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频', {
+    allowedRoots: options.allowedRoots,
+  });
   const tempFiles = [];
 
   try {
     const { segmentPaths, concatListPath, concatVideoPath, tempDir } = await createVisualSegments(
       plan,
-      safeOutputPath
+      safeOutputPath,
+      options
     );
     tempFiles.push(...segmentPaths, concatListPath, concatVideoPath, tempDir);
     await concatVisualSegments(concatListPath, concatVideoPath);
-    await muxAudioAndSubtitles(plan, concatVideoPath, safeSubtitlePath, safeOutputPath);
+    await muxAudioAndSubtitles(plan, concatVideoPath, safeSubtitlePath, safeOutputPath, options);
   } catch (err) {
     throw new Error(`FFmpeg 合成失败：${err.message}`);
   } finally {
@@ -389,8 +691,10 @@ async function mergeWithFFmpeg(plan, subtitlePath, outputPath) {
   }
 }
 
-function createVisualSegments(plan, outputPath) {
-  const tempDir = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_segments'), '视频片段目录');
+function createVisualSegments(plan, outputPath, options = {}) {
+  const tempDir = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_segments'), '视频片段目录', {
+    allowedRoots: options.allowedRoots,
+  });
   ensureDir(tempDir);
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
@@ -402,8 +706,12 @@ function createVisualSegments(plan, outputPath) {
   });
 
   return Promise.all(tasks).then((segmentPaths) => {
-    const concatListPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_concat.txt'), '视频拼接列表');
-    const concatVideoPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_visual.mp4'), '视频拼接输出');
+    const concatListPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_concat.txt'), '视频拼接列表', {
+      allowedRoots: options.allowedRoots,
+    });
+    const concatVideoPath = assertSafeWorkspacePath(outputPath.replace(/\.mp4$/i, '_visual.mp4'), '视频拼接输出', {
+      allowedRoots: options.allowedRoots,
+    });
     const concatLines = segmentPaths.map((filePath) => `file '${escapeConcatPath(filePath)}'`).join('\n');
     fs.writeFileSync(concatListPath, concatLines);
     return { segmentPaths, concatListPath, concatVideoPath, tempDir };
@@ -473,9 +781,20 @@ function concatVisualSegments(concatListPath, concatVideoPath) {
   });
 }
 
-function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
+function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath, options = {}) {
   const audioItems = collectExistingAudioItems(plan);
-  let cmd = ffmpeg().input(concatVideoPath);
+  const safeConcatVideoPath = assertSafeWorkspacePath(concatVideoPath, '视频拼接输出', {
+    mustExist: true,
+    allowedRoots: options.allowedRoots,
+  });
+  const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', {
+    mustExist: true,
+    allowedRoots: options.allowedRoots,
+  });
+  const safeOutputPath = assertSafeWorkspacePath(outputPath, '输出视频', {
+    allowedRoots: options.allowedRoots,
+  });
+  let cmd = ffmpeg().input(safeConcatVideoPath);
 
   audioItems.forEach((item) => {
     cmd = cmd.input(item.audioPath);
@@ -483,7 +802,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
 
   const outputOptions = [
     '-vf',
-    `ass=${escapeFilterPath(subtitlePath)}`,
+    `ass=filename='${escapeFilterPath(safeSubtitlePath)}'`,
     '-c:v',
     'libx264',
     '-preset',
@@ -511,7 +830,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
   return new Promise((resolve, reject) => {
     cmd
       .outputOptions(outputOptions)
-      .output(outputPath)
+      .output(safeOutputPath)
       .on('start', (command) =>
         logger.debug('VideoComposer', `FFmpeg 命令：${command.slice(0, 160)}...`)
       )
@@ -520,7 +839,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath) {
       })
       .on('end', () => {
         process.stdout.write('\n');
-        resolve(outputPath);
+        resolve(safeOutputPath);
       })
       .on('error', reject)
       .run();
@@ -589,6 +908,12 @@ export const __testables = {
   escapeConcatPath,
   escapeFilterPath,
   escapeAssText,
+  normalizeLegacyShot,
+  buildLegacyAssetBundle,
+  adaptLegacyComposeInput,
+  adaptCompositionJobToLegacy,
+  buildArtifactIndex,
+  buildDeliveryReport,
   buildCompositionPlan,
   buildVideoMetrics,
   buildSubtitlePath: (outputPath) => outputPath.replace(/\.mp4$/i, '.ass'),

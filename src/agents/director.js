@@ -118,6 +118,7 @@ function createDeliverySummary({
   style,
   ttsQaReport,
   lipsyncReport,
+  composeResult,
 }) {
   const manualReviewShots = Array.isArray(lipsyncReport?.manualReviewShots)
     ? lipsyncReport.manualReviewShots
@@ -139,6 +140,9 @@ function createDeliverySummary({
         .map((entry) => `${entry.shotId}:${entry.fallbackFrom || 'unknown'}->${entry.provider || 'unknown'}`)
         .join('；')
     : (fallbackShots.length > 0 ? fallbackShots.join(', ') : '无');
+  const composeWarnings = Array.isArray(composeResult?.report?.warnings) ? composeResult.report.warnings : [];
+  const composeStatus = composeResult?.status || 'not_run';
+  const composeArtifacts = composeResult?.artifacts || null;
 
   return [
     '# Delivery Summary',
@@ -150,6 +154,7 @@ function createDeliverySummary({
     `- RunJob：${runJobId}`,
     `- Job：${jobId}`,
     `- 成片：${path.basename(outputPath)}`,
+    `- Compose Status：${composeStatus}`,
     `- TTS QA：${ttsQaReport?.status || 'not_run'}`,
     `- Lip-sync QA：${lipsyncReport?.status || 'not_run'}`,
     `- 人工抽查建议：${ttsManualReviewShots.length > 0 ? ttsManualReviewShots.join(', ') : '无'}`,
@@ -163,8 +168,59 @@ function createDeliverySummary({
     lipsyncReport?.warnings?.length
       ? `- Lip-sync Warnings：${lipsyncReport.warnings.join('；')}`
       : '- Lip-sync Warnings：无',
+    composeWarnings.length > 0
+      ? `- Compose Warnings：${composeWarnings.join('；')}`
+      : '- Compose Warnings：无',
+    composeArtifacts?.composePlanUri ? `- Compose Plan Artifact：${composeArtifacts.composePlanUri}` : '- Compose Plan Artifact：无',
     '',
   ].join('\n');
+}
+
+function normalizeComposeResult(composeRun, fallbackOutputPath) {
+  if (typeof composeRun === 'string') {
+    return {
+      status: 'completed',
+      outputVideo: {
+        uri: composeRun,
+      },
+      report: {
+        warnings: [],
+        blockedReasons: [],
+      },
+      artifacts: null,
+    };
+  }
+
+  if (composeRun && typeof composeRun === 'object') {
+    const outputUri = composeRun?.outputVideo?.uri || fallbackOutputPath;
+    return {
+      status: composeRun.status || 'completed',
+      outputVideo: {
+        ...(composeRun.outputVideo || {}),
+        uri: outputUri,
+      },
+      report: {
+        warnings: Array.isArray(composeRun?.report?.warnings) ? composeRun.report.warnings : [],
+        blockedReasons: Array.isArray(composeRun?.report?.blockedReasons)
+          ? composeRun.report.blockedReasons
+          : [],
+        ...(composeRun.report || {}),
+      },
+      artifacts: composeRun.artifacts || null,
+    };
+  }
+
+  return {
+    status: 'completed',
+    outputVideo: {
+      uri: fallbackOutputPath,
+    },
+    report: {
+      warnings: [],
+      blockedReasons: [],
+    },
+    artifacts: null,
+  };
 }
 
 function readJSONSafe(loadJSONFn, filePath, fallback) {
@@ -896,16 +952,26 @@ export function createDirector(overrides = {}) {
           state.animationClips || episode.animationClips || []
         );
 
-        await recordStep('compose_video', { message: '合成视频' }, () =>
+        const composeRun = await recordStep('compose_video', { message: '合成视频' }, () =>
           deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
             animationClips,
             lipsyncClips: lipsyncResults,
             artifactContext: artifactContext.agents.videoComposer,
+            ttsQaReport,
+            lipsyncReport,
           })
         );
+        const composeResult = normalizeComposeResult(composeRun, outputPath);
+        const finalOutputPath = composeResult.outputVideo.uri || outputPath;
 
-        const deliverySummaryPath = path.join(outputDir, 'delivery-summary.md');
+        if (composeResult.status === 'blocked') {
+          throw new Error(
+            `Compose 阻断交付：${(composeResult.report?.blockedReasons || []).join('；') || 'unknown compose block'}`
+          );
+        }
+
+        const deliverySummaryPath = path.join(path.dirname(finalOutputPath), 'delivery-summary.md');
         ensureDir(path.dirname(deliverySummaryPath));
         fs.writeFileSync(
           deliverySummaryPath,
@@ -914,12 +980,13 @@ export function createDirector(overrides = {}) {
             projectId,
             scriptTitle,
             episodeTitle,
-            outputPath,
+            outputPath: finalOutputPath,
             runJobId: runJobRef.id,
             jobId,
             style,
             ttsQaReport,
             lipsyncReport,
+            composeResult,
           }),
           'utf-8'
         );
@@ -928,7 +995,12 @@ export function createDirector(overrides = {}) {
           artifactContext
         );
 
-        saveState({ outputPath, deliverySummaryPath, completedAt: new Date().toISOString() });
+        saveState({
+          outputPath: finalOutputPath,
+          composeResult,
+          deliverySummaryPath,
+          completedAt: new Date().toISOString(),
+        });
         if (runJobCreated) {
           tryObservabilityWrite(
             () =>
@@ -942,8 +1014,8 @@ export function createDirector(overrides = {}) {
             'finishRunJob:completed'
           );
         }
-        deps.logger.info('Director', `\n✅ 任务完成！\n   视频路径：${outputPath}`);
-        return outputPath;
+        deps.logger.info('Director', `\n✅ 任务完成！\n   视频路径：${finalOutputPath}`);
+        return finalOutputPath;
       } catch (err) {
         deps.logger.error('Director', `任务失败：${err.message}`);
         deps.logger.error('Director', err.stack);

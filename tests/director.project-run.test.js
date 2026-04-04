@@ -1256,6 +1256,90 @@ test('runEpisodePipeline writes delivery summary with lipsync review and downgra
   });
 });
 
+test('runEpisodePipeline consumes structured composer result and writes compose summary fields', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_structured_compose_result',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadProject: () => ({ id: 'project_1', name: '结构化交付' }),
+      loadScript: () => ({ id: 'script_1', title: '第一卷', characters: [{ name: '沈清' }] }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_001', scene: '宫道', dialogue: '你好', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_001', image_prompt: 'prompt', negative_prompt: '' }],
+      generateAllImages: async () => [{ shotId: 'shot_001', imagePath: path.join(dirs.images, 'shot_001.png'), success: true }],
+      runConsistencyCheck: async () => ({ reports: [], needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [{ shotId: 'shot_001', audioPath: path.join(dirs.audio, 'shot_001.mp3') }],
+      runTtsQa: async () => ({
+        status: 'pass',
+        blockers: [],
+        warnings: [],
+        dialogueShotCount: 1,
+        budgetPassRate: 1,
+        fallbackCount: 0,
+        fallbackRate: 0,
+        manualReviewPlan: { recommendedShotIds: [] },
+      }),
+      runLipsync: async () => ({
+        results: [],
+        report: {
+          status: 'pass',
+          blockers: [],
+          warnings: [],
+          triggeredCount: 0,
+          generatedCount: 0,
+          failedCount: 0,
+          fallbackCount: 0,
+          fallbackShots: [],
+          manualReviewShots: [],
+          downgradedCount: 0,
+        },
+      }),
+      composeVideo: async () => ({
+        status: 'completed_with_warnings',
+        outputVideo: {
+          uri: path.join(dirs.output, '结构化交付__project_1', '第01集__episode_1', 'final-video.mp4'),
+          format: 'mp4',
+        },
+        report: {
+          warnings: ['subtitle_timing_derived_from_shot_duration'],
+          blockedReasons: [],
+        },
+        artifacts: {
+          composePlanUri: '/tmp/compose-plan.json',
+        },
+      }),
+    });
+
+    const outputPath = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(
+      outputPath,
+      path.join(dirs.output, '结构化交付__project_1', '第01集__episode_1', 'final-video.mp4')
+    );
+    const summaryPath = path.join(path.dirname(outputPath), 'delivery-summary.md');
+    const summary = fs.readFileSync(summaryPath, 'utf-8');
+    assert.match(summary, /Compose Status：completed_with_warnings/);
+    assert.match(summary, /Compose Warnings：subtitle_timing_derived_from_shot_duration/);
+    assert.match(summary, /Compose Plan Artifact：\/tmp\/compose-plan.json/);
+  });
+});
+
 test('runEpisodePipeline writes block qa-overview when the run fails before final delivery', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));

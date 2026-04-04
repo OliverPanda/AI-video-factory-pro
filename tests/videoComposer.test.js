@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 
 import {
   __testables,
@@ -8,6 +10,8 @@ import {
   buildCompositionPlan,
   buildVisualSegmentJobs,
   collectExistingAudioItems,
+  composeFromJob,
+  composeFromLegacy,
 } from '../src/agents/videoComposer.js';
 
 test('buildCompositionPlan prefers animation clips when provided', () => {
@@ -239,4 +243,168 @@ test('buildVideoMetrics summarizes composition outputs', () => {
     total_duration_sec: 5,
     output_path: '/tmp/final-video.mp4',
   });
+});
+
+test('adaptLegacyComposeInput maps current agent outputs into normalized protocol shapes', () => {
+  const adapted = __testables.adaptLegacyComposeInput({
+    shots: [
+      { id: 'shot_1', dialogue: '你好', durationSec: 5, speaker: '沈清' },
+      { id: 'shot_2', dialogue: '', duration: 3 },
+    ],
+    imageResults: [{ shotId: 'shot_1', keyframeAssetId: 'kf_1', imagePath: '/tmp/shot_1.png', success: true }],
+    audioResults: [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+    animationClips: [{ shotId: 'shot_2', videoPath: '/tmp/shot_2-anim.mp4', durationSec: 3 }],
+    lipsyncResults: [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', durationSec: 5 }],
+  });
+
+  assert.deepEqual(adapted.normalizedShots, [
+    {
+      shotId: 'shot_1',
+      order: 0,
+      durationMs: 5000,
+      dialogue: '你好',
+      speakerId: '沈清',
+      subtitleSource: '你好',
+      metadata: {
+        dialogueDurationMs: null,
+        camera_type: undefined,
+        cameraType: undefined,
+        isCloseUp: undefined,
+        visualSpeechRequired: undefined,
+      },
+    },
+    {
+      shotId: 'shot_2',
+      order: 1,
+      durationMs: 3000,
+      dialogue: '',
+      speakerId: '',
+      subtitleSource: '',
+      metadata: {
+        dialogueDurationMs: null,
+        camera_type: undefined,
+        cameraType: undefined,
+        isCloseUp: undefined,
+        visualSpeechRequired: undefined,
+      },
+    },
+  ]);
+  assert.equal(adapted.assets.visuals.length, 1);
+  assert.equal(adapted.assets.audios.length, 1);
+  assert.equal(adapted.assets.clips.length, 2);
+});
+
+test('composeFromLegacy blocks before render when tts qa is blocked', async () => {
+  const result = await composeFromLegacy(
+    {
+      shots: [{ id: 'shot_1', dialogue: '你好', durationSec: 3 }],
+      imageResults: [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      audioResults: [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      ttsQaReport: {
+        status: 'block',
+        blockers: ['镜头 shot_1 音频缺失'],
+      },
+    },
+    '/tmp/final-video.mp4',
+    {
+      checkFFmpeg: async () => {
+        throw new Error('should not run ffmpeg check');
+      },
+    }
+  );
+
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(result.report.blockedReasons, ['镜头 shot_1 音频缺失']);
+});
+
+test('composeFromLegacy returns structured result and warning summary after render', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-compose-legacy-'));
+  const imagePath = path.join(tempRoot, 'shot_1.png');
+  const audioPath = path.join(tempRoot, 'shot_1.mp3');
+  fs.writeFileSync(imagePath, 'fake-image');
+  fs.writeFileSync(audioPath, 'fake-audio');
+
+  const result = await composeFromLegacy(
+    {
+      shots: [{ id: 'shot_1', dialogue: '你好', durationSec: 3 }],
+      imageResults: [{ shotId: 'shot_1', imagePath, success: true }],
+      audioResults: [{ shotId: 'shot_1', audioPath }],
+      lipsyncReport: {
+        status: 'warn',
+        warnings: ['shot_1:manual_review_required_without_evaluator'],
+        fallbackCount: 1,
+        fallbackShots: ['shot_1'],
+        downgradedCount: 0,
+        manualReviewShots: ['shot_1'],
+      },
+      ttsQaReport: {
+        status: 'warn',
+        warnings: ['镜头 shot_1 使用了 fallback voice'],
+        manualReviewPlan: { recommendedShotIds: ['shot_1'] },
+      },
+    },
+    path.join(tempRoot, 'final-video.mp4'),
+    {
+      checkFFmpeg: async () => {},
+      allowedRoots: [tempRoot],
+      generateSubtitleFile: () => {},
+      mergeWithFFmpeg: async () => {},
+    }
+  );
+
+  assert.equal(result.status, 'completed_with_warnings');
+  assert.equal(result.outputVideo.uri, path.join(tempRoot, 'final-video.mp4'));
+  assert.deepEqual(result.report.manualReviewShots, ['shot_1']);
+  assert.equal(result.report.fallbackCount, 1);
+  assert.equal(result.report.qaSummary.deliveryReadiness, 'warn');
+
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+});
+
+test('composeFromJob adapts platform job assets into legacy-compatible render inputs', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-compose-job-'));
+  const imagePath = path.join(tempRoot, 'shot_1.png');
+  const audioPath = path.join(tempRoot, 'shot_1.mp3');
+  const lipsyncPath = path.join(tempRoot, 'shot_1-lipsync.mp4');
+  fs.writeFileSync(imagePath, 'fake-image');
+  fs.writeFileSync(audioPath, 'fake-audio');
+  fs.writeFileSync(lipsyncPath, 'fake-video');
+
+  const result = await composeFromJob(
+    {
+      jobId: 'job_1',
+      projectId: 'project_1',
+      episodeId: 'episode_1',
+      profile: {},
+      shots: [
+        {
+          shotId: 'shot_1',
+          order: 0,
+          durationMs: 4000,
+          dialogue: '第一句',
+          visualRef: imagePath,
+          audioRef: audioPath,
+          lipsyncRef: lipsyncPath,
+        },
+      ],
+      assets: {
+        visuals: [{ shotId: 'shot_1', type: 'image', uri: imagePath }],
+        audios: [{ shotId: 'shot_1', type: 'audio', uri: audioPath }],
+        clips: [{ shotId: 'shot_1', role: 'lipsync', type: 'video', uri: lipsyncPath, durationSec: 4 }],
+      },
+    },
+    path.join(tempRoot, 'final-video.mp4'),
+    {
+      checkFFmpeg: async () => {},
+      allowedRoots: [tempRoot],
+      generateSubtitleFile: () => {},
+      mergeWithFFmpeg: async () => {},
+    }
+  );
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.jobId, 'job_1');
+  assert.equal(result.outputVideo.uri, path.join(tempRoot, 'final-video.mp4'));
+
+  fs.rmSync(tempRoot, { recursive: true, force: true });
 });

@@ -40,13 +40,19 @@ project
   │ 导演Agent  │  ← LLM主控，拆解任务、调度子Agent
   └─────┬──────┘
         │
-  ┌─────┼──────────────────────┐
-  │     │                      │
-  ▼     ▼                      ▼
-编剧  视觉设计Agent         角色设定Agent
-Agent  （分镜+Prompt生成）  （外观/一致性描述）
-  │     │                      │
-  └─────┼──────────────────────┘
+  ┌─────▼──────┐
+  │ 编剧Agent  │
+  └─────┬──────┘
+        │
+  ┌─────▼──────┐
+  │ 角色设定   │
+  │ Agent      │
+  └─────┬──────┘
+        │
+  ┌─────▼──────┐
+  │ 视觉设计   │
+  │ Agent      │
+  └─────┬──────┘
         │
   ┌─────▼──────┐        ┌──────────────┐
   │ 图像生成   │◄──────►│ 一致性验证   │
@@ -63,16 +69,32 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
   │  (TTS)     │
   └─────┬──────┘
         │
-               ┌───▼────┐
-               │ 合成    │  FFmpeg
-               │ Agent  │
-               └───┬────┘
-                   │
-           ┌───────▼────────┐
-           │ 最终视频输出    │
-           │ 1080×1920 竖屏  │
-           └────────────────┘
+  ┌─────▼──────┐
+  │ TTS QA     │
+  │ Agent      │
+  └─────┬──────┘
+        │
+  ┌─────▼──────┐
+  │ Lip-sync   │
+  │ Agent      │
+  └─────┬──────┘
+        │
+  ┌─────▼──────┐
+  │ 合成Agent  │  FFmpeg
+  └─────┬──────┘
+        │
+  ┌─────▼────────────┐
+  │ 最终视频输出      │
+  │ 1080×1920 竖屏    │
+  └──────────────────┘
 ```
+
+当前运行包除了核心成果物，还会额外生成两层“给人看的 QA 摘要”：
+
+- 每个主要 agent：`1-outputs/qa-summary.md`、`2-metrics/qa-summary.json`
+- 整轮 run 根目录：`qa-overview.md`、`qa-overview.json`
+
+如果你只想先知道“这轮过没过、卡在哪”，优先看 `qa-overview.md`。
 
 ## Agent 详细说明
 
@@ -99,7 +121,9 @@ Agent  （分镜+Prompt生成）  （外观/一致性描述）
 6. 调用一致性验证Agent检查角色身份漂移并触发重生成
 7. 调用连贯性检查Agent检查跨分镜承接
 8. 调用配音Agent批量合成音频
-9. 调用合成Agent输出最终视频
+9. 调用 TTS QA Agent 做最小自动验收
+10. 调用 Lip-sync Agent 为需要说话表演的镜头生成口型片段
+11. 调用合成Agent输出最终视频
 
 ---
 
@@ -285,7 +309,43 @@ shy expression, medium shot,
 
 ---
 
-### Agent 9：合成Agent（Video Composer）
+### Agent 9：TTS QA Agent
+**文件**：`src/agents/ttsQaAgent.js`
+
+**职责**：对配音结果做“最小自动验收”，把研发日志翻译成更容易理解的质量结论，输出 `pass / warn / block`。
+
+**当前检查内容**：
+- 音频文件是否真的生成出来
+- 音频时长是否明显偏离分镜预算
+- ASR 回写和原台词偏差是否过大
+- 是否大量使用 fallback 声线
+- 是否需要人工抽查重点镜头
+
+**当前补充**：
+- 会生成 `voice-cast-report.md / manual-review-sample.md`
+- 会额外生成 `qa-summary.md / qa-summary.json`
+- 如果结论是 `block`，Director 会阻断交付
+
+---
+
+### Agent 10：Lip-sync Agent
+**文件**：`src/agents/lipsyncAgent.js`
+
+**职责**：为需要明显说话表演的镜头生成口型同步片段，并输出可直接给小白看的风险说明。
+
+**触发原则**：
+- 有对白
+- 且属于特写 / 近景 / 中景 / 明确要求口型表现的镜头
+
+**当前补充**：
+- 会输出 `lipsync.index.json / lipsync-report.md / lipsync-report.json`
+- 会统计 `fallbackCount / fallbackShots / manualReviewShots`
+- 只在可重试类错误上做轻量 fallback，例如 `timeout / network_error / provider_5xx`
+- `provider_4xx / invalid_response` 这类问题不会盲目 fallback
+
+---
+
+### Agent 11：合成Agent（Video Composer）
 **文件**：`src/agents/videoComposer.js`
 
 **职责**：将图像序列 + 配音音频 + 字幕文件用FFmpeg合成最终视频。
@@ -299,7 +359,7 @@ shy expression, medium shot,
 - 字幕：硬字幕嵌入
 
 **当前补充**：
-- 优先合成 `AnimationClip`，没有 clip 时回退为单张关键帧静态镜头
+- 优先合成 `Lip-sync Clip / AnimationClip`，没有 clip 时回退为单张关键帧静态镜头
 - 审计运行包里会落 `compose-plan.json / segment-index.json / video-metrics.json`
 - FFmpeg 失败时会额外落 `ffmpeg-command.txt / ffmpeg-stderr.txt`
 
@@ -327,7 +387,9 @@ output/
 | LLM文本 | Qwen（首选）/ DeepSeek / Claude |
 | LLM视觉 | 当前视觉 provider 路由 |
 | 图像生成 | LaoZhang 图像路由 |
-| 配音TTS | 讯飞语音合成 |
+| 配音TTS | 讯飞语音合成 + 可扩展 Provider Router |
+| 配音验收 | TTS QA + ASR 回写校验 |
+| 口型同步 | Lip-sync Provider Router |
 | 视频合成 | FFmpeg + fluent-ffmpeg |
 | 并发控制 | 自定义队列 |
 | 数据存储 | 本地JSON文件（MVP阶段） |
@@ -359,7 +421,9 @@ AI-video-factory-pro/
 │   │   ├── consistencyChecker.js # Agent 6：一致性验证
 │   │   ├── continuityChecker.js  # Agent 7：连贯性检查
 │   │   ├── ttsAgent.js           # Agent 8：配音
-│   │   └── videoComposer.js      # Agent 9：合成
+│   │   ├── ttsQaAgent.js         # Agent 9：配音QA
+│   │   ├── lipsyncAgent.js       # Agent 10：口型同步
+│   │   └── videoComposer.js      # Agent 11：合成
 │   ├── llm/
 │   │   ├── client.js             # 统一LLM客户端（多Provider）
 │   │   └── prompts/
@@ -368,7 +432,8 @@ AI-video-factory-pro/
 │   │       └── consistencyCheck.js
 │   ├── apis/
 │   │   ├── imageApi.js           # LaoZhang 图像路由
-│   │   └── ttsApi.js             # 讯飞 TTS
+│   │   ├── ttsApi.js             # TTS Provider Router
+│   │   └── lipsyncApi.js         # Lip-sync Provider Router
 │   ├── domain/
 │   │   ├── assetModel.js         # Keyframe / AnimationClip / Voice / Subtitle / EpisodeCut DTO
 │   │   ├── characterBibleModel.js# CharacterBible DTO
@@ -382,6 +447,7 @@ AI-video-factory-pro/
 │       ├── jobStore.js           # RunJob / AgentTaskRun 持久化
 │       ├── characterBibleStore.js# CharacterBible 项目资产存储
 │       ├── projectStore.js       # project/script/episode JSON 存储
+│       ├── qaSummary.js          # agent / run QA 摘要输出
 │       └── runArtifacts.js       # Agent 审计成果物目录
 ├── scripts/
 │   └── run.js                    # CLI入口
@@ -493,6 +559,14 @@ node scripts/run.js your_script.txt
 
 ```bash
 pnpm run test:character-consistency
+```
+
+与本轮 TTS / QA / Lip-sync 直接相关的 focused tests：
+
+```bash
+pnpm run test:tts
+node --test tests/ttsQaAgent.test.js tests/lipsyncAgent.test.js
+node --test tests/runArtifacts.test.js tests/director.project-run.test.js tests/pipeline.acceptance.test.js
 ```
 
 本轮多项目升级验证使用的 focused tests：

@@ -1,9 +1,9 @@
-# 运行包目录示例（按 `temp/` 实际结构展开）
+# 运行包目录示例
 
 本文档展示当前可审计工作流在 `temp/` 下的真实目录组织方式，重点回答两个问题：
 
 1. 跑完一次流程后，磁盘上到底会出现什么。
-2. 每个 agent 的成果物应该去哪里找。
+2. 每个 agent 的成果物、QA 摘要、报错证据应该去哪里找。
 
 ## 命名规则
 
@@ -31,8 +31,8 @@
 - `scriptId = script_001`
 - `episodeNo = 1`
 - `episodeId = episode_001`
-- `runJobId = run_cafe_story_20260401_ab12cd34`
-- `startedAt = 2026-04-01T21:45:10.000Z`
+- `runJobId = run_cafe_story_20260403_ab12cd34`
+- `startedAt = 2026-04-03T21:45:10.000Z`
 
 那么运行包会落成：
 
@@ -51,12 +51,14 @@ temp/
             第01集__episode_001/
               episode.json
               run-jobs/
-                run_cafe_story_20260401_ab12cd34.json
+                run_cafe_story_20260403_ab12cd34.json
               runs/
-                2026-04-01_214510__run_cafe_story_20260401_ab12cd34/
+                2026-04-03_214510__run_cafe_story_20260403_ab12cd34/
                   manifest.json
                   timeline.json
-                  summary.md
+                  qa-overview.md
+                  qa-overview.json
+                  state.snapshot.json
                   01-script-parser/
                     manifest.json
                     0-inputs/
@@ -66,29 +68,32 @@ temp/
                       script-outline.json
                       shots.flat.json
                       shots.table.md
+                      qa-summary.md
                     2-metrics/
                       parser-metrics.json
+                      qa-summary.json
                     3-errors/
-                      invalid-response-001.txt
                   02-character-registry/
                     manifest.json
-                    0-inputs/
                     1-outputs/
                       character-registry.json
                       character-registry.md
                       character-name-mapping.json
+                      qa-summary.md
                     2-metrics/
                       character-metrics.json
+                      qa-summary.json
                     3-errors/
                   03-prompt-engineer/
                     manifest.json
-                    0-inputs/
                     1-outputs/
                       prompts.json
                       prompt-sources.json
                       prompts.table.md
+                      qa-summary.md
                     2-metrics/
                       prompt-metrics.json
+                      qa-summary.json
                     3-errors/
                       shot_007-fallback-error.json
                   04-image-generator/
@@ -97,22 +102,23 @@ temp/
                       provider-config.json
                     1-outputs/
                       images.index.json
+                      qa-summary.md
                     2-metrics/
                       image-metrics.json
+                      qa-summary.json
                     3-errors/
                       retry-log.json
                       shot_009-error.json
                   05-consistency-checker/
                     manifest.json
-                    0-inputs/
-                      character-registry.json
-                      image-results.json
                     1-outputs/
                       consistency-report.json
                       consistency-report.md
                       flagged-shots.json
+                      qa-summary.md
                     2-metrics/
                       consistency-metrics.json
+                      qa-summary.json
                     3-errors/
                       小红-batch-1-error.json
                   06-continuity-checker/
@@ -121,8 +127,10 @@ temp/
                       continuity-report.json
                       flagged-transitions.json
                       continuity-report.md
+                      qa-summary.md
                     2-metrics/
                       continuity-metrics.json
+                      qa-summary.json
                     3-errors/
                   07-tts-agent/
                     manifest.json
@@ -131,18 +139,43 @@ temp/
                     1-outputs/
                       audio.index.json
                       dialogue-table.md
+                      qa-summary.md
                     2-metrics/
                       tts-metrics.json
+                      qa-summary.json
                     3-errors/
                       shot_002-error.json
-                  08-video-composer/
+                  08-tts-qa/
                     manifest.json
-                    0-inputs/
+                    1-outputs/
+                      voice-cast-report.md
+                      manual-review-sample.md
+                      qa-summary.md
+                    2-metrics/
+                      tts-qa.json
+                      asr-report.json
+                      qa-summary.json
+                    3-errors/
+                  08b-lipsync-agent/
+                    manifest.json
+                    1-outputs/
+                      lipsync.index.json
+                      lipsync-report.md
+                      qa-summary.md
+                    2-metrics/
+                      lipsync-report.json
+                      qa-summary.json
+                    3-errors/
+                      shot_003-lipsync-error.json
+                  09-video-composer/
+                    manifest.json
                     1-outputs/
                       compose-plan.json
                       segment-index.json
+                      qa-summary.md
                     2-metrics/
                       video-metrics.json
+                      qa-summary.json
                     3-errors/
                       ffmpeg-command.txt
                       ffmpeg-stderr.txt
@@ -175,7 +208,7 @@ temp/
             第01集__legacy_episode_test_script_xxxxxxxx/
               run-jobs/
               runs/
-                2026-04-01_220011__run_legacy_test_script_xxxxxxxx_...
+                2026-04-03_220011__run_legacy_test_script_xxxxxxxx_...
                   ...
 ```
 
@@ -188,24 +221,37 @@ temp/
 
 所以你看到两套目录并不冲突，这是当前兼容策略的一部分。
 
-## 每层应该先看什么
+## 小白先看哪里
 
-如果你只是想快速排查，不必每层都翻。
+如果你不是研发，只是想先判断“这一轮能不能交付”，建议按这个顺序看：
 
-建议按这个顺序看：
+1. `qa-overview.md`
+   - 一眼看整轮是 `pass / warn / block`
+2. `delivery-summary.md`
+   - 看最终交付说明、人工抽查建议、fallback 情况
+3. 对应 agent 的 `qa-summary.md`
+   - 看哪一层过了、哪一层有风险
+4. 最后才看 `manifest.json / 3-errors/`
+   - 这是研发排障用的原始证据
 
-1. `runs/<runDir>/summary.md`
-   - 先看这次整体成功还是失败
-2. `runs/<runDir>/timeline.json`
+## 研发排查时的建议顺序
+
+如果你是研发，建议按这个顺序看：
+
+1. `qa-overview.md`
+   - 先知道整体阻断点在哪
+2. `timeline.json`
    - 看卡在哪个 step
 3. 对应 agent 的 `manifest.json`
-   - 看这层状态是 `completed / completed_with_errors / failed / pending`
-4. 再看该层的 `1-outputs/`
-   - 看主成果物
-5. 如果失败，再看 `3-errors/`
-   - 找原始证据
+   - 看状态是 `completed / completed_with_errors / failed / pending`
+4. 对应 agent 的 `qa-summary.md`
+   - 看“问题翻译成人话”后的版本
+5. 该 agent 的 `1-outputs/`
+   - 看核心成果物
+6. 最后看 `3-errors/`
+   - 找原始报错证据
 
-## 针对你当前工作流最常看的几个位置
+## 针对当前链路最常看的几个位置
 
 ### 看分镜拆得对不对
 
@@ -242,7 +288,17 @@ temp/
 ```text
 05-consistency-checker/1-outputs/consistency-report.md
 05-consistency-checker/1-outputs/flagged-shots.json
-05-consistency-checker/3-errors/
+05-consistency-checker/1-outputs/qa-summary.md
+```
+
+### 看连贯性问题修到了哪里
+
+看：
+
+```text
+06-continuity-checker/1-outputs/continuity-report.md
+06-continuity-checker/1-outputs/flagged-transitions.json
+06-continuity-checker/1-outputs/qa-summary.md
 ```
 
 ### 看角色到底用了什么声线
@@ -250,10 +306,20 @@ temp/
 看：
 
 ```text
-06-continuity-checker/1-outputs/continuity-report.md
-06-continuity-checker/1-outputs/flagged-transitions.json
 07-tts-agent/0-inputs/voice-resolution.json
 07-tts-agent/1-outputs/dialogue-table.md
+08-tts-qa/1-outputs/voice-cast-report.md
+08-tts-qa/1-outputs/manual-review-sample.md
+```
+
+### 看口型同步为什么降级或失败
+
+看：
+
+```text
+08b-lipsync-agent/1-outputs/lipsync-report.md
+08b-lipsync-agent/2-metrics/lipsync-report.json
+08b-lipsync-agent/3-errors/<shotId>-lipsync-error.json
 ```
 
 ### 看 FFmpeg 为什么挂
@@ -261,8 +327,8 @@ temp/
 看：
 
 ```text
-08-video-composer/3-errors/ffmpeg-command.txt
-08-video-composer/3-errors/ffmpeg-stderr.txt
+09-video-composer/3-errors/ffmpeg-command.txt
+09-video-composer/3-errors/ffmpeg-stderr.txt
 ```
 
 ## output/ 和 temp/ 的分工
@@ -279,27 +345,29 @@ temp/
 
 也就是说：
 
-- 分镜表、prompt 表、角色档案、生图索引、TTS 声线解析，都应该在 `temp/`
-- 最终视频才应该进 `output/`
+- 分镜表、prompt 表、角色档案、生图索引、QA 摘要、TTS QA 报告、Lip-sync 报告，都应该在 `temp/`
+- 最终视频和对外说明，应该进 `output/`
 
 ## 最后建议
 
-如果你要人工 review 一次运行效果，我建议只开这 7 个文件就够了：
+如果你要人工 review 一次运行效果，我建议先开这 9 个文件：
 
 ```text
-summary.md
+qa-overview.md
 01-script-parser/1-outputs/shots.table.md
 02-character-registry/1-outputs/character-registry.md
 03-prompt-engineer/1-outputs/prompts.table.md
 04-image-generator/1-outputs/images.index.json
 05-consistency-checker/1-outputs/consistency-report.md
-06-continuity-checker/1-outputs/continuity-report.md
 07-tts-agent/1-outputs/dialogue-table.md
+08-tts-qa/1-outputs/manual-review-sample.md
+08b-lipsync-agent/1-outputs/lipsync-report.md
 ```
 
-这套组合基本能覆盖“内容对不对、图画出来没有、角色稳不稳、声音是不是对的人在说”。
+这套组合基本能覆盖“内容对不对、图画出来没有、角色稳不稳、声音是不是对的人在说、口型需不需要人工复核”。
 
 ## 相关文档
 
-- [Agent 文档总览](README.md)
-- [Agent 间输入输出关系图](agent-io-map.md)
+- [Agent 文档总览](/d:/My-Project/AI-video-factory-pro/docs/agents/README.md)
+- [Agent 间输入输出关系图](/d:/My-Project/AI-video-factory-pro/docs/agents/agent-io-map.md)
+- [SOP 总览](/d:/My-Project/AI-video-factory-pro/docs/sop/README.md)
