@@ -99,6 +99,28 @@ Director 会在 run 根目录再汇总一层：
 
 这样研发、产品、QA 都能先看懂“这轮到底过没过、风险在哪”，再决定是否继续看原始证据。
 
+## 单 Agent 测试成果物
+
+除了完整 production pipeline 的 `temp/projects/...` 运行包之外，现在还支持把单个 agent 的测试成果物单独落到：
+
+- `temp/script-parser/`
+- `temp/character-registry/`
+- `temp/prompt-engineer/`
+- `temp/image-generator/`
+- `temp/consistency-checker/`
+- `temp/continuity-checker/`
+- `temp/tts-agent/`
+- `temp/tts-qa/`
+- `temp/lipsync-agent/`
+- `temp/video-composer/`
+- `temp/director/`
+
+注意：
+
+1. 这只是最外层根目录变化
+2. 目录内部仍尽量保持 `projects/.../runs/...` 结构
+3. 所以单 agent 测试也能用和正式 run 接近的方式复盘产物
+
 ## 详细流转
 
 ### 1. Director

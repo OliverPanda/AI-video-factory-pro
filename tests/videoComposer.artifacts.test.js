@@ -247,5 +247,5 @@ test('video composer can render a playable mp4 with real ffmpeg inputs', async (
     const fileHeader = fs.readFileSync(outputPath).subarray(0, 32).toString('latin1');
     assert.match(fileHeader, /ftyp/);
     assert.equal(fs.existsSync(path.join(ctx.agents.videoComposer.outputsDir, 'compose-plan.json')), true);
-  });
+  }, 'video-composer');
 });

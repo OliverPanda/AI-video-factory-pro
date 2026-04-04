@@ -53,7 +53,7 @@ test('tts QA returns pass when all dialogue shots have audio and stay within dur
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'asr-report.json')), true);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.outputsDir, 'voice-cast-report.md')), true);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.outputsDir, 'manual-review-sample.md')), true);
-  });
+  }, 'tts-qa');
 });
 
 test('tts QA returns warn when fallback voices are used but delivery is still complete', async (t) => {
@@ -85,7 +85,7 @@ test('tts QA returns warn when fallback voices are used but delivery is still co
     assert.equal(result.blockers.length, 0);
     assert.equal(result.warnings.length, 1);
     assert.match(result.warnings[0], /fallback/i);
-  });
+  }, 'tts-qa');
 });
 
 test('tts QA returns block when a dialogue shot is missing audio', async (t) => {
@@ -116,7 +116,7 @@ test('tts QA returns block when a dialogue shot is missing audio', async (t) => 
     assert.equal(result.status, 'block');
     assert.equal(result.blockers.length, 1);
     assert.match(result.blockers[0], /音频缺失/);
-  });
+  }, 'tts-qa');
 });
 
 test('tts QA returns warn when the same speaker drifts across different voices', async (t) => {
@@ -167,7 +167,7 @@ test('tts QA returns warn when the same speaker drifts across different voices',
 
     assert.equal(result.status, 'warn');
     assert.match(result.warnings.join('\n'), /音色漂移|speaker consistency/i);
-  });
+  }, 'tts-qa');
 });
 
 test('tts QA writes ASR report and warns when transcript drift exceeds threshold', async (t) => {
@@ -205,7 +205,7 @@ test('tts QA writes ASR report and warns when transcript drift exceeds threshold
     assert.equal(asrReport.entries.length, 1);
     assert.equal(asrReport.entries[0].transcript, '你总于来了');
     assert.equal(asrReport.entries[0].status, 'warn');
-  });
+  }, 'tts-qa');
 });
 
 test('tts QA writes manual review sampling plan into report artifacts', async (t) => {
@@ -261,5 +261,5 @@ test('tts QA writes manual review sampling plan into report artifacts', async (t
     );
     assert.match(sampleReport, /主角抽查：shot_1, shot_2/);
     assert.match(sampleReport, /Close-up \/ 强检镜头：shot_1/);
-  });
+  }, 'tts-qa');
 });

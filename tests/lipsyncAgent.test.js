@@ -1,21 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { runLipsync, __testables } from '../src/agents/lipsyncAgent.js';
-
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-lipsync-agent-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
 test('shouldApplyLipsync matches close-up rules from shot metadata', () => {
   assert.equal(__testables.shouldApplyLipsync({ dialogue: '你好', visualSpeechRequired: true }), true);
@@ -25,8 +15,8 @@ test('shouldApplyLipsync matches close-up rules from shot metadata', () => {
   assert.equal(__testables.shouldApplyLipsync({ dialogue: '' }), false);
 });
 
-test('runLipsync only generates clips for triggered shots and writes artifacts', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('runLipsync only generates clips for triggered shots and writes artifacts', async (t) => {
+  await withManagedTempRoot(t, 'aivf-lipsync-agent-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -67,6 +57,7 @@ test('runLipsync only generates clips for triggered shots and writes artifacts',
           generatedCalls.push(shot.id);
           return { videoPath: clipPath, durationSec: 3 };
         },
+        validateGeneratedClip: async () => true,
       }
     );
 
@@ -127,11 +118,11 @@ test('runLipsync only generates clips for triggered shots and writes artifacts',
     assert.equal(index.length, 2);
     assert.equal(index[1].status, 'skipped');
     assert.equal(index[1].qaStatus, 'pass');
-  });
+  }, 'lipsync-agent');
 });
 
-test('runLipsync records per-shot error evidence when provider fails', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('runLipsync records per-shot error evidence when provider fails', async (t) => {
+  await withManagedTempRoot(t, 'aivf-lipsync-agent-failures', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -169,7 +160,7 @@ test('runLipsync records per-shot error evidence when provider fails', async () 
     assert.equal(errorPayload.error, 'provider unavailable');
     assert.equal(errorPayload.qaStatus, 'block');
     assert.equal(errorPayload.downgradeApplied, true);
-  });
+  }, 'lipsync-agent');
 });
 
 test('runLipsync preserves structured provider failure categories for downgrade reporting', async () => {
@@ -195,8 +186,8 @@ test('runLipsync preserves structured provider failure categories for downgrade 
   assert.equal(result.results[0].errorCode, 'FUNCINEFORGE_TIMEOUT');
 });
 
-test('runLipsync records fallback provider usage in result entries', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('runLipsync records fallback provider usage in result entries', async (t) => {
+  await withManagedTempRoot(t, 'aivf-lipsync-agent-fallback', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -223,6 +214,7 @@ test('runLipsync records fallback provider usage in result entries', async () =>
           fallbackApplied: true,
           fallbackFrom: 'funcineforge',
         }),
+        validateGeneratedClip: async () => true,
       }
     );
 
@@ -236,11 +228,11 @@ test('runLipsync records fallback provider usage in result entries', async () =>
     const manifest = JSON.parse(fs.readFileSync(ctx.agents.lipsyncAgent.manifestPath, 'utf-8'));
     assert.equal(manifest.fallbackCount, 1);
     assert.deepEqual(manifest.fallbackShots, ['shot_fallback']);
-  });
+  }, 'lipsync-agent');
 });
 
-test('runLipsync blocks close-up shots when timing offset exceeds threshold', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('runLipsync blocks close-up shots when timing offset exceeds threshold', async (t) => {
+  await withManagedTempRoot(t, 'aivf-lipsync-agent-timing-block', async (tempRoot) => {
     const imagePath = path.join(tempRoot, 'shot_001.png');
     const audioPath = path.join(tempRoot, 'shot_001.mp3');
     const clipPath = path.join(tempRoot, 'shot_001-lipsync.mp4');
@@ -259,11 +251,48 @@ test('runLipsync blocks close-up shots when timing offset exceeds threshold', as
           timingOffsetMs: 95,
           evaluator: 'timing-offset',
         }),
+        validateGeneratedClip: async () => true,
       }
     );
 
     assert.equal(result.report.status, 'block');
     assert.equal(result.results[0].qaStatus, 'block');
     assert.deepEqual(result.results[0].qaBlockers, ['timing_offset_exceeded_60ms']);
-  });
+  }, 'lipsync-agent');
+});
+
+test('runLipsync downgrades invalid video outputs instead of forwarding fake mp4 artifacts', async (t) => {
+  await withManagedTempRoot(t, 'aivf-lipsync-agent-invalid-video', async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'shot_019.png');
+    const audioPath = path.join(tempRoot, 'shot_019.mp3');
+    const invalidClipPath = path.join(tempRoot, 'shot_019-lipsync.mp4');
+    fs.writeFileSync(imagePath, 'fake-image');
+    fs.writeFileSync(audioPath, 'fake-audio');
+    fs.writeFileSync(invalidClipPath, 'mock-lipsync:mock');
+
+    const result = await runLipsync(
+      [{ id: 'shot_019', dialogue: '住手', camera_type: '中景', durationSec: 3 }],
+      [{ shotId: 'shot_019', imagePath, success: true }],
+      [{ shotId: 'shot_019', audioPath }],
+      {
+        generateLipsyncClip: async () => ({
+          provider: 'mock',
+          videoPath: invalidClipPath,
+          durationSec: 3,
+        }),
+        validateGeneratedClip: async () => false,
+      }
+    );
+
+    assert.equal(result.report.status, 'warn');
+    assert.equal(result.report.generatedCount, 0);
+    assert.equal(result.report.downgradedCount, 1);
+    assert.deepEqual(result.clips, []);
+    assert.equal(result.results[0].status, 'skipped');
+    assert.equal(result.results[0].reason, 'invalid_video_output');
+    assert.equal(result.results[0].videoPath, null);
+    assert.equal(result.results[0].downgradeApplied, true);
+    assert.equal(result.results[0].downgradeReason, 'invalid_video_output');
+    assert.deepEqual(result.results[0].qaWarnings, ['invalid_video_output']);
+  }, 'lipsync-agent');
 });

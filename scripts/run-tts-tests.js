@@ -20,7 +20,7 @@ const testFiles = [
 ];
 
 const env = { ...process.env };
-const artifactRoot = path.join(process.cwd(), 'temp', 'test-artifacts', 'tts');
+const artifactRoot = path.join(process.cwd(), 'temp', 'tts-agent');
 if (keepArtifacts) {
   env.KEEP_TEST_ARTIFACTS = '1';
   env.TEST_ARTIFACTS_ROOT = artifactRoot;

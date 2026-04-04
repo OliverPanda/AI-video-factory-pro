@@ -1,24 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runContinuityCheck } from '../src/agents/continuityChecker.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-continuity-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
-
-test('continuity checker writes reports flagged transitions metrics and manifest', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('continuity checker writes reports flagged transitions metrics and manifest', async (t) => {
+  await withManagedTempRoot(t, 'aivf-continuity-checker-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -163,5 +153,5 @@ test('continuity checker writes reports flagged transitions metrics and manifest
         'continuity-metrics.json',
       ],
     });
-  });
+  }, 'continuity-checker');
 });

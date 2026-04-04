@@ -40,13 +40,43 @@ temp/
   projects/
 ```
 
+但从当前版本开始，还会额外出现一类“单 agent 测试成果物目录”：
+
+```text
+temp/
+  projects/
+  script-parser/
+  character-registry/
+  prompt-engineer/
+  image-generator/
+  consistency-checker/
+  continuity-checker/
+  tts-agent/
+  tts-qa/
+  lipsync-agent/
+  video-composer/
+  director/
+```
+
 其中：
 
 - `temp/projects/`
   - 结构化存储根目录
   - 包含项目资产、分集数据、run jobs、可审计运行包
+- `temp/<agentName>/`
+  - 单独跑某个 agent 测试，并保留成果物时使用
+  - 目录内部通常仍然会继续套 `projects/.../runs/...`
 
 兼容旧单文件入口时，历史上也出现过 `temp/<legacy-job-id>/` 这类平铺缓存目录。它们现在属于可清理的旧产物，不建议继续长期保留。
+
+## 一句话区分三种 `temp/` 用法
+
+- `temp/projects/...`
+  - 真正跑完整 production pipeline
+- `temp/<agentName>/...`
+  - 单独跑某个 agent 测试并保留成果物
+- `temp/<legacy-job-id>/...`
+  - 旧单文件兼容缓存
 
 ## 兼容模式结构
 

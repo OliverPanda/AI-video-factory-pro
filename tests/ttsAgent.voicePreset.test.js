@@ -6,7 +6,7 @@ import { generateAllAudio } from '../src/agents/ttsAgent.js';
 import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
-  return makeManagedTempDir(t, 'tts-agent-voice-preset', 'tts');
+  return makeManagedTempDir(t, 'tts-agent-voice-preset', 'tts-agent');
 }
 
 test('TTS agent resolves speaker voice from voicePresetId and forwards voice tuning options', async (t) => {

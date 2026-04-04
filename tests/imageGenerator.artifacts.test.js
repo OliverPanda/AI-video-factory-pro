@@ -1,24 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { generateAllImages, regenerateImage } from '../src/agents/imageGenerator.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-image-generator-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
-
-test('image generator writes provider config index metrics retry log manifest and per-shot errors when artifactContext is present', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('image generator writes provider config index metrics retry log manifest and per-shot errors when artifactContext is present', async (t) => {
+  await withManagedTempRoot(t, 'aivf-image-generator-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -149,11 +139,11 @@ test('image generator writes provider config index metrics retry log manifest an
     });
     assert.equal(Array.isArray(terminalError.retryHistory), true);
     assert.equal(terminalError.retryHistory.length, 2);
-  });
+  }, 'image-generator');
 });
 
-test('regenerateImage retries transient failures and returns a failed result instead of throwing', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('regenerateImage retries transient failures and returns a failed result instead of throwing', async (t) => {
+  await withManagedTempRoot(t, 'aivf-image-generator-regenerate', async (tempRoot) => {
     const imagesDir = path.join(tempRoot, 'images');
     fs.mkdirSync(imagesDir, { recursive: true });
     let attempts = 0;
@@ -185,5 +175,5 @@ test('regenerateImage retries transient failures and returns a failed result ins
         model: process.env.REALISTIC_IMAGE_MODEL || 'flux-kontext-pro',
       },
     });
-  });
+  }, 'image-generator');
 });

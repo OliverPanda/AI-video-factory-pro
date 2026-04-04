@@ -9,7 +9,7 @@ import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
 test('consistency checker writes report flagged shots metrics and manifest when artifactContext is present', async (t) => {
-  await withManagedTempRoot(t, 'aivf-tts-artifacts', async (tempRoot) => {
+  await withManagedTempRoot(t, 'aivf-consistency-checker-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -119,11 +119,11 @@ test('consistency checker writes report flagged shots metrics and manifest when 
         'consistency-metrics.json',
       ],
     });
-  });
+  }, 'consistency-checker');
 });
 
 test('tts agent writes voice resolution audio index dialogue table metrics manifest and per-shot error files when artifactContext is present', async (t) => {
-  await withManagedTempRoot(t, 'aivf-tts-artifacts', async (tempRoot) => {
+  await withManagedTempRoot(t, 'aivf-tts-agent-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -292,5 +292,5 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
     assert.equal(terminalError.shotId, 'shot_002');
     assert.equal(terminalError.error, '[Queue] shot_002 重试3次后失败：tts synth failed');
     assert.equal(terminalError.voiceResolution.speakerName, '店长');
-  });
+  }, 'tts-agent');
 });

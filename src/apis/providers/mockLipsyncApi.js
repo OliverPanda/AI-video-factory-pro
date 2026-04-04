@@ -1,7 +1,5 @@
-import { saveBuffer } from '../../utils/fileHelper.js';
-
-export async function lipsyncWithMock(_input, outputPath, options = {}) {
-  const source = options.audioPath || options.shotId || 'mock';
-  saveBuffer(outputPath, Buffer.from(`mock-lipsync:${source}`, 'utf-8'));
-  return outputPath;
+export async function lipsyncWithMock() {
+  // Mock provider intentionally produces no real video artifact.
+  // Returning null prevents downstream stages from treating placeholders as valid MP4 clips.
+  return null;
 }

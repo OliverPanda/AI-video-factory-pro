@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { __testables, createLipsyncClip } from '../src/apis/lipsyncApi.js';
+import { lipsyncWithMock } from '../src/apis/providers/mockLipsyncApi.js';
 import { lipsyncWithFunCineForge } from '../src/apis/providers/funcineforgeLipsyncApi.js';
 
 test('lipsync provider router resolves placeholder providers explicitly', () => {
@@ -36,6 +40,31 @@ test('createLipsyncClip dispatches mock provider through the router', async () =
   assert.equal(result.provider, 'mock');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].input.shotId, 'shot_001');
+});
+
+test('default mock lipsync provider does not write fake mp4 artifacts', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-mock-lipsync-'));
+
+  try {
+    const outputPath = path.join(tempRoot, 'shot_001.mp4');
+    const providerResult = await lipsyncWithMock(
+      { shotId: 'shot_001', imagePath: 'in.png', audioPath: 'in.mp3' },
+      outputPath,
+      { provider: 'mock' }
+    );
+    const routedResult = await createLipsyncClip(
+      { shotId: 'shot_001', imagePath: 'in.png', audioPath: 'in.mp3' },
+      outputPath,
+      { provider: 'mock' }
+    );
+
+    assert.equal(providerResult, null);
+    assert.equal(routedResult.provider, 'mock');
+    assert.equal(routedResult.videoPath, null);
+    assert.equal(fs.existsSync(outputPath), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('createLipsyncClip falls back to the next provider when primary provider fails', async () => {

@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { createLipsyncClip } from '../apis/lipsyncApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
+
+const execFileAsync = promisify(execFile);
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -63,6 +67,36 @@ function buildResultStatus(result) {
   return 'skipped';
 }
 
+async function probeVideoFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return false;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=codec_type',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        filePath,
+      ],
+      {
+        windowsHide: true,
+      }
+    );
+
+    return String(stdout || '').trim().split(/\r?\n/).includes('video');
+  } catch {
+    return false;
+  }
+}
+
 function resolveProviderFailureReason(error) {
   const category = String(error?.category || '').trim().toLowerCase();
   if (category) {
@@ -113,6 +147,8 @@ function deriveEntryQa(result, shot) {
     } else if (manualReviewRequired) {
       warnings.push('manual_review_required_without_evaluator');
     }
+  } else if (result.status === 'skipped' && result.downgradeApplied) {
+    warnings.push(result.downgradeReason || 'lipsync_skipped_downgraded_to_standard_comp');
   }
 
   return {
@@ -224,6 +260,7 @@ export async function runLipsync(shots, imageResults = [], audioResults = [], op
         runtimeOptions
       ),
     shouldLipsyncShot = shouldApplyLipsync,
+    validateGeneratedClip = probeVideoFile,
     outputPathBuilder = (shot) =>
       path.join(process.env.TEMP_DIR || './temp', 'lipsync', `${shot.id}.mp4`),
   } = options;
@@ -298,23 +335,28 @@ export async function runLipsync(shots, imageResults = [], audioResults = [], op
         outputPathBuilder,
         outputPath: outputPathBuilder(shot),
       });
+      const clipVideoPath = clip?.videoPath || null;
+      const hasValidVideoOutput = clipVideoPath ? await validateGeneratedClip(clipVideoPath) : false;
       const baseResult = {
         shotId: shot.id,
         triggered: true,
-        status: buildResultStatus(clip),
-        reason: clip?.reason || null,
+        status: clipVideoPath && hasValidVideoOutput ? buildResultStatus(clip) : 'skipped',
+        reason:
+          clipVideoPath && !hasValidVideoOutput
+            ? 'invalid_video_output'
+            : clip?.reason || null,
         provider: clip?.provider || null,
         attemptedProviders: Array.isArray(clip?.attemptedProviders) ? clip.attemptedProviders : [],
         fallbackApplied: clip?.fallbackApplied === true,
         fallbackFrom: clip?.fallbackFrom || null,
         imagePath: imageResult.imagePath,
         audioPath: audioResult.audioPath,
-        videoPath: clip?.videoPath || null,
+        videoPath: clipVideoPath && hasValidVideoOutput ? clipVideoPath : null,
         durationSec: clip?.durationSec || shot.durationSec || shot.duration || null,
         timingOffsetMs: Number.isFinite(clip?.timingOffsetMs) ? clip.timingOffsetMs : null,
         evaluator: clip?.evaluator || null,
-        downgradeApplied: false,
-        downgradeReason: null,
+        downgradeApplied: clipVideoPath && !hasValidVideoOutput,
+        downgradeReason: clipVideoPath && !hasValidVideoOutput ? 'invalid_video_output' : null,
       };
       results.push({
         ...baseResult,
@@ -388,4 +430,5 @@ export async function runLipsync(shots, imageResults = [], audioResults = [], op
 export const __testables = {
   shouldApplyLipsync,
   resolveProviderFailureReason,
+  probeVideoFile,
 };

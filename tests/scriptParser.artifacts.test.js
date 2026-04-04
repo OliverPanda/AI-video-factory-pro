@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,16 +6,7 @@ import assert from 'node:assert/strict';
 import { createDirector } from '../src/agents/director.js';
 import { parseScript } from '../src/agents/scriptParser.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
-
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-script-parser-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
 function createLegacyDirs(root) {
   const dirs = {
@@ -30,8 +20,8 @@ function createLegacyDirs(root) {
   return dirs;
 }
 
-test('script parser writes source script shot table and parser metrics', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('script parser writes source script shot table and parser metrics', async (t) => {
+  await withManagedTempRoot(t, 'aivf-script-parser-artifacts', async (tempRoot) => {
     let parserCallCount = 0;
     const fakeChatJSON = async (_messages) => {
       parserCallCount += 1;
@@ -133,11 +123,11 @@ test('script parser writes source script shot table and parser metrics', async (
     });
 
     assert.equal(parserCallCount, 2);
-  });
+  }, 'script-parser');
 });
 
-test('legacy runPipeline keeps parser artifacts in the final parsed-title run package', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('legacy runPipeline keeps parser artifacts in the final parsed-title run package', async (t) => {
+  await withManagedTempRoot(t, 'aivf-script-parser-legacy-run', async (tempRoot) => {
     const legacyRoot = path.join(tempRoot, 'legacy-job');
     const scriptFilePath = path.join(tempRoot, 'filename-bootstrap.txt');
     const projects = new Map();
@@ -229,5 +219,5 @@ test('legacy runPipeline keeps parser artifacts in the final parsed-title run pa
     assert.equal(parserManifest.characterCount, 1);
 
     assert.equal(parserCallCount, 2);
-  });
+  }, 'script-parser');
 });

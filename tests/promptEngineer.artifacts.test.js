@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,19 +6,10 @@ import assert from 'node:assert/strict';
 import { buildCharacterRegistry } from '../src/agents/characterRegistry.js';
 import { generateAllPrompts } from '../src/agents/promptEngineer.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-registry-prompt-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
-
-test('character registry writes registry outputs metrics and manifest when artifactContext is present', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('character registry writes registry outputs metrics and manifest when artifactContext is present', async (t) => {
+  await withManagedTempRoot(t, 'aivf-character-registry-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -130,11 +120,11 @@ test('character registry writes registry outputs metrics and manifest when artif
         'character-metrics.json',
       ],
     });
-  });
+  }, 'character-registry');
 });
 
-test('prompt engineer writes prompt outputs metrics fallback evidence and manifest when artifactContext is present', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('prompt engineer writes prompt outputs metrics fallback evidence and manifest when artifactContext is present', async (t) => {
+  await withManagedTempRoot(t, 'aivf-prompt-engineer-artifacts', async (tempRoot) => {
     const ctx = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_123',
@@ -264,5 +254,5 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
       promptCount: 2,
       outputFiles: ['prompts.json', 'prompt-sources.json', 'prompts.table.md', 'prompt-metrics.json'],
     });
-  });
+  }, 'prompt-engineer');
 });

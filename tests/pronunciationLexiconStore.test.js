@@ -10,7 +10,7 @@ import {
 import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
-  return makeManagedTempDir(t, 'pronunciation-lexicon-store', 'tts');
+  return makeManagedTempDir(t, 'pronunciation-lexicon-store', 'tts-agent');
 }
 
 test('savePronunciationLexicon writes the project pronunciation lexicon file', (t) => {

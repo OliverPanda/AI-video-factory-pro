@@ -12,7 +12,7 @@ export function shouldKeepTestArtifacts() {
 
 export function getTestArtifactsRoot(scope = 'general') {
   if (shouldKeepTestArtifacts()) {
-    return path.resolve(process.env.TEST_ARTIFACTS_ROOT || path.join(process.cwd(), 'temp', 'test-artifacts', scope));
+    return path.resolve(process.env.TEST_ARTIFACTS_ROOT || path.join(process.cwd(), 'temp', scope));
   }
 
   return os.tmpdir();

@@ -6,7 +6,7 @@ import { createRunPipeline } from '../src/agents/director.js';
 import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
-  return makeManagedTempDir(t, 'director-voice-preset', 'tts');
+  return makeManagedTempDir(t, 'director-voice-preset', 'tts-agent');
 }
 
 function createDirectorHarness(t, overrides = {}) {

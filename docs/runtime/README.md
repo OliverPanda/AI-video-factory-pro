@@ -12,3 +12,4 @@
 
 - [temp/ 目录说明](temp-structure.md)
 - [output/ 目录说明](output-structure.md)
+- [断点续跑说明](resume-from-step.md)

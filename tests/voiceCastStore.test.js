@@ -7,7 +7,7 @@ import { loadVoiceCast, saveVoiceCast } from '../src/utils/voiceCastStore.js';
 import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
-  return makeManagedTempDir(t, 'voice-cast-store', 'tts');
+  return makeManagedTempDir(t, 'voice-cast-store', 'tts-agent');
 }
 
 test('saveVoiceCast writes the project voice-cast file', (t) => {

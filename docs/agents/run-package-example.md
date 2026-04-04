@@ -21,6 +21,17 @@
 
 也就是说，目录既可读，又保留稳定 ID。
 
+## 先记住两条目录规则
+
+从当前版本开始，`temp/` 下的成果物分成两类：
+
+1. 整体跑完整 production pipeline
+   - 落到 `temp/projects/<project>/scripts/<script>/episodes/<episode>/runs/...`
+2. 单独跑某个 agent / 模块测试，并保留成果物
+   - 落到 `temp/<agentName>/...`
+
+这两类目录并不冲突，分别服务“完整交付复盘”和“单模块契约验证”。
+
 ## 示例 1：项目模式
 
 假设：
@@ -220,6 +231,47 @@ temp/
   - 新的可审计运行包
 
 所以你看到两套目录并不冲突，这是当前兼容策略的一部分。
+
+## 示例 3：单 Agent 测试保留成果物
+
+如果你跑的是：
+
+```bash
+npm run test:tts-agent:prod:keep-artifacts
+```
+
+那么成果物会落到：
+
+```text
+temp/
+  tts-agent/
+    aivf-tts-agent-artifacts-xxxxxx/
+      projects/
+        咖啡馆相遇__project_123/
+          scripts/
+            第一卷__script_001/
+              episodes/
+                第01集__episode_001/
+                  runs/
+                    2026-04-01_090000__run_tts_artifacts/
+                      07-tts-agent/
+                        manifest.json
+                        0-inputs/
+                        1-outputs/
+                        2-metrics/
+                        3-errors/
+```
+
+同理：
+
+- `npm run test:script-parser:prod:keep-artifacts` -> `temp/script-parser/`
+- `npm run test:prompt-engineer:prod:keep-artifacts` -> `temp/prompt-engineer/`
+- `npm run test:image-generator:prod:keep-artifacts` -> `temp/image-generator/`
+- `npm run test:continuity-checker:prod:keep-artifacts` -> `temp/continuity-checker/`
+- `npm run test:lipsync-agent:prod:keep-artifacts` -> `temp/lipsync-agent/`
+- `npm run test:video-composer:prod:keep-artifacts` -> `temp/video-composer/`
+
+这里依然会保留 `projects/.../runs/...` 这套内部结构，只是最外层根目录从完整流水线的 `temp/projects/` 变成了该 agent 对应的 `temp/<agentName>/`。
 
 ## 小白先看哪里
 

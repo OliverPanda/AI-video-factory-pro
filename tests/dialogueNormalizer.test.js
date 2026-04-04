@@ -57,7 +57,7 @@ test('dialogue normalizer trims dialogue, applies lexicon replacements, and comp
       fs.existsSync(path.join(ctx.agents.ttsAgent.outputsDir, 'tts-segments.json')),
       true
     );
-  });
+  }, 'tts-agent');
 });
 
 test('dialogue normalizer splits long dialogue into sentence-level segments and keeps no-dialogue shots intact', () => {
