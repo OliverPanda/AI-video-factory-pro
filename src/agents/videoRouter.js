@@ -5,6 +5,7 @@ import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
 function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options = {}) {
   const hasReferenceImage = Boolean(imageResult?.imagePath);
+  const performanceEntry = options.performancePlan?.find((item) => item.shotId === shot.id) || null;
   return {
     shotId: shot.id,
     shotType: motionEntry.shotType,
@@ -22,6 +23,15 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
     preferredProvider: hasReferenceImage ? 'runway' : 'static_image',
     fallbackProviders: hasReferenceImage ? ['static_image'] : [],
     audioRef: options.audioRef || null,
+    performanceTemplate: performanceEntry?.performanceTemplate || null,
+    actionBeatList: performanceEntry?.actionBeatList || [],
+    cameraMovePlan: performanceEntry?.cameraMovePlan || null,
+    generationTier: performanceEntry?.generationTier || 'base',
+    variantCount: performanceEntry?.variantCount || 1,
+    candidateSelectionRule: performanceEntry?.candidateSelectionRule || 'single_best',
+    regenPolicy: performanceEntry?.regenPolicy || 'retry_once_then_fallback',
+    firstLastFramePolicy: performanceEntry?.firstLastFramePolicy || 'first_frame_required',
+    enhancementHints: performanceEntry?.enhancementHints || [],
     qaRules: {
       mustProbeWithFfprobe: true,
       mustHaveNonZeroDuration: true,

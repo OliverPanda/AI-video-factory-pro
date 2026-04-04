@@ -81,6 +81,59 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         ],
         flaggedTransitions: [],
       }),
+      planPerformance: async (motionPlan) =>
+        motionPlan.map((item) => ({
+          shotId: item.shotId,
+          performanceTemplate: 'dialogue_closeup_react',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'push_in' },
+          generationTier: 'base',
+          variantCount: 1,
+          enhancementHints: [],
+        })),
+      runRunwayVideo: async (shotPackages) => ({
+        results: shotPackages.map((shotPackage) => ({
+          shotId: shotPackage.shotId,
+          provider: 'runway',
+          model: 'gen4_turbo',
+          status: 'completed',
+          videoPath: path.join(dirs.root, `${shotPackage.shotId}.mp4`),
+          targetDurationSec: shotPackage.durationTargetSec,
+          actualDurationSec: shotPackage.durationTargetSec,
+          variantIndex: 0,
+        })),
+        report: { status: 'pass', warnings: [], blockers: [] },
+      }),
+      runMotionEnhancer: async (rawVideoResults) =>
+        rawVideoResults.map((item) => ({
+          shotId: item.shotId,
+          sourceVideoPath: item.videoPath,
+          enhancementApplied: false,
+          enhancementProfile: 'none',
+          enhancementActions: [],
+          enhancedVideoPath: item.videoPath,
+          durationAdjusted: false,
+          cameraMotionInjected: false,
+          interpolationApplied: false,
+          stabilizationApplied: false,
+          qualityDelta: 'unchanged',
+          status: 'completed',
+          error: null,
+          targetDurationSec: item.targetDurationSec,
+          actualDurationSec: item.actualDurationSec,
+        })),
+      runShotQa: async (enhancedVideoResults) => ({
+        status: 'pass',
+        entries: enhancedVideoResults.map((item) => ({
+          shotId: item.shotId,
+          canUseVideo: true,
+          fallbackToImage: false,
+          finalDecision: 'pass',
+        })),
+        fallbackCount: 0,
+        fallbackShots: [],
+        warnings: [],
+      }),
       generateAllAudio: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, audioPath: path.join(dirs.audio, `${shot.id}.mp3`) })),
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
@@ -138,8 +191,10 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.ttsAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.ttsQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.motionPlanner.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.performancePlanner.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoRouter.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.runwayVideoAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.motionEnhancer.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.shotQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
 

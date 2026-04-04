@@ -17,8 +17,10 @@ import { generateAllAudio } from './ttsAgent.js';
 import { runTtsQa } from './ttsQaAgent.js';
 import { runLipsync } from './lipsyncAgent.js';
 import { planMotion } from './motionPlanner.js';
+import { planPerformance } from './performancePlanner.js';
 import { routeVideoShots } from './videoRouter.js';
 import { runRunwayVideo } from './runwayVideoAgent.js';
+import { runMotionEnhancer } from './motionEnhancer.js';
 import { runShotQa } from './shotQaAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
@@ -111,7 +113,7 @@ function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
   const allowedShotIds = shotQaReport?.entries
     ? new Set(
         shotQaReport.entries
-          .filter((entry) => entry?.canUseVideo === true)
+          .filter((entry) => entry?.canUseVideo === true || entry?.finalDecision === 'pass' || entry?.finalDecision === 'pass_with_enhancement')
           .map((entry) => entry.shotId)
       )
     : null;
@@ -298,8 +300,10 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     ttsQaAgent: 'TTS QA Agent',
     lipsyncAgent: 'Lip-sync Agent',
     motionPlanner: 'Motion Planner',
+    performancePlanner: 'Performance Planner',
     videoRouter: 'Video Router',
     runwayVideoAgent: 'Runway Video Agent',
+    motionEnhancer: 'Motion Enhancer',
     shotQaAgent: 'Shot QA Agent',
     videoComposer: 'Video Composer',
   };
@@ -315,8 +319,10 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'ttsQaAgent',
     'lipsyncAgent',
     'motionPlanner',
+    'performancePlanner',
     'videoRouter',
     'runwayVideoAgent',
+    'motionEnhancer',
     'shotQaAgent',
     'videoComposer',
   ];
@@ -412,8 +418,10 @@ export function createDirector(overrides = {}) {
     runTtsQa,
     runLipsync,
     planMotion,
+    planPerformance,
     routeVideoShots,
     runRunwayVideo,
+    runMotionEnhancer,
     runShotQa,
     composeVideo,
     saveJSON,
@@ -913,11 +921,29 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        let performancePlan = Array.isArray(state.performancePlan) ? state.performancePlan : null;
+        if (!performancePlan) {
+          deps.logger.info('Director', '【Step 7/13】规划镜头表演...');
+          performancePlan = await recordStep('plan_performance', { message: '规划镜头表演' }, () =>
+            deps.planPerformance(motionPlan, {
+              artifactContext: artifactContext.agents.performancePlanner,
+            })
+          );
+          saveState({ performancePlan });
+        } else {
+          deps.logger.info('Director', '【Step 7/13】使用缓存的镜头表演规划');
+          appendStepRun('plan_performance', {
+            status: 'cached',
+            detail: '使用缓存的镜头表演规划',
+          });
+        }
+
         let shotPackages = Array.isArray(state.shotPackages) ? state.shotPackages : null;
         if (!shotPackages) {
-          deps.logger.info('Director', '【Step 7/11】路由视频镜头...');
+          deps.logger.info('Director', '【Step 8/13】路由视频镜头...');
           shotPackages = await recordStep('route_video_shots', { message: '路由视频镜头' }, () =>
             deps.routeVideoShots(shots, motionPlan, imageResults, {
+              performancePlan,
               promptList,
               artifactContext: artifactContext.agents.videoRouter,
             })
@@ -931,9 +957,9 @@ export function createDirector(overrides = {}) {
           });
         }
 
-        let videoResults = Array.isArray(state.videoResults) ? state.videoResults : null;
-        if (!videoResults) {
-          deps.logger.info('Director', '【Step 8/11】生成动态镜头...');
+        let rawVideoResults = Array.isArray(state.rawVideoResults) ? state.rawVideoResults : null;
+        if (!rawVideoResults) {
+          deps.logger.info('Director', '【Step 9/13】生成动态镜头...');
           const videoRun = await recordStep('generate_video_clips', { message: '生成动态镜头' }, () =>
             deps.runRunwayVideo(
               shotPackages,
@@ -943,27 +969,73 @@ export function createDirector(overrides = {}) {
               }
             )
           );
-          videoResults = Array.isArray(videoRun?.results) ? videoRun.results : [];
-          saveState({ videoResults });
+          rawVideoResults = Array.isArray(videoRun?.results) ? videoRun.results : [];
+          saveState({ rawVideoResults });
         } else {
-          deps.logger.info('Director', '【Step 8/11】使用缓存的动态镜头结果');
+          deps.logger.info('Director', '【Step 9/13】使用缓存的动态镜头结果');
           appendStepRun('generate_video_clips', {
             status: 'cached',
             detail: '使用缓存的动态镜头结果',
           });
         }
 
-        let shotQaReport = state.shotQaReport || null;
-        if (!shotQaReport) {
-          deps.logger.info('Director', '【Step 9/11】镜头级 QA...');
+        let enhancedVideoResults = Array.isArray(state.enhancedVideoResults) ? state.enhancedVideoResults : null;
+        if (!enhancedVideoResults) {
+          deps.logger.info('Director', '【Step 10/13】增强动态镜头...');
+          enhancedVideoResults = await recordStep('enhance_video_clips', { message: '增强动态镜头' }, () =>
+            deps.runMotionEnhancer(rawVideoResults, shotPackages, {
+              artifactContext: artifactContext.agents.motionEnhancer,
+            })
+          );
+          saveState({ enhancedVideoResults });
+        } else {
+          deps.logger.info('Director', '【Step 10/13】使用缓存的镜头增强结果');
+          appendStepRun('enhance_video_clips', {
+            status: 'cached',
+            detail: '使用缓存的镜头增强结果',
+          });
+        }
+
+        let shotQaReport = state.shotQaReportV2 || state.shotQaReport || null;
+        let videoResults = Array.isArray(state.videoResults) ? state.videoResults : null;
+        if (!shotQaReport || !videoResults) {
+          deps.logger.info('Director', '【Step 11/13】镜头级 QA...');
           shotQaReport = await recordStep('shot_qa', { message: '镜头级 QA' }, () =>
-            deps.runShotQa(videoResults, {
+            deps.runShotQa(enhancedVideoResults, {
               artifactContext: artifactContext.agents.shotQaAgent,
             })
           );
-          saveState({ shotQaReport });
+          const approvedShotIds = new Set(
+            (shotQaReport?.entries || [])
+              .filter((entry) => entry?.canUseVideo === true || entry?.finalDecision === 'pass' || entry?.finalDecision === 'pass_with_enhancement')
+              .map((entry) => entry.shotId)
+          );
+          const rawVideoResultByShotId = new Map(
+            (rawVideoResults || []).map((result) => [result.shotId, result])
+          );
+          videoResults = (enhancedVideoResults || [])
+            .filter((result) => approvedShotIds.has(result.shotId))
+            .map((result) => {
+              const rawResult = rawVideoResultByShotId.get(result.shotId);
+              return {
+                shotId: result.shotId,
+                provider: 'runway',
+                status: result.status,
+                videoPath: result.enhancedVideoPath || result.videoPath || result.sourceVideoPath || null,
+                targetDurationSec: result.targetDurationSec || rawResult?.targetDurationSec || null,
+                durationSec:
+                  result.actualDurationSec ||
+                  result.targetDurationSec ||
+                  rawResult?.actualDurationSec ||
+                  rawResult?.targetDurationSec ||
+                  null,
+                enhancementApplied: Boolean(result.enhancementApplied),
+                enhancementProfile: result.enhancementProfile || 'none',
+              };
+            });
+          saveState({ shotQaReport, shotQaReportV2: shotQaReport, videoResults });
         } else {
-          deps.logger.info('Director', '【Step 9/11】使用缓存的镜头级 QA 结果');
+          deps.logger.info('Director', '【Step 11/13】使用缓存的镜头级 QA 结果');
           appendStepRun('shot_qa', {
             status: 'cached',
             detail: '使用缓存的镜头级 QA 结果',
@@ -976,7 +1048,7 @@ export function createDirector(overrides = {}) {
 
         let normalizedShots = Array.isArray(state.normalizedShots) ? state.normalizedShots : null;
         if (!normalizedShots) {
-          deps.logger.info('Director', '【Step 10/11】标准化对白...');
+          deps.logger.info('Director', '【Step 12/13】标准化对白...');
           const pronunciationLexiconProjectId = voiceProjectId ?? projectId;
           const pronunciationLexicon = pronunciationLexiconProjectId
             ? deps.loadPronunciationLexicon(
@@ -993,7 +1065,7 @@ export function createDirector(overrides = {}) {
           );
           saveState({ normalizedShots });
         } else {
-          deps.logger.info('Director', '【Step 10/11】使用缓存的对白标准化结果');
+          deps.logger.info('Director', '【Step 12/13】使用缓存的对白标准化结果');
           appendStepRun('normalize_dialogue', {
             status: 'cached',
             detail: '使用缓存的对白标准化结果',
@@ -1008,7 +1080,7 @@ export function createDirector(overrides = {}) {
         let audioResults = canReuseAudioCache ? state.audioResults : null;
         let audioVoiceResolution = Array.isArray(state.audioVoiceResolution) ? state.audioVoiceResolution : [];
         if (!audioResults) {
-          deps.logger.info('Director', '【Step 11/12】生成配音...');
+          deps.logger.info('Director', '【Step 13/14】生成配音...');
           const audioOptions = voiceProjectId
             ? {
                 projectId: voiceProjectId,
@@ -1026,7 +1098,7 @@ export function createDirector(overrides = {}) {
           audioVoiceResolution = Array.isArray(audioResults.voiceResolution) ? audioResults.voiceResolution : [];
           saveState({ audioResults, audioVoiceResolution, audioProjectId: voiceProjectId });
         } else {
-          deps.logger.info('Director', '【Step 11/12】使用缓存的音频结果');
+          deps.logger.info('Director', '【Step 13/14】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',

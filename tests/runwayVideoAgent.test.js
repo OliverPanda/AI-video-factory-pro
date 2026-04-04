@@ -10,6 +10,8 @@ test('runRunwayVideo skips static-image routed shots and records provider failur
         shotId: 'shot_ok',
         preferredProvider: 'runway',
         durationTargetSec: 4,
+        generationTier: 'enhanced',
+        variantCount: 2,
       },
       {
         shotId: 'shot_static',
@@ -20,6 +22,8 @@ test('runRunwayVideo skips static-image routed shots and records provider failur
         shotId: 'shot_fail',
         preferredProvider: 'runway',
         durationTargetSec: 5,
+        generationTier: 'hero',
+        variantCount: 3,
       },
     ],
     '/tmp/video',
@@ -33,8 +37,11 @@ test('runRunwayVideo skips static-image routed shots and records provider failur
         }
         return {
           provider: 'runway',
+          model: shotPackage.generationTier === 'hero' ? 'gen4_aleph' : 'gen4_turbo',
           videoPath: outputPath,
           taskId: `task_${shotPackage.shotId}`,
+          actualDurationSec: shotPackage.durationTargetSec,
+          variantIndex: shotPackage.variantCount > 1 ? 1 : 0,
         };
       },
     }
@@ -42,16 +49,22 @@ test('runRunwayVideo skips static-image routed shots and records provider failur
 
   assert.equal(videoRun.results.length, 3);
   assert.equal(videoRun.results[0].status, 'completed');
+  assert.equal(videoRun.results[0].model, 'gen4_turbo');
+  assert.equal(videoRun.results[0].actualDurationSec, 4);
+  assert.equal(videoRun.results[0].variantIndex, 1);
   assert.equal(videoRun.results[1].status, 'skipped');
+  assert.equal(videoRun.results[1].variantIndex, null);
   assert.equal(videoRun.results[2].failureCategory, 'provider_rate_limit');
+  assert.equal(videoRun.results[2].model, 'gen4_aleph');
+  assert.equal(videoRun.results[2].variantIndex, null);
   assert.equal(videoRun.report.failedCount, 1);
   assert.equal(videoRun.report.skippedCount, 1);
 });
 
 test('buildReport summarizes generated failed and skipped video shots', () => {
   const report = __testables.buildReport([
-    { shotId: 'a', provider: 'runway', status: 'completed' },
-    { shotId: 'b', provider: 'runway', status: 'failed', failureCategory: 'provider_timeout' },
+    { shotId: 'a', provider: 'runway', model: 'gen4_turbo', status: 'completed' },
+    { shotId: 'b', provider: 'runway', model: 'gen4_aleph', status: 'failed', failureCategory: 'provider_timeout' },
     { shotId: 'c', provider: 'static_image', status: 'skipped' },
   ]);
 
@@ -60,4 +73,5 @@ test('buildReport summarizes generated failed and skipped video shots', () => {
   assert.equal(report.failedCount, 1);
   assert.equal(report.skippedCount, 1);
   assert.deepEqual(report.providerBreakdown, { runway: 2, static_image: 1 });
+  assert.deepEqual(report.modelBreakdown, { gen4_turbo: 1, gen4_aleph: 1 });
 });

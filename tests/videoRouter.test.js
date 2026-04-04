@@ -17,6 +17,20 @@ test('buildShotPackages assembles complete shotPackage and prefers runway when r
     ],
     [{ shotId: 'shot_001', imagePath: '/tmp/shot_001.png', success: true }],
     {
+      performancePlan: [
+        {
+          shotId: 'shot_001',
+          performanceTemplate: 'dialogue_two_shot_tension',
+          actionBeatList: [{ atSec: 1.5, action: 'eye_contact_hold' }],
+          cameraMovePlan: { pattern: 'push_in', intensity: 'light' },
+          generationTier: 'enhanced',
+          variantCount: 2,
+          candidateSelectionRule: 'prefer_motion_pass',
+          regenPolicy: 'retry_once_then_fallback',
+          firstLastFramePolicy: 'first_frame_required',
+          enhancementHints: ['timing_normalizer'],
+        },
+      ],
       promptList: [{ shotId: 'shot_001', image_prompt: '皇城大殿内，两人对峙', negative_prompt: '' }],
     }
   );
@@ -32,6 +46,15 @@ test('buildShotPackages assembles complete shotPackage and prefers runway when r
     preferredProvider: 'runway',
     fallbackProviders: ['static_image'],
     audioRef: null,
+    performanceTemplate: 'dialogue_two_shot_tension',
+    actionBeatList: [{ atSec: 1.5, action: 'eye_contact_hold' }],
+    cameraMovePlan: { pattern: 'push_in', intensity: 'light' },
+    generationTier: 'enhanced',
+    variantCount: 2,
+    candidateSelectionRule: 'prefer_motion_pass',
+    regenPolicy: 'retry_once_then_fallback',
+    firstLastFramePolicy: 'first_frame_required',
+    enhancementHints: ['timing_normalizer'],
     qaRules: {
       mustProbeWithFfprobe: true,
       mustHaveNonZeroDuration: true,
@@ -53,10 +76,28 @@ test('routeVideoShots falls back to static image provider when no reference imag
       },
     ],
     [],
-    {}
+    {
+      performancePlan: [
+        {
+          shotId: 'shot_002',
+          performanceTemplate: 'ambient_transition_motion',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'drift', intensity: 'light' },
+          generationTier: 'base',
+          variantCount: 1,
+          candidateSelectionRule: 'single_best',
+          regenPolicy: 'fallback_only',
+          firstLastFramePolicy: 'first_frame_optional',
+          enhancementHints: [],
+        },
+      ],
+    }
   );
 
   assert.equal(shotPackages[0].preferredProvider, 'static_image');
   assert.deepEqual(shotPackages[0].referenceImages, []);
   assert.deepEqual(shotPackages[0].fallbackProviders, []);
+  assert.equal(shotPackages[0].performanceTemplate, 'ambient_transition_motion');
+  assert.equal(shotPackages[0].generationTier, 'base');
+  assert.equal(shotPackages[0].variantCount, 1);
 });

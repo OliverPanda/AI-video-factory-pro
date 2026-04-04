@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 `15` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 `17` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 快速检查“每个 agent 有没有留下可审计成果物”和“小白 QA 摘要”。
@@ -19,37 +19,41 @@ flowchart TD
     F --> H[Continuity Checker]
     C --> I[Motion Planner]
     H --> I
-    I --> J[Video Router]
-    F --> J
-    E --> J
-    J --> K[Runway Video Agent]
-    K --> L[Shot QA Agent]
-    C --> M[TTS Agent]
-    D --> M
-    M --> N[TTS QA Agent]
-    F --> O[Lip-sync Agent]
-    M --> O
-    L --> P[Video Composer]
-    N --> P
-    O --> P
-    F --> P
-    C --> P
-    P --> Q[output/final-video.mp4]
+    I --> J[Performance Planner]
+    J --> K[Video Router]
+    F --> K
+    E --> K
+    K --> L[Runway Video Agent]
+    L --> M[Motion Enhancer]
+    M --> N[Shot QA Agent]
+    C --> O[TTS Agent]
+    D --> O
+    O --> P[TTS QA Agent]
+    F --> Q[Lip-sync Agent]
+    O --> Q
+    N --> R[Video Composer]
+    P --> R
+    Q --> R
+    F --> R
+    C --> R
+    R --> S[output/final-video.mp4]
 ```
 
-## Phase 1 协作图
+## Phase 2 协作图
 
 ```mermaid
 flowchart LR
     subgraph Planning[规划层]
         SP[Script Parser]
         MP[Motion Planner]
+        PP[Performance Planner]
         VR[Video Router]
     end
 
     subgraph Asset[资产层]
         IG[Image Generator]
         RV[Runway Video Agent]
+        ME[Motion Enhancer]
         TTS[TTS Agent]
         LS[Lip-sync Agent]
     end
@@ -57,7 +61,7 @@ flowchart LR
     subgraph QA[质检层]
         CC[Consistency Checker]
         CQ[Continuity Checker]
-        SQ[Shot QA Agent]
+        SQ[Shot QA Agent v2]
         TQ[TTS QA Agent]
     end
 
@@ -70,10 +74,12 @@ flowchart LR
     IG --> CQ
     SP --> MP
     CQ --> MP
-    MP --> VR
+    MP --> PP
+    PP --> VR
     IG --> VR
     VR --> RV
-    RV --> SQ
+    RV --> ME
+    ME --> SQ
     SP --> TTS
     TTS --> TQ
     IG --> LS
@@ -104,6 +110,7 @@ flowchart LR
 资产生成层
 - Image Generator
 - Runway Video Agent
+- Motion Enhancer
 - TTS Agent
 - Lip-sync Agent
 
@@ -131,9 +138,11 @@ flowchart LR
 | Consistency Checker | `characterRegistry + imageResults` | `reports + needsRegeneration` | `05-consistency-checker/` | Director |
 | Continuity Checker | `shots + imageResults` | `reports + flaggedTransitions` | `06-continuity-checker/` | Director、Video Composer |
 | Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
-| Video Router | `motionPlan + imageResults + promptList` | `shotPackages` | `09b-video-router/` | Runway Video Agent、Director |
-| Runway Video Agent | `shotPackages` | `videoResults` | `09c-runway-video-agent/` | Shot QA、Director |
-| Shot QA Agent | `videoResults` | `shotQaReport` | `09d-shot-qa/` | Director、Video Composer |
+| Performance Planner | `scriptData + shotPlan + motionPlan + continuity context` | `performancePlan` | `09b-performance-planner/` | Video Router、Director |
+| Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages` | `09c-video-router/` | Runway Video Agent、Director |
+| Runway Video Agent | `shotPackages` | `rawVideoResults` | `09d-runway-video-agent/` | Motion Enhancer、Director |
+| Motion Enhancer | `rawVideoResults + shotPackages + performancePlan` | `enhancedVideoResults` | `09e-motion-enhancer/` | Shot QA、Director |
+| Shot QA Agent | `enhancedVideoResults` | `shotQaReportV2 + final video bridge decision` | `09f-shot-qa/` | Director、Video Composer |
 | TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | TTS QA、Lip-sync、Video Composer |
 | TTS QA Agent | `shots + audioResults + voiceResolution` | `tts-qa report + ASR report + manual review sample` | `08-tts-qa/` | Director、人工 QA |
 | Lip-sync Agent | `shots + imageResults + audioResults` | `lipsync clips + lipsync report` | `08b-lipsync-agent/` | Video Composer、人工 QA |
@@ -156,6 +165,12 @@ flowchart TD
 2. `lipsyncResults`
 3. `animationClips`
 4. `imageResults`
+
+注意：
+
+- `videoComposer` 继续只消费 `videoResults`
+- `rawVideoResults / enhancedVideoResults` 只在视频主链内部流转
+- `Director` 会在 `Shot QA v2` 完成后统一桥接最终 `videoResults`
 
 ## QA 摘要层
 
@@ -423,7 +438,122 @@ Director 会在 run 根目录再汇总一层：
 - `08b-lipsync-agent/2-metrics/qa-summary.json`
 - `08b-lipsync-agent/3-errors/<shotId>-lipsync-error.json`
 
-### 11. Video Composer
+### 11. Motion Planner
+
+输入：
+
+- `shots`
+- `continuity context`
+
+输出：
+
+- `motionPlan`
+
+关键落盘：
+
+- `09a-motion-planner/1-outputs/motion-plan.json`
+- `09a-motion-planner/2-metrics/motion-plan-metrics.json`
+- `09a-motion-planner/1-outputs/qa-summary.md`
+- `09a-motion-planner/2-metrics/qa-summary.json`
+
+### 12. Performance Planner
+
+输入：
+
+- `scriptData`
+- `shotPlan`
+- `motionPlan`
+- continuity context
+
+输出：
+
+- `performancePlan`
+
+关键落盘：
+
+- `09b-performance-planner/1-outputs/performance-plan.json`
+- `09b-performance-planner/2-metrics/performance-plan-metrics.json`
+- `09b-performance-planner/1-outputs/qa-summary.md`
+- `09b-performance-planner/2-metrics/qa-summary.json`
+
+### 13. Video Router
+
+输入：
+
+- `motionPlan`
+- `performancePlan`
+- `imageResults`
+- `promptList`
+
+输出：
+
+- `shotPackages`
+
+关键落盘：
+
+- `09c-video-router/1-outputs/shot-packages.json`
+- `09c-video-router/2-metrics/video-router-metrics.json`
+- `09c-video-router/1-outputs/qa-summary.md`
+- `09c-video-router/2-metrics/qa-summary.json`
+
+### 14. Runway Video Agent
+
+输入：
+
+- `shotPackages`
+
+输出：
+
+- `rawVideoResults`
+
+关键落盘：
+
+- `09d-runway-video-agent/1-outputs/raw-video-results.json`
+- `09d-runway-video-agent/2-metrics/video-generation-metrics.json`
+- `09d-runway-video-agent/1-outputs/qa-summary.md`
+- `09d-runway-video-agent/2-metrics/qa-summary.json`
+- `09d-runway-video-agent/3-errors/<shotId>-*.json`
+
+### 15. Motion Enhancer
+
+输入：
+
+- `rawVideoResults`
+- `shotPackages`
+- `performancePlan`
+
+输出：
+
+- `enhancedVideoResults`
+
+关键落盘：
+
+- `09e-motion-enhancer/1-outputs/enhanced-video-results.json`
+- `09e-motion-enhancer/2-metrics/motion-enhancer-metrics.json`
+- `09e-motion-enhancer/1-outputs/qa-summary.md`
+- `09e-motion-enhancer/2-metrics/qa-summary.json`
+
+### 16. Shot QA Agent
+
+输入：
+
+- `enhancedVideoResults`
+
+输出：
+
+- `shotQaReportV2`
+- 最终桥接决策依据
+
+关键落盘：
+
+- `09f-shot-qa/1-outputs/shot-qa-report.json`
+- `09f-shot-qa/1-outputs/manual-review-shots.json`
+- `09f-shot-qa/1-outputs/shot-qa-report.md`
+- `09f-shot-qa/2-metrics/shot-qa-metrics.json`
+- `09f-shot-qa/1-outputs/qa-summary.md`
+- `09f-shot-qa/2-metrics/qa-summary.json`
+
+### 17. Video Composer
 
 输入：
 
@@ -469,9 +599,11 @@ runs/<runDir>/
   08-tts-qa/manifest.json
   08b-lipsync-agent/manifest.json
   09a-motion-planner/manifest.json
-  09b-video-router/manifest.json
-  09c-runway-video-agent/manifest.json
-  09d-shot-qa/manifest.json
+  09b-performance-planner/manifest.json
+  09c-video-router/manifest.json
+  09d-runway-video-agent/manifest.json
+  09e-motion-enhancer/manifest.json
+  09f-shot-qa/manifest.json
   10-video-composer/manifest.json
 ```
 
@@ -486,6 +618,10 @@ runs/<runDir>/
 - 声线解析：`voice-resolution.json`
 - TTS QA 样本：`manual-review-sample.md`
 - Lip-sync 报告：`lipsync-report.md`
+- 表演规划：`performance-plan.json`
+- 原始视频结果：`raw-video-results.json`
+- 增强视频结果：`enhanced-video-results.json`
+- 镜头 QA 报告：`shot-qa-report.json`
 - 合成计划：`compose-plan.json`
 
 ## 当前最关键的边界
@@ -500,6 +636,10 @@ runs/<runDir>/
   - 配音最小自动验收
 - `Lip-sync Agent`
   - 口型生成与轻量 QA
+- `Performance Planner`
+  - 镜头内动作、表演节拍和生成层级规划
+- `Motion Enhancer`
+  - 对 provider 原始结果做规则增强
 - `Director -> qa-overview`
   - 整轮 run 的小白总览
 

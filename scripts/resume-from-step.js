@@ -42,8 +42,10 @@ const STEP_ALIASES = {
   'continuity-checker': 'continuity',
   video: 'video',
   'video-generation': 'video',
+  'performance-planner': 'video',
   'video-router': 'video',
   'runway-video-agent': 'video',
+  'motion-enhancer': 'video',
   'shot-qa': 'video',
   dialogue: 'dialogue',
   'normalize-dialogue': 'dialogue',
@@ -68,9 +70,13 @@ const STEP_STATE_KEYS = {
     'continuityReport',
     'continuityFlaggedTransitions',
     'motionPlan',
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -93,9 +99,13 @@ const STEP_STATE_KEYS = {
     'continuityReport',
     'continuityFlaggedTransitions',
     'motionPlan',
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -117,9 +127,13 @@ const STEP_STATE_KEYS = {
     'continuityReport',
     'continuityFlaggedTransitions',
     'motionPlan',
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -140,9 +154,13 @@ const STEP_STATE_KEYS = {
     'continuityReport',
     'continuityFlaggedTransitions',
     'motionPlan',
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -162,9 +180,13 @@ const STEP_STATE_KEYS = {
     'continuityReport',
     'continuityFlaggedTransitions',
     'motionPlan',
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -180,9 +202,13 @@ const STEP_STATE_KEYS = {
     'animationClips',
   ],
   video: [
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
@@ -615,8 +641,23 @@ function collectShotIds(state) {
   const fromVideo = Array.isArray(state?.videoResults)
     ? state.videoResults.map((item) => item?.shotId).filter(Boolean)
     : [];
+  const fromRawVideo = Array.isArray(state?.rawVideoResults)
+    ? state.rawVideoResults.map((item) => item?.shotId).filter(Boolean)
+    : [];
+  const fromEnhancedVideo = Array.isArray(state?.enhancedVideoResults)
+    ? state.enhancedVideoResults.map((item) => item?.shotId).filter(Boolean)
+    : [];
 
-  return Array.from(new Set([...fromNormalizedShots, ...fromImageResults, ...fromLipsync, ...fromVideo]));
+  return Array.from(
+    new Set([
+      ...fromNormalizedShots,
+      ...fromImageResults,
+      ...fromLipsync,
+      ...fromVideo,
+      ...fromRawVideo,
+      ...fromEnhancedVideo,
+    ])
+  );
 }
 
 function collectFilesToRemove(step, state, dirs, baseTempDir = process.env.TEMP_DIR || './temp') {
@@ -635,8 +676,18 @@ function collectFilesToRemove(step, state, dirs, baseTempDir = process.env.TEMP_
     const videoPaths = Array.isArray(state?.videoResults)
       ? state.videoResults.map((item) => item?.videoPath).filter(Boolean)
       : [];
+    const rawVideoPaths = Array.isArray(state?.rawVideoResults)
+      ? state.rawVideoResults.map((item) => item?.videoPath).filter(Boolean)
+      : [];
+    const enhancedVideoPaths = Array.isArray(state?.enhancedVideoResults)
+      ? state.enhancedVideoResults
+          .map((item) => item?.enhancedVideoPath || item?.videoPath)
+          .filter(Boolean)
+      : [];
     files.push(dirs.video);
     files.push(...videoPaths);
+    files.push(...rawVideoPaths);
+    files.push(...enhancedVideoPaths);
   }
 
   if (STEP_SEQUENCE.indexOf(step) <= STEP_SEQUENCE.indexOf('lipsync')) {

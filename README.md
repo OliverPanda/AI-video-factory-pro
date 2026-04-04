@@ -55,7 +55,7 @@ cp .env.example .env
 - `XFYUN_TTS_API_KEY`
 - `XFYUN_TTS_API_SECRET`
 
-如果要启用 Phase 1 的动态镜头主路径，还需要：
+如果要启用 Phase 2 的动态镜头主路径，还需要：
 
 - `RUNWAY_API_KEY`
 
@@ -173,6 +173,8 @@ output/
 - [output 目录说明](docs/runtime/output-structure.md)
 - [断点续跑说明](docs/runtime/resume-from-step.md)
 - [Phase 1 验收报告](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase1-acceptance.md)
+- [Phase 2 设计文档](docs/superpowers/specs/2026-04-04-dynamic-shortdrama-phase2-design.md)
+- [Phase 2 实施计划](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase2-implementation.md)
 
 ### SOP
 
@@ -189,24 +191,53 @@ output/
 
 如果你只想先判断“这一轮过没过、卡在哪”，优先看 run 根目录的 `qa-overview.md`。
 
-## Phase 1 动态镜头
+## Phase 2 动态镜头主链
 
-当前主视觉优先级已经升级为：
+当前成片主视觉优先级保持为：
 
 1. `videoResults`
 2. `lipsyncResults`
 3. `animationClips`
 4. `imageResults`
 
+但 `videoResults` 的内部生成链路已经升级为：
+
+```text
+motionPlan
+-> performancePlan
+-> shotPackages
+-> rawVideoResults
+-> enhancedVideoResults
+-> shotQaReportV2
+-> videoResults
+-> composer
+```
+
 也就是说：
 
-- 配了 `RUNWAY_API_KEY` 且视频镜头通过 `Shot QA` 时，成片会优先使用真实视频镜头
+- 配了 `RUNWAY_API_KEY` 且视频镜头通过 `Shot QA v2` 时，成片会优先使用增强后的真实视频镜头
+- `videoComposer` 继续只消费 `videoResults`，不直接理解 `rawVideoResults / enhancedVideoResults`
 - 没有视频结果或 QA 不通过时，系统会显式回退到旧的静图/口型/动画路径
 
-对应新增 run package 目录：
+对应 Phase 2 run package 目录：
 
 - `09a-motion-planner`
-- `09b-video-router`
-- `09c-runway-video-agent`
-- `09d-shot-qa`
+- `09b-performance-planner`
+- `09c-video-router`
+- `09d-runway-video-agent`
+- `09e-motion-enhancer`
+- `09f-shot-qa`
 - `10-video-composer`
+
+Phase 2 当前解决的是“单镜头更像真实动态镜头”，不等于已经完成：
+
+- 多角色复杂打斗总编排
+- bridge shot agent
+- 多镜头级连续性重构
+- 商用品质最终达标
+
+建议验收命令：
+
+```bash
+node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+```

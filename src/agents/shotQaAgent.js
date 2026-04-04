@@ -31,6 +31,9 @@ async function probeVideo(videoPath) {
   const durationSec = Number.parseFloat(String(stdout || '').trim());
   return {
     durationSec: Number.isFinite(durationSec) ? durationSec : null,
+    freezeDurationSec: 0,
+    nearDuplicateRatio: 0,
+    motionScore: 1,
   };
 }
 
@@ -44,6 +47,42 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec) {
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
 }
 
+function getMotionThresholds(performanceTemplate) {
+  if (performanceTemplate === 'fight_impact_insert') {
+    return {
+      maxFreezeDurationSec: 1.2,
+      maxNearDuplicateRatio: 0.75,
+      minMotionScore: 0.18,
+    };
+  }
+
+  return {
+    maxFreezeDurationSec: 2.4,
+    maxNearDuplicateRatio: 0.9,
+    minMotionScore: 0.08,
+  };
+}
+
+function evaluateMotionStatus(result, probeResult) {
+  const thresholds = getMotionThresholds(result.performanceTemplate);
+  const freezeDurationSec = Number.isFinite(probeResult.freezeDurationSec) ? probeResult.freezeDurationSec : 0;
+  const nearDuplicateRatio = Number.isFinite(probeResult.nearDuplicateRatio) ? probeResult.nearDuplicateRatio : 0;
+  const motionScore = Number.isFinite(probeResult.motionScore) ? probeResult.motionScore : 1;
+
+  const passed =
+    freezeDurationSec <= thresholds.maxFreezeDurationSec &&
+    nearDuplicateRatio <= thresholds.maxNearDuplicateRatio &&
+    motionScore >= thresholds.minMotionScore;
+
+  return {
+    motionStatus: passed ? 'pass' : 'fail',
+    freezeDurationSec,
+    nearDuplicateRatio,
+    motionScore,
+    decisionReason: passed ? null : 'motion_below_threshold',
+  };
+}
+
 export async function evaluateShotVideos(videoResults = [], options = {}) {
   const entries = [];
   const probe = options.probeVideo || probeVideo;
@@ -53,8 +92,17 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
       entries.push({
         shotId: result.shotId,
         qaStatus: 'warn',
+        engineeringStatus: 'fail',
+        motionStatus: 'unknown',
         canUseVideo: false,
         fallbackToImage: true,
+        freezeDurationSec: null,
+        nearDuplicateRatio: null,
+        motionScore: null,
+        enhancementApplied: Boolean(result.enhancementApplied),
+        enhancementProfile: result.enhancementProfile || 'none',
+        finalDecision: 'fallback_to_image',
+        decisionReason: result.failureCategory || result.reason || 'video_unavailable',
         reason: result.failureCategory || result.reason || 'video_unavailable',
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
@@ -66,8 +114,17 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
       entries.push({
         shotId: result.shotId,
         qaStatus: 'warn',
+        engineeringStatus: 'fail',
+        motionStatus: 'unknown',
         canUseVideo: false,
         fallbackToImage: true,
+        freezeDurationSec: null,
+        nearDuplicateRatio: null,
+        motionScore: null,
+        enhancementApplied: Boolean(result.enhancementApplied),
+        enhancementProfile: result.enhancementProfile || 'none',
+        finalDecision: 'fallback_to_image',
+        decisionReason: 'missing_or_empty_video_file',
         reason: 'missing_or_empty_video_file',
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
@@ -77,13 +134,34 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
 
     try {
       const probeResult = await probe(result.videoPath);
-      const acceptable = isDurationAcceptable(result.targetDurationSec, probeResult.durationSec);
+      const engineeringPass = isDurationAcceptable(result.targetDurationSec, probeResult.durationSec);
+      const motionEvaluation = engineeringPass
+        ? evaluateMotionStatus(result, probeResult)
+        : {
+            motionStatus: 'unknown',
+            freezeDurationSec: Number.isFinite(probeResult.freezeDurationSec) ? probeResult.freezeDurationSec : 0,
+            nearDuplicateRatio: Number.isFinite(probeResult.nearDuplicateRatio) ? probeResult.nearDuplicateRatio : 0,
+            motionScore: Number.isFinite(probeResult.motionScore) ? probeResult.motionScore : 0,
+            decisionReason: 'duration_out_of_range',
+          };
+      const canUseVideo = engineeringPass && motionEvaluation.motionStatus === 'pass';
       entries.push({
         shotId: result.shotId,
-        qaStatus: acceptable ? 'pass' : 'warn',
-        canUseVideo: acceptable,
-        fallbackToImage: !acceptable,
-        reason: acceptable ? null : 'duration_out_of_range',
+        qaStatus: canUseVideo ? 'pass' : 'warn',
+        engineeringStatus: engineeringPass ? 'pass' : 'fail',
+        motionStatus: motionEvaluation.motionStatus,
+        canUseVideo,
+        fallbackToImage: !canUseVideo,
+        freezeDurationSec: motionEvaluation.freezeDurationSec,
+        nearDuplicateRatio: motionEvaluation.nearDuplicateRatio,
+        motionScore: motionEvaluation.motionScore,
+        enhancementApplied: Boolean(result.enhancementApplied),
+        enhancementProfile: result.enhancementProfile || 'none',
+        finalDecision: canUseVideo
+          ? (result.enhancementApplied ? 'pass_with_enhancement' : 'pass')
+          : 'fallback_to_image',
+        decisionReason: canUseVideo ? null : motionEvaluation.decisionReason,
+        reason: canUseVideo ? null : motionEvaluation.decisionReason,
         durationSec: probeResult.durationSec,
         targetDurationSec: result.targetDurationSec || null,
       });
@@ -91,8 +169,17 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
       entries.push({
         shotId: result.shotId,
         qaStatus: 'warn',
+        engineeringStatus: 'fail',
+        motionStatus: 'unknown',
         canUseVideo: false,
         fallbackToImage: true,
+        freezeDurationSec: null,
+        nearDuplicateRatio: null,
+        motionScore: null,
+        enhancementApplied: Boolean(result.enhancementApplied),
+        enhancementProfile: result.enhancementProfile || 'none',
+        finalDecision: 'fallback_to_image',
+        decisionReason: 'ffprobe_failed',
         reason: 'ffprobe_failed',
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
@@ -107,10 +194,14 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
 function buildReport(entries) {
   const passedEntries = entries.filter((entry) => entry.canUseVideo);
   const fallbackEntries = entries.filter((entry) => entry.fallbackToImage);
+  const engineeringPassedEntries = entries.filter((entry) => entry.engineeringStatus === 'pass');
+  const motionPassedEntries = entries.filter((entry) => entry.motionStatus === 'pass');
   return {
     status: fallbackEntries.length > 0 ? 'warn' : 'pass',
     entries,
     plannedShotCount: entries.length,
+    engineeringPassedCount: engineeringPassedEntries.length,
+    motionPassedCount: motionPassedEntries.length,
     passedCount: passedEntries.length,
     fallbackCount: fallbackEntries.length,
     fallbackShots: fallbackEntries.map((entry) => entry.shotId),
@@ -125,8 +216,11 @@ function writeArtifacts(report, artifactContext) {
   }
 
   saveJSON(path.join(artifactContext.outputsDir, 'shot-qa-report.json'), report);
+  saveJSON(path.join(artifactContext.outputsDir, 'manual-review-shots.json'), []);
   saveJSON(path.join(artifactContext.metricsDir, 'shot-qa-metrics.json'), {
     plannedShotCount: report.plannedShotCount,
+    engineeringPassedCount: report.engineeringPassedCount,
+    motionPassedCount: report.motionPassedCount,
     passedCount: report.passedCount,
     fallbackCount: report.fallbackCount,
   });
@@ -144,10 +238,12 @@ function writeArtifacts(report, artifactContext) {
   saveJSON(artifactContext.manifestPath, {
     status: report.status === 'warn' ? 'completed_with_errors' : 'completed',
     plannedShotCount: report.plannedShotCount,
+    engineeringPassedCount: report.engineeringPassedCount,
+    motionPassedCount: report.motionPassedCount,
     passedCount: report.passedCount,
     fallbackCount: report.fallbackCount,
     fallbackShots: report.fallbackShots,
-    outputFiles: ['shot-qa-report.json', 'shot-qa-metrics.json', 'shot-qa-report.md'],
+    outputFiles: ['shot-qa-report.json', 'manual-review-shots.json', 'shot-qa-metrics.json', 'shot-qa-report.md'],
   });
   writeAgentQaSummary(
     {
@@ -168,6 +264,8 @@ function writeArtifacts(report, artifactContext) {
       evidenceFiles: ['1-outputs/shot-qa-report.json', '2-metrics/shot-qa-metrics.json'],
       metrics: {
         plannedShotCount: report.plannedShotCount,
+        engineeringPassedCount: report.engineeringPassedCount,
+        motionPassedCount: report.motionPassedCount,
         passedCount: report.passedCount,
         fallbackCount: report.fallbackCount,
       },
@@ -186,5 +284,7 @@ export async function runShotQa(videoResults = [], options = {}) {
 export const __testables = {
   buildReport,
   evaluateShotVideos,
+  evaluateMotionStatus,
+  getMotionThresholds,
   isDurationAcceptable,
 };

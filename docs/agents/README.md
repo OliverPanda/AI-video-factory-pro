@@ -62,10 +62,12 @@ Director 还会在 run 根目录汇总生成：
 | 9 | TTS QA Agent | 对配音结果做最小自动验收，输出 `pass / warn / block` | `src/agents/ttsQaAgent.js` |
 | 10 | Lip-sync Agent | 为需要说话表演的镜头生成口型片段，并输出 fallback / 人工复核建议 | `src/agents/lipsyncAgent.js` |
 | 11 | Motion Planner Agent | 为每个镜头生成 `shotType / cameraIntent / durationTargetSec` 动态规划 | `src/agents/motionPlanner.js` |
-| 12 | Video Router Agent | 把 `motionPlan + imageResults` 组装为可执行 `shotPackage` | `src/agents/videoRouter.js` |
-| 13 | Runway Video Agent | 调用 Runway 生成镜头级视频，输出 `videoResults` | `src/agents/runwayVideoAgent.js` |
-| 14 | Shot QA Agent | 对生成的视频镜头做 `ffprobe / duration / empty-file` 验收 | `src/agents/shotQaAgent.js` |
-| 15 | 合成Agent（Video Composer） | 优先消费 `videoResults`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
+| 12 | Performance Planner Agent | 把镜头规划升级为 `performancePlan`，补齐动作节拍、表演模板、生成层级 | `src/agents/performancePlanner.js` |
+| 13 | Video Router Agent | 把 `motionPlan + performancePlan + imageResults` 组装为 `shotPackage v2` | `src/agents/videoRouter.js` |
+| 14 | Runway Video Agent | 调用 Runway 生成镜头级视频，输出 `rawVideoResults` | `src/agents/runwayVideoAgent.js` |
+| 15 | Motion Enhancer Agent | 对原始镜头做时长/编码/轻运动增强，输出 `enhancedVideoResults` | `src/agents/motionEnhancer.js` |
+| 16 | Shot QA Agent | 对增强后镜头做工程可用 + 动态可用双层验收，并桥接最终 `videoResults` | `src/agents/shotQaAgent.js` |
+| 17 | 合成Agent（Video Composer） | 继续只消费 `videoResults`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
 
 ## 执行顺序
 
@@ -74,11 +76,13 @@ Director 还会在 run 根目录汇总生成：
 3. 图像生成Agent 负责批量出图，随后一致性验证Agent 检查并在必要时触发重试。
 4. 一致性验证之后，连贯性检查Agent 评估跨分镜承接。
 5. 连贯性检查之后，Motion Planner Agent 生成镜头级动态规划。
-6. Video Router Agent 把参考图和镜头规划组装成 `shotPackage`，决定是否路由到 Runway。
-7. Runway Video Agent 生成动态镜头，Shot QA Agent 决定哪些镜头可直接进入成片、哪些必须 fallback。
-8. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
-9. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
-10. 合成Agent 最终按 `video > lipsync > animation > image` 的优先级拼装成片。
+6. Performance Planner Agent 把动态规划升级为 `performancePlan`，补齐动作节拍、表演模板和 `generationTier / variantCount`。
+7. Video Router Agent 把参考图、镜头规划和表演规划组装成 `shotPackage v2`。
+8. Runway Video Agent 生成 `rawVideoResults`，Motion Enhancer Agent 产出 `enhancedVideoResults`。
+9. Shot QA Agent 做工程可用 + 动态可用双层验收，由 Director 桥接最终 `videoResults`。
+10. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
+11. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
+12. 合成Agent 最终按 `video > lipsync > animation > image` 的优先级拼装成片。
 
 ## 详细文档入口
 
@@ -90,6 +94,8 @@ Director 还会在 run 根目录汇总生成：
 - [一致性验证 Agent（Consistency Checker）](consistency-checker.md)
 - [连贯性检查 Agent（Continuity Checker）](continuity-checker.md)
 - [配音 Agent（TTS）](tts-agent.md)
+- [表演规划 Agent（Performance Planner）](performance-planner.md)
+- [镜头增强 Agent（Motion Enhancer）](motion-enhancer.md)
 - [合成 Agent 详细说明（Video Composer）](video-composer.md)
 - [视觉设计链路说明](visual-design.md)
 - [Agent 间输入输出关系图](agent-io-map.md)

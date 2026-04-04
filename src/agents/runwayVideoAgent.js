@@ -33,6 +33,13 @@ function buildReport(results) {
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
+  const modelBreakdown = results.reduce((acc, item) => {
+    if (!item.model) {
+      return acc;
+    }
+    acc[item.model] = (acc[item.model] || 0) + 1;
+    return acc;
+  }, {});
 
   return {
     status: failed.length > 0 ? 'warn' : 'pass',
@@ -41,6 +48,7 @@ function buildReport(results) {
     failedCount: failed.length,
     skippedCount: skipped.length,
     providerBreakdown,
+    modelBreakdown,
     warnings: failed.map((item) => `${item.shotId}:${item.failureCategory || item.reason || 'generation_failed'}`),
     blockers: [],
   };
@@ -51,7 +59,7 @@ function writeArtifacts(results, report, artifactContext) {
     return;
   }
 
-  saveJSON(path.join(artifactContext.outputsDir, 'video.index.json'), results);
+  saveJSON(path.join(artifactContext.outputsDir, 'raw-video-results.json'), results);
   saveJSON(path.join(artifactContext.metricsDir, 'video-generation-report.json'), report);
   writeTextFile(
     path.join(artifactContext.outputsDir, 'video-report.md'),
@@ -74,7 +82,8 @@ function writeArtifacts(results, report, artifactContext) {
     failedCount: report.failedCount,
     skippedCount: report.skippedCount,
     providerBreakdown: report.providerBreakdown,
-    outputFiles: ['video.index.json', 'video-generation-report.json', 'video-report.md'],
+    modelBreakdown: report.modelBreakdown,
+    outputFiles: ['raw-video-results.json', 'video-generation-report.json', 'video-report.md'],
   });
   writeAgentQaSummary(
     {
@@ -92,7 +101,7 @@ function writeArtifacts(results, report, artifactContext) {
       passItems: [`已生成镜头数：${report.generatedCount}`],
       warnItems: report.warnings,
       nextAction: '继续进行镜头级 QA，确认哪些镜头可直接进入成片。',
-      evidenceFiles: ['1-outputs/video.index.json', '2-metrics/video-generation-report.json'],
+      evidenceFiles: ['1-outputs/raw-video-results.json', '2-metrics/video-generation-report.json'],
       metrics: {
         plannedShotCount: report.plannedShotCount,
         generatedCount: report.generatedCount,
@@ -116,7 +125,10 @@ export async function runRunwayVideo(shotPackages = [], videoDir, options = {}) 
         status: 'skipped',
         reason: 'routed_to_static_image',
         videoPath: null,
+        model: null,
         targetDurationSec: shotPackage.durationTargetSec,
+        actualDurationSec: null,
+        variantIndex: null,
       });
       continue;
     }
@@ -128,11 +140,14 @@ export async function runRunwayVideo(shotPackages = [], videoDir, options = {}) 
         shotId: shotPackage.shotId,
         preferredProvider: shotPackage.preferredProvider,
         provider: run?.provider || 'runway',
+        model: run?.model || null,
         status: 'completed',
         videoPath: run?.videoPath || outputPath,
         outputUrl: run?.outputUrl || null,
         taskId: run?.taskId || null,
         targetDurationSec: shotPackage.durationTargetSec,
+        actualDurationSec: run?.actualDurationSec || shotPackage.durationTargetSec || null,
+        variantIndex: Number.isInteger(run?.variantIndex) ? run.variantIndex : null,
       });
     } catch (error) {
       const normalizedError = normalizeProviderError(error);
@@ -140,9 +155,12 @@ export async function runRunwayVideo(shotPackages = [], videoDir, options = {}) 
         shotId: shotPackage.shotId,
         preferredProvider: shotPackage.preferredProvider,
         provider: 'runway',
+        model: shotPackage.generationTier === 'hero' ? 'gen4_aleph' : 'gen4_turbo',
         status: 'failed',
         videoPath: null,
         targetDurationSec: shotPackage.durationTargetSec,
+        actualDurationSec: null,
+        variantIndex: null,
         failureCategory: normalizedError.category,
         error: normalizedError.message,
         errorCode: normalizedError.code,

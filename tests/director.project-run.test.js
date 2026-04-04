@@ -760,8 +760,10 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'consistency_check',
         'continuity_check',
         'plan_motion',
+        'plan_performance',
         'route_video_shots',
         'generate_video_clips',
+        'enhance_video_clips',
         'shot_qa',
         'normalize_dialogue',
         'generate_audio',
@@ -975,8 +977,10 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['consistency_check', 'skipped'],
         ['continuity_check', 'skipped'],
         ['plan_motion', 'completed'],
+        ['plan_performance', 'completed'],
         ['route_video_shots', 'completed'],
         ['generate_video_clips', 'completed'],
+        ['enhance_video_clips', 'completed'],
         ['shot_qa', 'completed'],
         ['normalize_dialogue', 'completed'],
         ['generate_audio', 'completed'],
@@ -1102,6 +1106,8 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
     const composeCalls = [];
+    const performanceCalls = [];
+    const enhancerCalls = [];
 
     const director = createDirector({
       initDirs: () => dirs,
@@ -1138,6 +1144,18 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           videoGenerationMode: 'runway_image_to_video',
           visualGoal: shot.scene,
         })),
+      planPerformance: async (motionPlan) => {
+        performanceCalls.push(motionPlan.map((item) => item.shotId));
+        return motionPlan.map((item) => ({
+          shotId: item.shotId,
+          performanceTemplate: item.shotId === 'shot_1' ? 'dialogue_two_shot_tension' : 'ambient_transition_motion',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'push_in' },
+          generationTier: item.shotId === 'shot_1' ? 'enhanced' : 'base',
+          variantCount: item.shotId === 'shot_1' ? 2 : 1,
+          enhancementHints: item.shotId === 'shot_1' ? ['timing_normalizer'] : [],
+        }));
+      },
       routeVideoShots: async (shots) =>
         shots.map((shot) => ({
           shotId: shot.id,
@@ -1149,21 +1167,62 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           preferredProvider: 'runway',
           fallbackProviders: ['static_image'],
           audioRef: null,
+          performanceTemplate: shot.id === 'shot_1' ? 'dialogue_two_shot_tension' : 'ambient_transition_motion',
+          generationTier: shot.id === 'shot_1' ? 'enhanced' : 'base',
+          variantCount: shot.id === 'shot_1' ? 2 : 1,
+          enhancementHints: shot.id === 'shot_1' ? ['timing_normalizer'] : [],
           qaRules: { mustProbeWithFfprobe: true },
         })),
       runRunwayVideo: async () => ({
         results: [
-          { shotId: 'shot_1', provider: 'runway', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
-          { shotId: 'shot_2', provider: 'runway', status: 'completed', videoPath: '/tmp/shot_2.mp4', targetDurationSec: 3 },
+          { shotId: 'shot_1', provider: 'runway', model: 'gen4_turbo', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
+          { shotId: 'shot_2', provider: 'runway', model: 'gen4_turbo', status: 'completed', videoPath: '/tmp/shot_2.mp4', targetDurationSec: 3 },
         ],
         report: { status: 'pass', warnings: [], blockers: [] },
       }),
+      runMotionEnhancer: async (rawResults) => {
+        enhancerCalls.push(rawResults.map((item) => item.shotId));
+        return [
+          {
+            shotId: 'shot_1',
+            sourceVideoPath: '/tmp/shot_1.mp4',
+            enhancementApplied: true,
+            enhancementProfile: 'timing_normalizer',
+            enhancementActions: ['timing_normalizer'],
+            enhancedVideoPath: '/tmp/shot_1-enhanced.mp4',
+            durationAdjusted: true,
+            cameraMotionInjected: false,
+            interpolationApplied: false,
+            stabilizationApplied: false,
+            qualityDelta: 'improved',
+            status: 'completed',
+            error: null,
+          },
+          {
+            shotId: 'shot_2',
+            sourceVideoPath: '/tmp/shot_2.mp4',
+            enhancementApplied: false,
+            enhancementProfile: 'none',
+            enhancementActions: [],
+            enhancedVideoPath: '/tmp/shot_2.mp4',
+            durationAdjusted: false,
+            cameraMotionInjected: false,
+            interpolationApplied: false,
+            stabilizationApplied: false,
+            qualityDelta: 'unchanged',
+            status: 'completed',
+            error: null,
+          },
+        ];
+      },
       runShotQa: async () => ({
         status: 'warn',
         entries: [
-          { shotId: 'shot_1', canUseVideo: true, fallbackToImage: false },
-          { shotId: 'shot_2', canUseVideo: false, fallbackToImage: true, reason: 'duration_out_of_range' },
+          { shotId: 'shot_1', canUseVideo: true, fallbackToImage: false, finalDecision: 'pass_with_enhancement' },
+          { shotId: 'shot_2', canUseVideo: false, fallbackToImage: true, finalDecision: 'fallback_to_image', reason: 'duration_out_of_range' },
         ],
+        engineeringPassedCount: 2,
+        motionPassedCount: 1,
         fallbackCount: 1,
         fallbackShots: ['shot_2'],
         warnings: ['shot_2:duration_out_of_range'],
@@ -1185,10 +1244,12 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
     });
 
     assert.equal(composeCalls.length, 1);
+    assert.deepEqual(performanceCalls, [['shot_1', 'shot_2']]);
+    assert.deepEqual(enhancerCalls, [['shot_1', 'shot_2']]);
     assert.deepEqual(composeCalls[0].videoClips, [
       {
         shotId: 'shot_1',
-        videoPath: '/tmp/shot_1.mp4',
+        videoPath: '/tmp/shot_1-enhanced.mp4',
         durationSec: 4,
         status: 'completed',
         provider: 'runway',

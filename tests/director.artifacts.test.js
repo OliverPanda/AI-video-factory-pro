@@ -79,9 +79,11 @@ test('director creates manifest timeline and agent directories for an episode ru
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09a-motion-planner', 'manifest.json')), true);
-    assert.equal(fs.existsSync(path.join(expectedRunDir, '09b-video-router', 'manifest.json')), true);
-    assert.equal(fs.existsSync(path.join(expectedRunDir, '09c-runway-video-agent', 'manifest.json')), true);
-    assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-shot-qa', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09b-performance-planner', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09c-video-router', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-runway-video-agent', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09e-motion-enhancer', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09f-shot-qa', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '10-video-composer', 'manifest.json')), true);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(expectedRunDir, 'manifest.json'), 'utf-8'));

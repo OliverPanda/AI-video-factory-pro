@@ -80,9 +80,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[plan_motion] --> B[route_video_shots]
-    B --> C[generate_video_clips]
-    C --> D[shot_qa]
+    A[plan_motion] --> B[plan_performance]
+    B --> C[route_video_shots]
+    C --> D[generate_raw_video_clips]
+    D --> E[enhance_video_clips]
+    E --> F[shot_qa_v2]
 ```
 
 ## 两种运行模式
@@ -133,9 +135,13 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - `audioProjectId`
 
 - 从 `video` 继续时，会清掉：
+  - `performancePlan`
   - `shotPackages`
+  - `rawVideoResults`
+  - `enhancedVideoResults`
   - `videoResults`
   - `shotQaReport`
+  - `shotQaReportV2`
   - `normalizedShots`
   - `audioResults`
   - `audioVoiceResolution`
@@ -150,8 +156,12 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - `failedAt`
 
 - 从 `compose` 继续时：
+  - 不会清掉 `performancePlan`
+  - 不会清掉 `rawVideoResults`
+  - 不会清掉 `enhancedVideoResults`
   - 不会清掉 `videoResults`
   - 不会清掉 `shotQaReport`
+  - 不会清掉 `shotQaReportV2`
   - 只重做最终成片合成
 
 ## 续跑决策图

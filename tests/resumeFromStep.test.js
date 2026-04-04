@@ -37,15 +37,30 @@ test('getStateKeysToDelete cascades from lipsync to compose only', () => {
 
 test('getStateKeysToDelete for video step clears video generation caches but preserves motionPlan', () => {
   assert.deepEqual(__testables.getStateKeysToDelete('video'), [
+    'performancePlan',
     'shotPackages',
+    'rawVideoResults',
+    'enhancedVideoResults',
     'videoResults',
     'shotQaReport',
+    'shotQaReportV2',
     'normalizedShots',
     'audioResults',
     'audioVoiceResolution',
     'audioProjectId',
     'lipsyncResults',
     'lipsyncReport',
+    'composeResult',
+    'outputPath',
+    'deliverySummaryPath',
+    'completedAt',
+    'lastError',
+    'failedAt',
+  ]);
+});
+
+test('getStateKeysToDelete for compose step preserves Phase 2 planning and video caches', () => {
+  assert.deepEqual(__testables.getStateKeysToDelete('compose'), [
     'composeResult',
     'outputPath',
     'deliverySummaryPath',

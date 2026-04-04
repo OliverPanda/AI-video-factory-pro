@@ -1,6 +1,6 @@
 # 合成 Agent（Video Composer）
 
-本文档基于 `src/agents/videoComposer.js`，描述当前合成阶段的真实实现，以及 2026-04 引入的“双层协议”升级。
+本文档基于 `src/agents/videoComposer.js`，描述当前合成阶段的真实实现，以及 2026-04 的 Phase 2 视频主链收口方式。
 
 ## 职责
 
@@ -10,7 +10,7 @@
 4. 用 FFmpeg 输出最终 MP4。
 5. 输出结构化交付结果，同时保持现有 run package 审计产物不变。
 
-## 双层协议
+## Phase 2 兼容策略
 
 当前实现同时支持两种输入方式：
 
@@ -49,6 +49,10 @@
   - 典型元素：`{ shotId, audioPath, hasDialogue? }`
 - `videoResults`
   - 典型元素：`{ shotId, videoPath, durationSec?, status?, provider? }`
+- `rawVideoResults`
+  - Phase 2 内部使用，典型元素：`{ shotId, videoPath, targetDurationSec, variantIndex }`
+- `enhancedVideoResults`
+  - Phase 2 内部使用，典型元素：`{ shotId, enhancedVideoPath, enhancementApplied, enhancementProfile }`
 - `animationClips`
   - 典型元素：`{ shotId, videoPath, durationSec? }`
 - `lipsyncResults`
@@ -74,6 +78,8 @@
 - 当前系统没有独立 `subtitle asset`
 - 所以 V1 默认用 `dialogue` 作为 inline subtitle source
 - 如果未来引入 `subtitleRef`，应优先用外部字幕资产
+- Phase 2 的 `rawVideoResults / enhancedVideoResults` 不应该直接传给 composer
+- `Director` 会在 `Shot QA v2` 之后统一桥接最终 `videoResults`
 
 ## 平台协议入口
 
@@ -127,6 +133,12 @@
 
 如果镜头没有任何可用视觉来源，就不会进入最终 plan。
 
+Phase 2 口径补充：
+
+- `videoComposer` 的外部心智不变，仍然只看 `videoResults`
+- `videoResults` 可能来自增强后镜头，也可能来自未增强但通过 QA 的原始镜头
+- 如果 `Shot QA v2` 判定镜头需 `fallback_to_image`，该镜头不会进入 `videoResults`
+
 ## 字幕规则
 
 - 字幕格式为 ASS
@@ -172,6 +184,9 @@
 ## 不负责的内容
 
 - 不负责生成上游图像、音频、口型片段
+- 不负责生成 `performancePlan`
+- 不负责增强 `rawVideoResults`
+- 不负责决定 `rawVideoResults / enhancedVideoResults` 哪一路进入主交付
 - 不负责播放包、HLS/DASH、DRM
 - 不负责上传发布策略之外的资产治理
 
@@ -183,4 +198,6 @@
 
 - [Agent 文档总览](README.md)
 - [导演 Agent 详细说明](director.md)
+- [表演规划 Agent（Performance Planner）](performance-planner.md)
+- [镜头增强 Agent（Motion Enhancer）](motion-enhancer.md)
 - [TTS Agent 详细说明](tts-agent.md)
