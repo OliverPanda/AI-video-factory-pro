@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 `11` 个 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 `15` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 快速检查“每个 agent 有没有留下可审计成果物”和“小白 QA 摘要”。
@@ -17,17 +17,71 @@ flowchart TD
     F --> G[Consistency Checker]
     G -->|needsRegeneration| B
     F --> H[Continuity Checker]
-    C --> I[TTS Agent]
-    D --> I
-    I --> J[TTS QA Agent]
-    F --> K[Lip-sync Agent]
-    I --> K
-    H --> L[Video Composer]
-    J --> L
-    K --> L
-    F --> L
-    C --> L
-    L --> M[output/final-video.mp4]
+    C --> I[Motion Planner]
+    H --> I
+    I --> J[Video Router]
+    F --> J
+    E --> J
+    J --> K[Runway Video Agent]
+    K --> L[Shot QA Agent]
+    C --> M[TTS Agent]
+    D --> M
+    M --> N[TTS QA Agent]
+    F --> O[Lip-sync Agent]
+    M --> O
+    L --> P[Video Composer]
+    N --> P
+    O --> P
+    F --> P
+    C --> P
+    P --> Q[output/final-video.mp4]
+```
+
+## Phase 1 协作图
+
+```mermaid
+flowchart LR
+    subgraph Planning[规划层]
+        SP[Script Parser]
+        MP[Motion Planner]
+        VR[Video Router]
+    end
+
+    subgraph Asset[资产层]
+        IG[Image Generator]
+        RV[Runway Video Agent]
+        TTS[TTS Agent]
+        LS[Lip-sync Agent]
+    end
+
+    subgraph QA[质检层]
+        CC[Consistency Checker]
+        CQ[Continuity Checker]
+        SQ[Shot QA Agent]
+        TQ[TTS QA Agent]
+    end
+
+    subgraph Delivery[交付层]
+        VC[Video Composer]
+    end
+
+    SP --> IG
+    IG --> CC
+    IG --> CQ
+    SP --> MP
+    CQ --> MP
+    MP --> VR
+    IG --> VR
+    VR --> RV
+    RV --> SQ
+    SP --> TTS
+    TTS --> TQ
+    IG --> LS
+    TTS --> LS
+    SQ --> VC
+    LS --> VC
+    IG --> VC
+    TQ --> VC
 ```
 
 ## 分层关系
@@ -49,12 +103,14 @@ flowchart TD
 
 资产生成层
 - Image Generator
+- Runway Video Agent
 - TTS Agent
 - Lip-sync Agent
 
 质检层
 - Consistency Checker
 - Continuity Checker
+- Shot QA Agent
 - TTS QA Agent
 - Run QA Overview（Director 聚合）
 
@@ -74,10 +130,32 @@ flowchart TD
 | Image Generator | `prompts + style + provider route` | `imageResults / KeyframeAsset refs` | `04-image-generator/` | Consistency Checker、Continuity Checker、Lip-sync、Video Composer |
 | Consistency Checker | `characterRegistry + imageResults` | `reports + needsRegeneration` | `05-consistency-checker/` | Director |
 | Continuity Checker | `shots + imageResults` | `reports + flaggedTransitions` | `06-continuity-checker/` | Director、Video Composer |
+| Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
+| Video Router | `motionPlan + imageResults + promptList` | `shotPackages` | `09b-video-router/` | Runway Video Agent、Director |
+| Runway Video Agent | `shotPackages` | `videoResults` | `09c-runway-video-agent/` | Shot QA、Director |
+| Shot QA Agent | `videoResults` | `shotQaReport` | `09d-shot-qa/` | Director、Video Composer |
 | TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | TTS QA、Lip-sync、Video Composer |
 | TTS QA Agent | `shots + audioResults + voiceResolution` | `tts-qa report + ASR report + manual review sample` | `08-tts-qa/` | Director、人工 QA |
 | Lip-sync Agent | `shots + imageResults + audioResults` | `lipsync clips + lipsync report` | `08b-lipsync-agent/` | Video Composer、人工 QA |
-| Video Composer | `shots + imageResults + audioResults + lipsyncClips` | `final video`、compose artifacts | `09-video-composer/`、`output/` | 最终交付 |
+| Video Composer | `shots + videoResults + imageResults + audioResults + lipsyncClips` | `final video`、compose artifacts | `10-video-composer/`、`output/` | 最终交付 |
+
+## Compose 优先级图
+
+```mermaid
+flowchart TD
+    A[videoResults] --> E{镜头可用?}
+    B[lipsyncResults] --> E
+    C[animationClips] --> E
+    D[imageResults] --> E
+    E --> F[Video Composer 写入 timeline]
+```
+
+当前实际优先级固定为：
+
+1. `videoResults`
+2. `lipsyncResults`
+3. `animationClips`
+4. `imageResults`
 
 ## QA 摘要层
 
@@ -350,6 +428,7 @@ Director 会在 run 根目录再汇总一层：
 输入：
 
 - `shots`
+- `videoResults`
 - `imageResults`
 - `audioResults`
 - `lipsyncClips`
@@ -361,13 +440,13 @@ Director 会在 run 根目录再汇总一层：
 
 关键落盘：
 
-- `09-video-composer/1-outputs/compose-plan.json`
-- `09-video-composer/1-outputs/segment-index.json`
-- `09-video-composer/1-outputs/qa-summary.md`
-- `09-video-composer/2-metrics/video-metrics.json`
-- `09-video-composer/2-metrics/qa-summary.json`
-- `09-video-composer/3-errors/ffmpeg-command.txt`
-- `09-video-composer/3-errors/ffmpeg-stderr.txt`
+- `10-video-composer/1-outputs/compose-plan.json`
+- `10-video-composer/1-outputs/segment-index.json`
+- `10-video-composer/1-outputs/qa-summary.md`
+- `10-video-composer/2-metrics/video-metrics.json`
+- `10-video-composer/2-metrics/qa-summary.json`
+- `10-video-composer/3-errors/ffmpeg-command.txt`
+- `10-video-composer/3-errors/ffmpeg-stderr.txt`
 - `output/<...>/final-video.mp4`
 
 ## 审计检查清单
@@ -389,7 +468,11 @@ runs/<runDir>/
   07-tts-agent/manifest.json
   08-tts-qa/manifest.json
   08b-lipsync-agent/manifest.json
-  09-video-composer/manifest.json
+  09a-motion-planner/manifest.json
+  09b-video-router/manifest.json
+  09c-runway-video-agent/manifest.json
+  09d-shot-qa/manifest.json
+  10-video-composer/manifest.json
 ```
 
 再进一步看每层的核心产物是否存在：

@@ -47,6 +47,20 @@ scriptData / shotPlan
   -> videoComposer
 ```
 
+对应的 Phase 1 结构图如下：
+
+```mermaid
+flowchart LR
+    A[scriptData / shotPlan] --> B[Image Generator]
+    B --> C[Motion Planner]
+    B --> D[Video Router]
+    C --> D
+    D --> E[Runway Video Agent]
+    E --> F[Shot QA Agent]
+    F --> G[Video Composer]
+    B -. fallback static image .-> G
+```
+
 ### 2.3 image generator 与 video composer 的角色调整
 
 `image generator` 在 Phase 1 中降级为：
@@ -150,6 +164,17 @@ scriptData / shotPlan
 2. `lipsyncResults`
 3. `animationClips`
 4. `imageResults`
+
+优先级图：
+
+```mermaid
+flowchart TD
+    A[videoResults] --> E{镜头最终取材}
+    B[lipsyncResults] --> E
+    C[animationClips] --> E
+    D[imageResults] --> E
+    E --> F[compose timeline]
+```
 
 ## 5. 模块边界
 
@@ -289,6 +314,17 @@ Phase 1 验收规则固定为：
 - `resume-from-step --step=video` 只清掉视频生成及其后续状态
 - `Runway` 单镜头失败时允许同 shot 内部重试
 - 若仍失败，必须标注 `failed_provider` / 失败分类，并由 `Director` 统一决定是否 fallback 到静图
+
+续跑与 fallback 的关系图：
+
+```mermaid
+flowchart TD
+    A[videoResults] --> B[Shot QA]
+    B -->|pass| C[进入 composer 主视频路径]
+    B -->|warn / fail| D[回退到静图 / 旧链路]
+    E[resume --step=compose] --> F[保留 videoResults 与 shotQaReport]
+    G[resume --step=video] --> H[清理 videoResults / shotQaReport 与其后续状态]
+```
 
 ## 8. 非目标
 

@@ -12,7 +12,7 @@
 
 - `08b-lipsync-agent` 出错，想从 lipsync 之后继续
 - `07-tts-agent` 出错，想从音频重新生成
-- `09-video-composer` 出错，只想重做最终合成
+- `10-video-composer` 出错，只想重做最终合成
 - 不想再手工改 `state.json`
 
 ## 常用命令
@@ -48,6 +48,7 @@ node scripts/resume-from-step.js --step=audio samples/寒烬宫变-pro.txt --pre
 - `images`
 - `consistency`
 - `continuity`
+- `video`
 - `dialogue`
 - `audio`
 - `lipsync`
@@ -56,8 +57,33 @@ node scripts/resume-from-step.js --step=audio samples/寒烬宫变-pro.txt --pre
 常见别名也支持，例如：
 
 - `lipsync-agent` -> `lipsync`
+- `video-generation` / `video-router` / `runway-video-agent` / `shot-qa` -> `video`
 - `tts` / `tts-agent` -> `audio`
 - `video-composer` -> `compose`
+
+## 续跑阶段图
+
+```mermaid
+flowchart LR
+    A[character_registry] --> B[prompts]
+    B --> C[images]
+    C --> D[consistency]
+    D --> E[continuity]
+    E --> F[video]
+    F --> G[dialogue]
+    G --> H[audio]
+    H --> I[lipsync]
+    I --> J[compose]
+```
+
+## `video` 阶段内部包含什么
+
+```mermaid
+flowchart TD
+    A[plan_motion] --> B[route_video_shots]
+    B --> C[generate_video_clips]
+    C --> D[shot_qa]
+```
 
 ## 两种运行模式
 
@@ -105,6 +131,40 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - `audioResults`
   - `audioVoiceResolution`
   - `audioProjectId`
+
+- 从 `video` 继续时，会清掉：
+  - `shotPackages`
+  - `videoResults`
+  - `shotQaReport`
+  - `normalizedShots`
+  - `audioResults`
+  - `audioVoiceResolution`
+  - `audioProjectId`
+  - `lipsyncResults`
+  - `lipsyncReport`
+  - `composeResult`
+  - `outputPath`
+  - `deliverySummaryPath`
+  - `completedAt`
+  - `lastError`
+  - `failedAt`
+
+- 从 `compose` 继续时：
+  - 不会清掉 `videoResults`
+  - 不会清掉 `shotQaReport`
+  - 只重做最终成片合成
+
+## 续跑决策图
+
+```mermaid
+flowchart TD
+    A[指定 --step] --> B[读取 state.json]
+    B --> C[检查该 step 前置缓存是否齐全]
+    C -->|齐全| D[清理该 step 及后续缓存]
+    C -->|不齐全| E[输出 warning，提示会从更早步骤重新跑]
+    D --> F[清理对应 temp / output 产物]
+    F --> G[重新调用主流程]
+```
 
 ## 为什么指定了 `lipsync`，却又从更早步骤开始
 
