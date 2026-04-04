@@ -137,6 +137,10 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.continuityChecker.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.ttsAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.ttsQaAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.motionPlanner.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.videoRouter.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.runwayVideoAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.shotQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
 
     const qaOverview = JSON.parse(

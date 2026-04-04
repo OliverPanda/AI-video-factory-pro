@@ -67,6 +67,7 @@ export function initDirs(jobId) {
   const dirs = {
     root: jobDir,
     images: path.join(jobDir, 'images'),
+    video: path.join(jobDir, 'video'),
     audio: path.join(jobDir, 'audio'),
     output: OUTPUT_DIR,
   };

@@ -211,6 +211,7 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
       shots,
       imageResults,
       audioResults,
+      videoResults: options.videoClips || [],
       animationClips: options.animationClips || [],
       lipsyncResults: options.lipsyncClips || [],
       ttsQaReport: options.ttsQaReport,
@@ -261,6 +262,7 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
     adaptedInput.shots,
     adaptedInput.imageResults,
     adaptedInput.audioResults,
+    adaptedInput.videoResults,
     adaptedInput.animationClips,
     adaptedInput.lipsyncResults
   );
@@ -352,6 +354,17 @@ function buildLegacyAssetBundle(input = {}) {
         format: path.extname(entry.audioPath).replace('.', '').toLowerCase() || 'mp3',
       })),
     clips: [
+      ...((input.videoResults || [])
+        .filter((entry) => entry?.videoPath)
+        .map((entry) => ({
+          assetId: `video_${entry.shotId}`,
+          shotId: entry.shotId,
+          role: 'video',
+          type: 'video',
+          uri: entry.videoPath,
+          durationSec: entry.durationSec ?? entry.targetDurationSec ?? null,
+          format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
+        }))),
       ...((input.animationClips || [])
         .filter((entry) => entry?.videoPath)
         .map((entry) => ({
@@ -392,6 +405,7 @@ function adaptLegacyComposeInput(input = {}) {
     })),
     imageResults: input.imageResults || [],
     audioResults: input.audioResults || [],
+    videoResults: input.videoResults || [],
     animationClips: input.animationClips || [],
     lipsyncResults: input.lipsyncResults || [],
     assets: buildLegacyAssetBundle(input),
@@ -444,6 +458,19 @@ function adaptCompositionJobToLegacy(job = {}) {
         audioPath: audio?.uri || null,
       };
     }),
+    videoResults: sortedShots
+      .map((shot) => {
+        const entries = assetIndex.get(shot.shotId) || [];
+        const clip = entries.find((entry) => entry.role === 'video' && entry.uri === shot.videoRef) ||
+          entries.find((entry) => entry.role === 'video');
+        return clip ? {
+          shotId: shot.shotId,
+          videoPath: clip.uri,
+          durationSec: clip.durationSec || null,
+          status: 'completed',
+        } : null;
+      })
+      .filter(Boolean),
     animationClips: sortedShots
       .map((shot) => {
         const entries = assetIndex.get(shot.shotId) || [];
@@ -515,6 +542,10 @@ function escapeFilterPath(filePath) {
     .replace(/\]/g, '\\]');
 }
 
+function buildSubtitleFilterArg(filePath) {
+  return `subtitles='${escapeFilterPath(filePath)}'`;
+}
+
 function escapeAssText(text) {
   return String(text)
     .replace(/\\/g, '\\\\')
@@ -532,12 +563,13 @@ export function buildCompositionPlan(
   shots,
   imageResults = [],
   audioResults = [],
+  videoClips = [],
   animationClips = [],
   lipsyncClips = []
 ) {
   return shots
     .map((shot) => {
-      const visual = resolveShotVisual(shot, imageResults, animationClips, lipsyncClips);
+      const visual = resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
       if (!visual) return null;
 
@@ -552,8 +584,17 @@ export function buildCompositionPlan(
     .filter(Boolean);
 }
 
-function resolveShotVisual(shot, imageResults, animationClips, lipsyncClips) {
+function resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips) {
   const shotDuration = shot.duration || shot.durationSec || 3;
+  const generatedVideoClip = videoClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
+  if (generatedVideoClip) {
+    return {
+      visualType: 'generated_video_clip',
+      videoPath: generatedVideoClip.videoPath,
+      duration: generatedVideoClip.durationSec || shotDuration,
+    };
+  }
+
   const lipsyncClip = lipsyncClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
   if (lipsyncClip) {
     return {
@@ -595,7 +636,9 @@ function validatePlanPaths(plan, options = {}) {
           })
         : item.imagePath,
     videoPath:
-      item.visualType === 'animation_clip' || item.visualType === 'lipsync_clip'
+      item.visualType === 'generated_video_clip' ||
+      item.visualType === 'animation_clip' ||
+      item.visualType === 'lipsync_clip'
         ? assertSafeWorkspacePath(item.videoPath, `分镜 ${item.shotId} 动画`, {
             mustExist: true,
             allowedRoots: options.allowedRoots,
@@ -802,7 +845,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath, o
 
   const outputOptions = [
     '-vf',
-    `ass=filename='${escapeFilterPath(safeSubtitlePath)}'`,
+    buildSubtitleFilterArg(safeSubtitlePath),
     '-c:v',
     'libx264',
     '-preset',
@@ -820,10 +863,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath, o
       .map((item, index) => `[${index + 1}:a]adelay=${item.offsetMs}|${item.offsetMs}[a${index}]`)
       .join(';');
     const mixInputs = audioItems.map((_, index) => `[a${index}]`).join('');
-    cmd = cmd.complexFilter(
-      `${delayedInputs};${mixInputs}amix=inputs=${audioItems.length}:normalize=0[aout]`,
-      ['aout']
-    );
+    cmd = cmd.complexFilter(`${delayedInputs};${mixInputs}amix=inputs=${audioItems.length}:normalize=0[aout]`);
     outputOptions.push('-map', '0:v', '-map', '[aout]', '-c:a', 'aac', '-b:a', '128k');
   }
 
@@ -907,6 +947,7 @@ export const __testables = {
   assertSafeWorkspacePath,
   escapeConcatPath,
   escapeFilterPath,
+  buildSubtitleFilterArg,
   escapeAssText,
   normalizeLegacyShot,
   buildLegacyAssetBundle,

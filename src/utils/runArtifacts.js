@@ -19,7 +19,11 @@ export const AGENT_ARTIFACT_LAYOUT = {
   ttsAgent: '07-tts-agent',
   ttsQaAgent: '08-tts-qa',
   lipsyncAgent: '08b-lipsync-agent',
-  videoComposer: '09-video-composer',
+  motionPlanner: '09a-motion-planner',
+  videoRouter: '09b-video-router',
+  runwayVideoAgent: '09c-runway-video-agent',
+  shotQaAgent: '09d-shot-qa',
+  videoComposer: '10-video-composer',
 };
 
 function createAgentContext(runDir, agentDirName) {
@@ -78,6 +82,10 @@ export function createRunArtifactContext(input) {
       ttsAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsAgent),
       ttsQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsQaAgent),
       lipsyncAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.lipsyncAgent),
+      motionPlanner: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.motionPlanner),
+      videoRouter: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoRouter),
+      runwayVideoAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.runwayVideoAgent),
+      shotQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.shotQaAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
     },
   };

@@ -14,7 +14,7 @@ import {
   composeFromLegacy,
 } from '../src/agents/videoComposer.js';
 
-test('buildCompositionPlan prefers animation clips when provided', () => {
+test('buildCompositionPlan prefers generated video clips over animation clips when provided', () => {
   const shots = [{ id: 'shot_1', dialogue: '第一句', duration: 4 }];
   const imageResults = [
     {
@@ -29,23 +29,31 @@ test('buildCompositionPlan prefers animation clips when provided', () => {
       id: 'clip_1',
       shotId: 'shot_1',
       keyframeAssetId: 'keyframe_1',
-      videoPath: '/tmp/shot_1.mp4',
+      videoPath: '/tmp/shot_1-animation.mp4',
       durationSec: 6,
       status: 'ready',
     },
   ];
+  const videoClips = [
+    {
+      shotId: 'shot_1',
+      videoPath: '/tmp/shot_1-generated.mp4',
+      durationSec: 4.5,
+      status: 'completed',
+    },
+  ];
   const audioResults = [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }];
 
-  const plan = buildCompositionPlan(shots, imageResults, audioResults, animationClips);
+  const plan = buildCompositionPlan(shots, imageResults, audioResults, videoClips, animationClips);
 
   assert.deepEqual(plan, [
     {
       shotId: 'shot_1',
-      visualType: 'animation_clip',
-      videoPath: '/tmp/shot_1.mp4',
+      visualType: 'generated_video_clip',
+      videoPath: '/tmp/shot_1-generated.mp4',
       audioPath: '/tmp/shot_1.mp3',
       dialogue: '第一句',
-      duration: 6,
+      duration: 4.5,
     },
   ]);
 });
@@ -179,6 +187,17 @@ test('buildCompositionPlan supports ShotPlan camelCase duration fields', () => {
   assert.equal(plan[0].duration, 5);
 });
 
+test('buildSubtitleFilterArg uses quoted subtitles syntax that fluent-ffmpeg accepts on Windows paths', () => {
+  const filterArg = __testables.buildSubtitleFilterArg(
+    'D:\\My-Project\\AI-video-factory-pro\\output\\寒烬宫变\\final-video.ass'
+  );
+
+  assert.equal(
+    filterArg,
+    "subtitles='D\\:/My-Project/AI-video-factory-pro/output/寒烬宫变/final-video.ass'"
+  );
+});
+
 test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
   const shots = [{ id: 'shot_1', dialogue: '第一句', duration: 4 }];
   const imageResults = [
@@ -212,6 +231,7 @@ test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
     shots,
     imageResults,
     audioResults,
+    [],
     animationClips,
     lipsyncClips
   );
@@ -226,6 +246,20 @@ test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
       duration: 4,
     },
   ]);
+});
+
+test('buildCompositionPlan falls back to animation clips when generated video and lipsync are unavailable', () => {
+  const plan = buildCompositionPlan(
+    [{ id: 'shot_2', dialogue: '第二句', duration: 3 }],
+    [{ shotId: 'shot_2', imagePath: '/tmp/shot_2.png', success: true }],
+    [],
+    [],
+    [{ shotId: 'shot_2', videoPath: '/tmp/shot_2-anim.mp4', durationSec: 5 }],
+    []
+  );
+
+  assert.equal(plan[0].visualType, 'animation_clip');
+  assert.equal(plan[0].videoPath, '/tmp/shot_2-anim.mp4');
 });
 
 test('buildVideoMetrics summarizes composition outputs', () => {

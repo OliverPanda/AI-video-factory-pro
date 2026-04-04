@@ -5,7 +5,7 @@
 ## 职责
 
 1. 接收已经准备好的镜头资产，生成可执行合成计划。
-2. 在 `lipsync clip > animation clip > static image` 的优先级下选择最终视觉素材。
+2. 在 `generated video clip > lipsync clip > animation clip > static image` 的优先级下选择最终视觉素材。
 3. 生成 ASS 硬字幕，并把所有镜头音频拼成统一主音轨。
 4. 用 FFmpeg 输出最终 MP4。
 5. 输出结构化交付结果，同时保持现有 run package 审计产物不变。
@@ -47,6 +47,8 @@
   - 典型元素：`{ shotId, keyframeAssetId?, imagePath, success }`
 - `audioResults`
   - 典型元素：`{ shotId, audioPath, hasDialogue? }`
+- `videoResults`
+  - 典型元素：`{ shotId, videoPath, durationSec?, status?, provider? }`
 - `animationClips`
   - 典型元素：`{ shotId, videoPath, durationSec? }`
 - `lipsyncResults`
@@ -63,6 +65,7 @@
 - `shot.speaker -> speakerId`
 - `imageResults[].imagePath -> visuals`
 - `audioResults[].audioPath -> audios`
+- `videoResults[].videoPath -> video clips(role=video)`
 - `animationClips[].videoPath -> video clips(role=animation)`
 - `lipsyncResults[].videoPath -> video clips(role=lipsync)`
 
@@ -117,9 +120,10 @@
 
 视觉优先级：
 
-1. `lipsync_clip`
-2. `animation_clip`
-3. `static_image`
+1. `generated_video_clip`
+2. `lipsync_clip`
+3. `animation_clip`
+4. `static_image`
 
 如果镜头没有任何可用视觉来源，就不会进入最终 plan。
 

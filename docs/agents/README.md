@@ -1,6 +1,6 @@
 # Agent 文档总览
 
-本文档作为 agents 相关内容的入口，按执行顺序列出全部 Agent，并指向更细的链路文档与主 README。
+本文档作为 agents 相关内容的入口，按执行顺序列出全部 Agent，并指向更细的链路文档与根 README。
 
 如果你现在更关心“怎么接手、怎么排障、怎么验收”，请先看 [docs/sop/README.md](/d:/My-Project/AI-video-factory-pro/docs/sop/README.md)。
 
@@ -16,6 +16,37 @@ Director 还会在 run 根目录汇总生成：
 
 如果你只想先快速判断“这一轮有没有达标、最该先看什么问题”，建议先看这两层摘要，再决定是否深入看原始证据。
 
+## 单 Agent 测试入口
+
+从当前版本开始，每个主要 agent 都有单独的 production-style 测试入口，并支持 `keep-artifacts` 保留成果物。
+
+常用命令：
+
+- `npm run test:script-parser:prod`
+- `npm run test:character-registry:prod`
+- `npm run test:prompt-engineer:prod`
+- `npm run test:image-generator:prod`
+- `npm run test:consistency-checker:prod`
+- `npm run test:continuity-checker:prod`
+- `npm run test:tts-agent:prod`
+- `npm run test:tts-qa:prod`
+- `npm run test:lipsync-agent:prod`
+- `npm run test:video-composer:prod`
+- `npm run test:director:prod`
+
+如果要保留成果物，把命令改成对应的 `:keep-artifacts` 版本。
+
+目录规则：
+
+- 整条 production pipeline：`temp/projects/...`
+- 单 agent 测试成果物：`temp/<agentName>/...`
+
+例如：
+
+- `npm run test:tts-agent:prod:keep-artifacts` -> `temp/tts-agent/`
+- `npm run test:video-composer:prod:keep-artifacts` -> `temp/video-composer/`
+- `npm run test:director:prod:keep-artifacts` -> `temp/director/`
+
 ## Agent 总览
 
 | 序号 | 名称 | 关键职责 | 代码位置 |
@@ -30,7 +61,11 @@ Director 还会在 run 根目录汇总生成：
 | 8 | 配音Agent（TTS） | 批量合成对白音频，自动区分角色音色 | `src/agents/ttsAgent.js` |
 | 9 | TTS QA Agent | 对配音结果做最小自动验收，输出 `pass / warn / block` | `src/agents/ttsQaAgent.js` |
 | 10 | Lip-sync Agent | 为需要说话表演的镜头生成口型片段，并输出 fallback / 人工复核建议 | `src/agents/lipsyncAgent.js` |
-| 11 | 合成Agent（Video Composer） | 图像+音频+字幕合成最终视频，生成 1080×1920 输出 | `src/agents/videoComposer.js` |
+| 11 | Motion Planner Agent | 为每个镜头生成 `shotType / cameraIntent / durationTargetSec` 动态规划 | `src/agents/motionPlanner.js` |
+| 12 | Video Router Agent | 把 `motionPlan + imageResults` 组装为可执行 `shotPackage` | `src/agents/videoRouter.js` |
+| 13 | Runway Video Agent | 调用 Runway 生成镜头级视频，输出 `videoResults` | `src/agents/runwayVideoAgent.js` |
+| 14 | Shot QA Agent | 对生成的视频镜头做 `ffprobe / duration / empty-file` 验收 | `src/agents/shotQaAgent.js` |
+| 15 | 合成Agent（Video Composer） | 优先消费 `videoResults`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
 
 ## 执行顺序
 
@@ -38,9 +73,12 @@ Director 还会在 run 根目录汇总生成：
 2. 编剧Agent → 角色设定Agent → 视觉设计Agent 顺序构建分镜与 Prompt。
 3. 图像生成Agent 负责批量出图，随后一致性验证Agent 检查并在必要时触发重试。
 4. 一致性验证之后，连贯性检查Agent 评估跨分镜承接。
-5. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
-6. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
-7. 合成Agent 最终拼装图像、配音、口型片段与字幕。
+5. 连贯性检查之后，Motion Planner Agent 生成镜头级动态规划。
+6. Video Router Agent 把参考图和镜头规划组装成 `shotPackage`，决定是否路由到 Runway。
+7. Runway Video Agent 生成动态镜头，Shot QA Agent 决定哪些镜头可直接进入成片、哪些必须 fallback。
+8. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
+9. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
+10. 合成Agent 最终按 `video > lipsync > animation > image` 的优先级拼装成片。
 
 ## 详细文档入口
 
@@ -62,6 +100,5 @@ Director 还会在 run 根目录汇总生成：
 - [运行排障 Runbook](../sop/runbook.md)
 - [QA 验收 SOP](../sop/qa-acceptance.md)
 
-主 README 的“Agent 详细说明”节提供整体职责、输入输出与系统架构背景，请参考：  
-[README.md 中的 Agent 详细说明](../../README.md#agent-详细说明)
+如果你想先看仓库入口、快速开始和文档导航，请回到 [README.md](../../README.md)。
 

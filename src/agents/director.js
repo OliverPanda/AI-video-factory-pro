@@ -16,6 +16,10 @@ import { normalizeDialogueShots } from './dialogueNormalizer.js';
 import { generateAllAudio } from './ttsAgent.js';
 import { runTtsQa } from './ttsQaAgent.js';
 import { runLipsync } from './lipsyncAgent.js';
+import { planMotion } from './motionPlanner.js';
+import { routeVideoShots } from './videoRouter.js';
+import { runRunwayVideo } from './runwayVideoAgent.js';
+import { runShotQa } from './shotQaAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
@@ -103,6 +107,27 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
     );
 }
 
+function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
+  const allowedShotIds = shotQaReport?.entries
+    ? new Set(
+        shotQaReport.entries
+          .filter((entry) => entry?.canUseVideo === true)
+          .map((entry) => entry.shotId)
+      )
+    : null;
+
+  return (Array.isArray(videoResults) ? videoResults : [])
+    .filter((result) => result?.shotId && result?.videoPath)
+    .filter((result) => !allowedShotIds || allowedShotIds.has(result.shotId))
+    .map((result) => ({
+      shotId: result.shotId,
+      videoPath: result.videoPath,
+      durationSec: result.durationSec || result.targetDurationSec || null,
+      status: result.status || 'completed',
+      provider: result.provider || 'runway',
+    }));
+}
+
 function normalizeProjectId(projectId) {
   return projectId ?? null;
 }
@@ -118,6 +143,9 @@ function createDeliverySummary({
   style,
   ttsQaReport,
   lipsyncReport,
+  motionPlan,
+  videoResults,
+  shotQaReport,
   composeResult,
 }) {
   const manualReviewShots = Array.isArray(lipsyncReport?.manualReviewShots)
@@ -143,6 +171,18 @@ function createDeliverySummary({
   const composeWarnings = Array.isArray(composeResult?.report?.warnings) ? composeResult.report.warnings : [];
   const composeStatus = composeResult?.status || 'not_run';
   const composeArtifacts = composeResult?.artifacts || null;
+  const plannedVideoShotCount = Array.isArray(motionPlan) ? motionPlan.length : 0;
+  const generatedVideoShotCount = Array.isArray(videoResults)
+    ? videoResults.filter((item) => item?.status === 'completed' && item?.videoPath).length
+    : 0;
+  const fallbackVideoShotCount = Number.isFinite(shotQaReport?.fallbackCount) ? shotQaReport.fallbackCount : 0;
+  const videoProviderBreakdown = videoResults
+    ? videoResults.reduce((acc, item) => {
+        const key = item?.provider || item?.preferredProvider || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {})
+    : {};
 
   return [
     '# Delivery Summary',
@@ -155,6 +195,10 @@ function createDeliverySummary({
     `- Job：${jobId}`,
     `- 成片：${path.basename(outputPath)}`,
     `- Compose Status：${composeStatus}`,
+    `- Planned Video Shots：${plannedVideoShotCount}`,
+    `- Generated Video Shots：${generatedVideoShotCount}`,
+    `- Video Provider Breakdown：${Object.keys(videoProviderBreakdown).length > 0 ? JSON.stringify(videoProviderBreakdown) : '{}'}`,
+    `- Fallback Video Shots：${fallbackVideoShotCount}`,
     `- TTS QA：${ttsQaReport?.status || 'not_run'}`,
     `- Lip-sync QA：${lipsyncReport?.status || 'not_run'}`,
     `- 人工抽查建议：${ttsManualReviewShots.length > 0 ? ttsManualReviewShots.join(', ') : '无'}`,
@@ -253,6 +297,10 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     ttsAgent: 'TTS Agent',
     ttsQaAgent: 'TTS QA Agent',
     lipsyncAgent: 'Lip-sync Agent',
+    motionPlanner: 'Motion Planner',
+    videoRouter: 'Video Router',
+    runwayVideoAgent: 'Runway Video Agent',
+    shotQaAgent: 'Shot QA Agent',
     videoComposer: 'Video Composer',
   };
 
@@ -266,6 +314,10 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'ttsAgent',
     'ttsQaAgent',
     'lipsyncAgent',
+    'motionPlanner',
+    'videoRouter',
+    'runwayVideoAgent',
+    'shotQaAgent',
     'videoComposer',
   ];
 
@@ -359,6 +411,10 @@ export function createDirector(overrides = {}) {
     generateAllAudio,
     runTtsQa,
     runLipsync,
+    planMotion,
+    routeVideoShots,
+    runRunwayVideo,
+    runShotQa,
     composeVideo,
     saveJSON,
     loadJSON,
@@ -840,13 +896,87 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        let motionPlan = Array.isArray(state.motionPlan) ? state.motionPlan : null;
+        if (!motionPlan) {
+          deps.logger.info('Director', '【Step 6/11】规划动态镜头...');
+          motionPlan = await recordStep('plan_motion', { message: '规划动态镜头' }, () =>
+            deps.planMotion(shots, {
+              artifactContext: artifactContext.agents.motionPlanner,
+            })
+          );
+          saveState({ motionPlan });
+        } else {
+          deps.logger.info('Director', '【Step 6/11】使用缓存的动态镜头规划');
+          appendStepRun('plan_motion', {
+            status: 'cached',
+            detail: '使用缓存的动态镜头规划',
+          });
+        }
+
+        let shotPackages = Array.isArray(state.shotPackages) ? state.shotPackages : null;
+        if (!shotPackages) {
+          deps.logger.info('Director', '【Step 7/11】路由视频镜头...');
+          shotPackages = await recordStep('route_video_shots', { message: '路由视频镜头' }, () =>
+            deps.routeVideoShots(shots, motionPlan, imageResults, {
+              promptList,
+              artifactContext: artifactContext.agents.videoRouter,
+            })
+          );
+          saveState({ shotPackages });
+        } else {
+          deps.logger.info('Director', '【Step 7/11】使用缓存的视频路由结果');
+          appendStepRun('route_video_shots', {
+            status: 'cached',
+            detail: '使用缓存的视频路由结果',
+          });
+        }
+
+        let videoResults = Array.isArray(state.videoResults) ? state.videoResults : null;
+        if (!videoResults) {
+          deps.logger.info('Director', '【Step 8/11】生成动态镜头...');
+          const videoRun = await recordStep('generate_video_clips', { message: '生成动态镜头' }, () =>
+            deps.runRunwayVideo(
+              shotPackages,
+              dirs.video || path.join(dirs.root, 'video'),
+              {
+                artifactContext: artifactContext.agents.runwayVideoAgent,
+              }
+            )
+          );
+          videoResults = Array.isArray(videoRun?.results) ? videoRun.results : [];
+          saveState({ videoResults });
+        } else {
+          deps.logger.info('Director', '【Step 8/11】使用缓存的动态镜头结果');
+          appendStepRun('generate_video_clips', {
+            status: 'cached',
+            detail: '使用缓存的动态镜头结果',
+          });
+        }
+
+        let shotQaReport = state.shotQaReport || null;
+        if (!shotQaReport) {
+          deps.logger.info('Director', '【Step 9/11】镜头级 QA...');
+          shotQaReport = await recordStep('shot_qa', { message: '镜头级 QA' }, () =>
+            deps.runShotQa(videoResults, {
+              artifactContext: artifactContext.agents.shotQaAgent,
+            })
+          );
+          saveState({ shotQaReport });
+        } else {
+          deps.logger.info('Director', '【Step 9/11】使用缓存的镜头级 QA 结果');
+          appendStepRun('shot_qa', {
+            status: 'cached',
+            detail: '使用缓存的镜头级 QA 结果',
+          });
+        }
+
         const voiceProjectId = normalizeProjectId(
           options.voiceProjectId === undefined ? projectId : options.voiceProjectId
         );
 
         let normalizedShots = Array.isArray(state.normalizedShots) ? state.normalizedShots : null;
         if (!normalizedShots) {
-          deps.logger.info('Director', '【Step 6/8】标准化对白...');
+          deps.logger.info('Director', '【Step 10/11】标准化对白...');
           const pronunciationLexiconProjectId = voiceProjectId ?? projectId;
           const pronunciationLexicon = pronunciationLexiconProjectId
             ? deps.loadPronunciationLexicon(
@@ -863,7 +993,7 @@ export function createDirector(overrides = {}) {
           );
           saveState({ normalizedShots });
         } else {
-          deps.logger.info('Director', '【Step 6/8】使用缓存的对白标准化结果');
+          deps.logger.info('Director', '【Step 10/11】使用缓存的对白标准化结果');
           appendStepRun('normalize_dialogue', {
             status: 'cached',
             detail: '使用缓存的对白标准化结果',
@@ -878,7 +1008,7 @@ export function createDirector(overrides = {}) {
         let audioResults = canReuseAudioCache ? state.audioResults : null;
         let audioVoiceResolution = Array.isArray(state.audioVoiceResolution) ? state.audioVoiceResolution : [];
         if (!audioResults) {
-          deps.logger.info('Director', '【Step 7/8】生成配音...');
+          deps.logger.info('Director', '【Step 11/12】生成配音...');
           const audioOptions = voiceProjectId
             ? {
                 projectId: voiceProjectId,
@@ -896,7 +1026,7 @@ export function createDirector(overrides = {}) {
           audioVoiceResolution = Array.isArray(audioResults.voiceResolution) ? audioResults.voiceResolution : [];
           saveState({ audioResults, audioVoiceResolution, audioProjectId: voiceProjectId });
         } else {
-          deps.logger.info('Director', '【Step 7/8】使用缓存的音频结果');
+          deps.logger.info('Director', '【Step 11/12】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',
@@ -917,7 +1047,7 @@ export function createDirector(overrides = {}) {
         let lipsyncResults = Array.isArray(state.lipsyncResults) ? state.lipsyncResults : null;
         let lipsyncReport = state.lipsyncReport || null;
         if (!lipsyncResults) {
-          deps.logger.info('Director', '【Step 8/9】生成口型同步片段...');
+          deps.logger.info('Director', '【Step 12/13】生成口型同步片段...');
           const lipsyncRun = await recordStep('lipsync', { message: '生成口型同步片段' }, () =>
             deps.runLipsync(normalizedShots, imageResults, audioResults, {
               artifactContext: artifactContext.agents.lipsyncAgent,
@@ -927,7 +1057,7 @@ export function createDirector(overrides = {}) {
           lipsyncReport = lipsyncRun?.report || null;
           saveState({ lipsyncResults, lipsyncReport });
         } else {
-          deps.logger.info('Director', '【Step 8/9】使用缓存的口型同步结果');
+          deps.logger.info('Director', '【Step 12/13】使用缓存的口型同步结果');
           appendStepRun('lipsync', {
             status: 'cached',
             detail: '使用缓存的口型同步结果',
@@ -938,7 +1068,7 @@ export function createDirector(overrides = {}) {
           throw new Error(`Lip-sync QA 阻断交付：${(lipsyncReport.blockers || []).join('；')}`);
         }
 
-        deps.logger.info('Director', '【Step 9/9】合成视频...');
+        deps.logger.info('Director', '【Step 13/13】合成视频...');
         const outputDir = ensureDir(
           path.join(
             dirs.output,
@@ -951,10 +1081,12 @@ export function createDirector(overrides = {}) {
           imageResults,
           state.animationClips || episode.animationClips || []
         );
+        const videoClips = buildVideoClipBridge(videoResults, shotQaReport);
 
         const composeRun = await recordStep('compose_video', { message: '合成视频' }, () =>
           deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
+            videoClips,
             animationClips,
             lipsyncClips: lipsyncResults,
             artifactContext: artifactContext.agents.videoComposer,
@@ -986,6 +1118,9 @@ export function createDirector(overrides = {}) {
             style,
             ttsQaReport,
             lipsyncReport,
+            motionPlan,
+            videoResults,
+            shotQaReport,
             composeResult,
           }),
           'utf-8'

@@ -759,6 +759,10 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'generate_images',
         'consistency_check',
         'continuity_check',
+        'plan_motion',
+        'route_video_shots',
+        'generate_video_clips',
+        'shot_qa',
         'normalize_dialogue',
         'generate_audio',
         'tts_qa',
@@ -970,6 +974,10 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['generate_images', 'cached'],
         ['consistency_check', 'skipped'],
         ['continuity_check', 'skipped'],
+        ['plan_motion', 'completed'],
+        ['route_video_shots', 'completed'],
+        ['generate_video_clips', 'completed'],
+        ['shot_qa', 'completed'],
         ['normalize_dialogue', 'completed'],
         ['generate_audio', 'completed'],
         ['tts_qa', 'completed'],
@@ -1086,6 +1094,105 @@ test('runEpisodePipeline passes lipsync results into video composition', async (
     assert.equal(composeCalls.length, 1);
     assert.deepEqual(composeCalls[0].lipsyncClips, [
       { shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', status: 'completed' },
+    ]);
+  });
+});
+
+test('runEpisodePipeline passes QA-approved generated video clips into video composition', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const composeCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_video_bridge',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '动态镜头桥接',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [
+          { id: 'shot_1', scene: '长廊', action: '缓步逼近', dialogue: '别退。', characters: ['沈清'], duration: 4 },
+          { id: 'shot_2', scene: '殿门', action: '停步', dialogue: '', characters: ['沈清'], duration: 3 },
+        ],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async (shots) =>
+        shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: 'none' })),
+      generateAllImages: async (prompts) =>
+        prompts.map((prompt) => ({ shotId: prompt.shotId, imagePath: `/tmp/${prompt.shotId}.png`, success: true })),
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async (shots) =>
+        shots.map((shot) => ({
+          shotId: shot.id,
+          shotType: 'dialogue_medium',
+          durationTargetSec: shot.duration,
+          cameraIntent: 'slow_dolly',
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+          videoGenerationMode: 'runway_image_to_video',
+          visualGoal: shot.scene,
+        })),
+      routeVideoShots: async (shots) =>
+        shots.map((shot) => ({
+          shotId: shot.id,
+          shotType: 'dialogue_medium',
+          durationTargetSec: shot.duration,
+          visualGoal: shot.scene,
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+          referenceImages: [{ type: 'keyframe', path: `/tmp/${shot.id}.png` }],
+          preferredProvider: 'runway',
+          fallbackProviders: ['static_image'],
+          audioRef: null,
+          qaRules: { mustProbeWithFfprobe: true },
+        })),
+      runRunwayVideo: async () => ({
+        results: [
+          { shotId: 'shot_1', provider: 'runway', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
+          { shotId: 'shot_2', provider: 'runway', status: 'completed', videoPath: '/tmp/shot_2.mp4', targetDurationSec: 3 },
+        ],
+        report: { status: 'pass', warnings: [], blockers: [] },
+      }),
+      runShotQa: async () => ({
+        status: 'warn',
+        entries: [
+          { shotId: 'shot_1', canUseVideo: true, fallbackToImage: false },
+          { shotId: 'shot_2', canUseVideo: false, fallbackToImage: true, reason: 'duration_out_of_range' },
+        ],
+        fallbackCount: 1,
+        fallbackShots: ['shot_2'],
+        warnings: ['shot_2:duration_out_of_range'],
+      }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
+        composeCalls.push(options);
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.deepEqual(composeCalls[0].videoClips, [
+      {
+        shotId: 'shot_1',
+        videoPath: '/tmp/shot_1.mp4',
+        durationSec: 4,
+        status: 'completed',
+        provider: 'runway',
+      },
     ]);
   });
 });

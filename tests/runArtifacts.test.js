@@ -57,6 +57,10 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'ttsAgent',
       'ttsQaAgent',
       'lipsyncAgent',
+      'motionPlanner',
+      'videoRouter',
+      'runwayVideoAgent',
+      'shotQaAgent',
       'videoComposer',
     ]);
     assert.equal(

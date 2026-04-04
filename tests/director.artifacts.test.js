@@ -1,21 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createDirector } from '../src/agents/director.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
-
-function withTempRoot(fn) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-director-artifacts-'));
-
-  return Promise.resolve()
-    .then(() => fn(tempRoot))
-    .finally(() => {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    });
-}
+import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
 function createLegacyDirs(root) {
   const dirs = {
@@ -29,8 +19,8 @@ function createLegacyDirs(root) {
   return dirs;
 }
 
-test('director creates manifest timeline and agent directories for an episode run', async () => {
-  await withTempRoot(async (tempRoot) => {
+test('director creates manifest timeline and agent directories for an episode run', async (t) => {
+  await withManagedTempRoot(t, 'aivf-director-artifacts', async (tempRoot) => {
     const legacyRoot = path.join(tempRoot, 'legacy-job');
     const artifactRoot = createRunArtifactContext({
       baseTempDir: tempRoot,
@@ -56,7 +46,7 @@ test('director creates manifest timeline and agent directories for an episode ru
       generateAllPrompts: async () => [],
       generateAllImages: async () => [],
       generateAllAudio: async () => [],
-      composeVideo: async () => '/tmp/final.mp4',
+      composeVideo: async (_shots, _images, _audio, outputPath) => outputPath,
       loadProject: () => ({ id: 'project_123', name: '咖啡馆相遇' }),
       loadScript: () => ({ id: 'script_001', title: '第一卷', characters: [], sourceText: '...' }),
       loadEpisode: () => ({ id: 'episode_001', title: '试播集', episodeNo: 1, shots: [] }),
@@ -88,6 +78,11 @@ test('director creates manifest timeline and agent directories for an episode ru
     assert.equal(fs.existsSync(path.join(expectedRunDir, 'state.snapshot.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '01-script-parser', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09a-motion-planner', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09b-video-router', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09c-runway-video-agent', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-shot-qa', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '10-video-composer', 'manifest.json')), true);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(expectedRunDir, 'manifest.json'), 'utf-8'));
     assert.equal(manifest.projectId, 'project_123');
@@ -126,5 +121,5 @@ test('director creates manifest timeline and agent directories for an episode ru
     assert.equal(agentManifest.status, 'pending');
     assert.equal(agentManifest.agentKey, 'scriptParser');
     assert.equal(agentManifest.agentDirName, '01-script-parser');
-  });
+  }, 'director');
 });
