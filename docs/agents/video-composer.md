@@ -48,7 +48,7 @@
 - `audioResults`
   - 典型元素：`{ shotId, audioPath, hasDialogue? }`
 - `videoResults`
-  - 典型元素：`{ shotId, videoPath, durationSec?, status?, provider? }`
+  - 典型元素：`{ shotId, videoPath, durationSec?, status?, provider?, providerJobId? }`
 - `rawVideoResults`
   - Phase 2 内部使用，典型元素：`{ shotId, videoPath, targetDurationSec, variantIndex }`
 - `enhancedVideoResults`
@@ -151,6 +151,7 @@ Phase 4 补充规则：
 Phase 2 口径补充：
 
 - `videoComposer` 的外部心智不变，仍然只看 `videoResults`
+- `videoResults` 当前可以来自 `Runway` 或 `Seedance`，composer 不感知底层 provider 差异
 - `videoResults` 可能来自增强后镜头，也可能来自未增强但通过 QA 的原始镜头
 - 如果 `Shot QA v2` 判定镜头需 `fallback_to_image`，该镜头不会进入 `videoResults`
 - `videoComposer` 不负责决定“要不要桥接”

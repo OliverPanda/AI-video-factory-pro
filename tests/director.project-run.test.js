@@ -765,6 +765,14 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'generate_video_clips',
         'enhance_video_clips',
         'shot_qa',
+        'plan_bridge_shots',
+        'route_bridge_shots',
+        'generate_bridge_clips',
+        'bridge_qa',
+        'plan_action_sequences',
+        'route_action_sequences',
+        'generate_sequence_clips',
+        'sequence_qa',
         'normalize_dialogue',
         'generate_audio',
         'tts_qa',
@@ -982,6 +990,14 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['generate_video_clips', 'completed'],
         ['enhance_video_clips', 'completed'],
         ['shot_qa', 'completed'],
+        ['plan_bridge_shots', 'completed'],
+        ['route_bridge_shots', 'completed'],
+        ['generate_bridge_clips', 'completed'],
+        ['bridge_qa', 'completed'],
+        ['plan_action_sequences', 'completed'],
+        ['route_action_sequences', 'completed'],
+        ['generate_sequence_clips', 'completed'],
+        ['sequence_qa', 'completed'],
         ['normalize_dialogue', 'completed'],
         ['generate_audio', 'completed'],
         ['tts_qa', 'completed'],
@@ -1255,6 +1271,144 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
         provider: 'runway',
       },
     ]);
+  });
+});
+
+test('runEpisodePipeline can switch to seedance provider and pass provider-tagged clips into video composition', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const previousVideoProvider = process.env.VIDEO_PROVIDER;
+    process.env.VIDEO_PROVIDER = 'seedance';
+    try {
+      const dirs = createDirs(path.join(tempRoot, 'job'));
+      const composeCalls = [];
+
+      const director = createDirector({
+        initDirs: () => dirs,
+        generateJobId: () => 'job_seedance',
+        loadJSON: () => null,
+        saveJSON: () => {},
+        loadScript: () => ({
+          id: 'script_1',
+          title: 'Seedance 动态镜头',
+          characters: [{ name: '沈清' }],
+        }),
+        loadEpisode: () => ({
+          id: 'episode_1',
+          title: '第一集',
+          shots: [{ id: 'shot_1', scene: '长廊', action: '缓步逼近', dialogue: '', characters: ['沈清'], duration: 4 }],
+        }),
+        buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+        generateAllPrompts: async (shots) =>
+          shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: 'none' })),
+        generateAllImages: async (prompts) =>
+          prompts.map((prompt) => ({ shotId: prompt.shotId, imagePath: `/tmp/${prompt.shotId}.png`, success: true })),
+        runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+        runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+        planMotion: async (shots) =>
+          shots.map((shot) => ({
+            shotId: shot.id,
+            shotType: 'dialogue_medium',
+            durationTargetSec: shot.duration,
+            cameraIntent: 'slow_dolly',
+            cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+            videoGenerationMode: 'seedance_image_to_video',
+            visualGoal: shot.scene,
+          })),
+        planPerformance: async (motionPlan) =>
+          motionPlan.map((item) => ({
+            shotId: item.shotId,
+            performanceTemplate: 'dialogue_two_shot_tension',
+            actionBeatList: [],
+            cameraMovePlan: { pattern: 'push_in' },
+            generationTier: 'enhanced',
+            variantCount: 1,
+            enhancementHints: [],
+          })),
+        routeVideoShots: async (shots) =>
+          shots.map((shot) => ({
+            shotId: shot.id,
+            shotType: 'dialogue_medium',
+            durationTargetSec: shot.duration,
+            visualGoal: shot.scene,
+            cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+            referenceImages: [{ type: 'keyframe', path: `/tmp/${shot.id}.png` }],
+            preferredProvider: 'seedance',
+            fallbackProviders: ['static_image'],
+            providerRequestHints: { shotId: shot.id, hasReferenceImage: true },
+            qaRules: { mustProbeWithFfprobe: true },
+          })),
+        runSeedanceVideo: async () => ({
+          results: [
+            {
+              shotId: 'shot_1',
+              provider: 'seedance',
+              status: 'completed',
+              videoPath: '/tmp/shot_1.mp4',
+              targetDurationSec: 4,
+              actualDurationSec: 4,
+            },
+          ],
+          report: { status: 'pass', warnings: [], blockers: [] },
+        }),
+        runMotionEnhancer: async () => [
+          {
+            shotId: 'shot_1',
+            sourceVideoPath: '/tmp/shot_1.mp4',
+            enhancementApplied: false,
+            enhancementProfile: 'none',
+            enhancementActions: [],
+            enhancedVideoPath: '/tmp/shot_1.mp4',
+            durationAdjusted: false,
+            cameraMotionInjected: false,
+            interpolationApplied: false,
+            stabilizationApplied: false,
+            qualityDelta: 'unchanged',
+            status: 'completed',
+            error: null,
+          },
+        ],
+        runShotQa: async () => ({
+          status: 'pass',
+          entries: [{ shotId: 'shot_1', canUseVideo: true, fallbackToImage: false, finalDecision: 'pass' }],
+          engineeringPassedCount: 1,
+          motionPassedCount: 1,
+          fallbackCount: 0,
+          fallbackShots: [],
+          warnings: [],
+        }),
+        normalizeDialogueShots: async (shots) => shots,
+        generateAllAudio: async () => [],
+        runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+        runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+        composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
+          composeCalls.push(options);
+        },
+      });
+
+      await director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      });
+
+      assert.equal(composeCalls.length, 1);
+      assert.deepEqual(composeCalls[0].videoClips, [
+        {
+          shotId: 'shot_1',
+          videoPath: '/tmp/shot_1.mp4',
+          durationSec: 4,
+          status: 'completed',
+          provider: 'seedance',
+        },
+      ]);
+    } finally {
+      if (previousVideoProvider == null) {
+        delete process.env.VIDEO_PROVIDER;
+      } else {
+        process.env.VIDEO_PROVIDER = previousVideoProvider;
+      }
+    }
   });
 });
 

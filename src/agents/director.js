@@ -20,6 +20,7 @@ import { planMotion } from './motionPlanner.js';
 import { planPerformance } from './performancePlanner.js';
 import { routeVideoShots } from './videoRouter.js';
 import { runRunwayVideo } from './runwayVideoAgent.js';
+import { runSeedanceVideo } from './seedanceVideoAgent.js';
 import { runMotionEnhancer } from './motionEnhancer.js';
 import { runShotQa } from './shotQaAgent.js';
 import { planBridgeShots } from './bridgeShotPlanner.js';
@@ -186,6 +187,10 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
     );
 }
 
+function getDefaultVideoProvider() {
+  return process.env.VIDEO_PROVIDER || 'seedance';
+}
+
 function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
   const allowedShotIds = shotQaReport?.entries
     ? new Set(
@@ -203,7 +208,7 @@ function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
       videoPath: result.videoPath,
       durationSec: result.durationSec || result.targetDurationSec || null,
       status: result.status || 'completed',
-      provider: result.provider || 'runway',
+      provider: result.provider || result.preferredProvider || getDefaultVideoProvider(),
     }));
 }
 
@@ -269,7 +274,7 @@ function buildSequenceClipBridge(actionSequencePlan = [], sequenceClipResults = 
         videoPath: result.videoPath,
         durationSec: result.actualDurationSec || result.targetDurationSec || planEntry.durationTargetSec || null,
         finalDecision: 'pass',
-        provider: result.provider || planEntry.preferredProvider || 'runway',
+        provider: result.provider || planEntry.preferredProvider || getDefaultVideoProvider(),
       };
     })
     .filter((entry) => entry.coveredShotIds.length > 0);
@@ -499,6 +504,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     performancePlanner: 'Performance Planner',
     videoRouter: 'Video Router',
     runwayVideoAgent: 'Runway Video Agent',
+    seedanceVideoAgent: 'Seedance Video Agent',
     motionEnhancer: 'Motion Enhancer',
     shotQaAgent: 'Shot QA Agent',
     bridgeShotPlanner: 'Bridge Shot Planner',
@@ -526,6 +532,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'performancePlanner',
     'videoRouter',
     'runwayVideoAgent',
+    'seedanceVideoAgent',
     'motionEnhancer',
     'shotQaAgent',
     'bridgeShotPlanner',
@@ -633,6 +640,7 @@ export function createDirector(overrides = {}) {
     planPerformance,
     routeVideoShots,
     runRunwayVideo,
+    runSeedanceVideo,
     runMotionEnhancer,
     runShotQa,
     planBridgeShots,
@@ -1178,8 +1186,10 @@ export function createDirector(overrides = {}) {
         let shotPackages = Array.isArray(state.shotPackages) ? state.shotPackages : null;
         if (!shotPackages) {
           deps.logger.info('Director', '【Step 8/13】路由视频镜头...');
+          const requestedVideoProvider = getDefaultVideoProvider();
           shotPackages = await recordStep('route_video_shots', { message: '路由视频镜头' }, () =>
             deps.routeVideoShots(shots, motionPlan, imageResults, {
+              videoProvider: requestedVideoProvider,
               performancePlan,
               promptList,
               artifactContext: artifactContext.agents.videoRouter,
@@ -1198,13 +1208,47 @@ export function createDirector(overrides = {}) {
         if (!rawVideoResults) {
           deps.logger.info('Director', '【Step 9/13】生成动态镜头...');
           const videoRun = await recordStep('generate_video_clips', { message: '生成动态镜头' }, () =>
-            deps.runRunwayVideo(
-              shotPackages,
-              dirs.video || path.join(dirs.root, 'video'),
-              {
-                artifactContext: artifactContext.agents.runwayVideoAgent,
+            (async () => {
+              const videoDir = dirs.video || path.join(dirs.root, 'video');
+              const requestedVideoProvider = getDefaultVideoProvider();
+              const requestedProviders = new Set(
+                (Array.isArray(shotPackages) ? shotPackages : [])
+                  .map((item) => item?.preferredProvider)
+                  .filter((provider) => provider && provider !== 'static_image')
+              );
+              const providersToRun = [];
+
+              if (requestedProviders.has('seedance') || requestedVideoProvider === 'seedance') {
+                providersToRun.push({
+                  provider: 'seedance',
+                  runner: deps.runSeedanceVideo,
+                  artifactContext: artifactContext.agents.seedanceVideoAgent,
+                });
               }
-            )
+
+              if (requestedProviders.has('runway') || requestedVideoProvider === 'runway') {
+                providersToRun.push({
+                  provider: 'runway',
+                  runner: deps.runRunwayVideo,
+                  artifactContext: artifactContext.agents.runwayVideoAgent,
+                });
+              }
+
+              const runResults = [];
+              for (const providerRun of providersToRun) {
+                const providerResult = await providerRun.runner(shotPackages, videoDir, {
+                  artifactContext: providerRun.artifactContext,
+                });
+                runResults.push(providerResult);
+              }
+
+              return {
+                results: runResults.flatMap((item) => (Array.isArray(item?.results) ? item.results : [])),
+                report: {
+                  status: runResults.some((item) => item?.report?.status === 'warn') ? 'warn' : 'pass',
+                },
+              };
+            })()
           );
           rawVideoResults = Array.isArray(videoRun?.results) ? videoRun.results : [];
           saveState({ rawVideoResults });
@@ -1256,7 +1300,7 @@ export function createDirector(overrides = {}) {
               const rawResult = rawVideoResultByShotId.get(result.shotId);
               return {
                 shotId: result.shotId,
-                provider: 'runway',
+                provider: rawResult?.provider || rawResult?.preferredProvider || getDefaultVideoProvider(),
                 status: result.status,
                 videoPath: result.enhancedVideoPath || result.videoPath || result.sourceVideoPath || null,
                 targetDurationSec: result.targetDurationSec || rawResult?.targetDurationSec || null,

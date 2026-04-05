@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { __testables, routeVideoShots } from '../src/agents/videoRouter.js';
 
-test('buildShotPackages assembles complete shotPackage and prefers runway when reference image exists', () => {
+test('buildShotPackages assembles complete shotPackage and prefers configured video provider when reference image exists', () => {
   const shotPackages = __testables.buildShotPackages(
     [{ id: 'shot_001', scene: '大殿', action: '对峙' }],
     [
@@ -17,6 +17,7 @@ test('buildShotPackages assembles complete shotPackage and prefers runway when r
     ],
     [{ shotId: 'shot_001', imagePath: '/tmp/shot_001.png', success: true }],
     {
+      videoProvider: 'seedance',
       performancePlan: [
         {
           shotId: 'shot_001',
@@ -43,8 +44,20 @@ test('buildShotPackages assembles complete shotPackage and prefers runway when r
     visualGoal: '皇城大殿内，两人对峙',
     cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
     referenceImages: [{ type: 'keyframe', path: '/tmp/shot_001.png' }],
-    preferredProvider: 'runway',
+    preferredProvider: 'seedance',
     fallbackProviders: ['static_image'],
+    providerRequestHints: {
+      shotId: 'shot_001',
+      scene: '大殿',
+      action: '对峙',
+      hasReferenceImage: true,
+      promptSource: 'prompt_list',
+      targetModelTier: 'enhanced',
+      requestedDurationSec: 4,
+      requestedRatio: '9:16',
+      requestedMoveType: 'slow_dolly',
+      referenceImagePath: '/tmp/shot_001.png',
+    },
     audioRef: null,
     performanceTemplate: 'dialogue_two_shot_tension',
     actionBeatList: [{ atSec: 1.5, action: 'eye_contact_hold' }],
@@ -97,7 +110,24 @@ test('routeVideoShots falls back to static image provider when no reference imag
   assert.equal(shotPackages[0].preferredProvider, 'static_image');
   assert.deepEqual(shotPackages[0].referenceImages, []);
   assert.deepEqual(shotPackages[0].fallbackProviders, []);
+  assert.equal(shotPackages[0].providerRequestHints.hasReferenceImage, false);
   assert.equal(shotPackages[0].performanceTemplate, 'ambient_transition_motion');
   assert.equal(shotPackages[0].generationTier, 'base');
   assert.equal(shotPackages[0].variantCount, 1);
+});
+
+test('resolvePreferredVideoProvider defaults to seedance and allows explicit override', () => {
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  delete process.env.VIDEO_PROVIDER;
+  try {
+    assert.equal(__testables.resolvePreferredVideoProvider({}), 'seedance');
+    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'seedance' }), 'seedance');
+    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'runway' }), 'runway');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
 });

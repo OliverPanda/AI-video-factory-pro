@@ -6,6 +6,11 @@ import axios from 'axios';
 
 import logger from '../utils/logger.js';
 import { imageToBase64, saveBuffer } from '../utils/fileHelper.js';
+import {
+  normalizeVideoProviderError,
+  normalizeVideoProviderRequest,
+  normalizeVideoProviderResult,
+} from './videoProviderProtocol.js';
 
 const RUNWAY_API_BASE_URL = process.env.RUNWAY_API_BASE_URL || 'https://api.dev.runwayml.com/v1';
 const RUNWAY_API_VERSION = process.env.RUNWAY_API_VERSION || '2024-11-06';
@@ -14,12 +19,13 @@ const RUNWAY_DEFAULT_POLL_INTERVAL_MS = Number.parseInt(process.env.RUNWAY_POLL_
 const RUNWAY_DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.RUNWAY_TIMEOUT_MS || '300000', 10);
 
 function createProviderError(message, extras = {}) {
-  const error = new Error(message);
-  error.code = extras.code || 'RUNWAY_VIDEO_ERROR';
-  error.category = extras.category || 'provider_generation_failed';
-  error.status = extras.status || null;
-  error.details = extras.details || null;
-  return error;
+  return normalizeVideoProviderError({
+    message,
+    code: extras.code || 'RUNWAY_VIDEO_ERROR',
+    category: extras.category || 'provider_generation_failed',
+    status: extras.status || null,
+    details: extras.details || null,
+  });
 }
 
 function normalizeDurationBucket(durationTargetSec) {
@@ -168,6 +174,20 @@ export async function runwayImageToVideo(shotPackage, outputPath, options = {}, 
   }
 
   const requestBody = buildRunwayImageToVideoRequest(shotPackage, env);
+  const requestSummary = normalizeVideoProviderRequest({
+    provider: 'runway',
+    request: {
+      model: requestBody.model,
+      duration: requestBody.duration,
+      ratio: requestBody.ratio,
+      promptText: requestBody.promptText,
+      hasPromptImage: Boolean(requestBody.promptImage),
+    },
+    metadata: {
+      shotId: shotPackage?.shotId || null,
+      referenceImageCount: Array.isArray(shotPackage?.referenceImages) ? shotPackage.referenceImages.length : 0,
+    },
+  });
   const httpClient = options.httpClient || axios.create({
     baseURL: options.baseUrl || env.RUNWAY_API_BASE_URL || RUNWAY_API_BASE_URL,
     timeout: options.timeoutMs || RUNWAY_DEFAULT_TIMEOUT_MS,
@@ -212,12 +232,22 @@ export async function runwayImageToVideo(shotPackage, outputPath, options = {}, 
 
         const binary = await binaryClient.get(outputUrl, { responseType: 'arraybuffer' });
         saveBuffer(outputPath, Buffer.from(binary.data));
-        return {
+        return normalizeVideoProviderResult({
           provider: 'runway',
-          taskId,
+          shotId: shotPackage?.shotId || null,
+          preferredProvider: shotPackage?.preferredProvider || 'runway',
           videoPath: outputPath,
           outputUrl,
-        };
+          taskId,
+          providerJobId: taskId,
+          targetDurationSec: shotPackage?.durationTargetSec || null,
+          actualDurationSec: shotPackage?.durationTargetSec || null,
+          providerRequest: requestSummary.providerRequest,
+          providerMetadata: requestSummary.providerMetadata,
+          extra: {
+            requestBody,
+          },
+        });
       }
 
       if (status === 'FAILED' || status === 'CANCELLED') {
@@ -249,5 +279,6 @@ export const __testables = {
   createProviderError,
   inferRatio,
   normalizeDurationBucket,
+  normalizeVideoProviderRequest,
   resolveTaskOutputUrl: resolveRunwayTaskOutputUrl,
 };

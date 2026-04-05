@@ -3,9 +3,38 @@ import path from 'node:path';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
+function resolvePreferredVideoProvider(options = {}) {
+  return options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+}
+
+function buildProviderRequestHints({
+  shot,
+  motionEntry,
+  imageResult,
+  promptEntry,
+  performanceEntry,
+  hasReferenceImage,
+}) {
+  return {
+    shotId: shot.id,
+    scene: shot.scene || null,
+    action: shot.action || null,
+    hasReferenceImage,
+    promptSource: promptEntry?.image_prompt ? 'prompt_list' : 'motion_plan',
+    targetModelTier: performanceEntry?.generationTier || 'base',
+    requestedDurationSec: motionEntry.durationTargetSec,
+    requestedRatio: motionEntry?.cameraSpec?.ratio || null,
+    requestedMoveType: motionEntry?.cameraSpec?.moveType || null,
+    referenceImagePath: imageResult?.imagePath || null,
+  };
+}
+
 function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options = {}) {
   const hasReferenceImage = Boolean(imageResult?.imagePath);
   const performanceEntry = options.performancePlan?.find((item) => item.shotId === shot.id) || null;
+  const preferredVideoProvider = resolvePreferredVideoProvider(options);
+  const preferredProvider = hasReferenceImage ? preferredVideoProvider : 'static_image';
+  const fallbackProviders = hasReferenceImage ? ['static_image'] : [];
   return {
     shotId: shot.id,
     shotType: motionEntry.shotType,
@@ -20,8 +49,16 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
           },
         ]
       : [],
-    preferredProvider: hasReferenceImage ? 'runway' : 'static_image',
-    fallbackProviders: hasReferenceImage ? ['static_image'] : [],
+    preferredProvider,
+    fallbackProviders,
+    providerRequestHints: buildProviderRequestHints({
+      shot,
+      motionEntry,
+      imageResult,
+      promptEntry,
+      performanceEntry,
+      hasReferenceImage,
+    }),
     audioRef: options.audioRef || null,
     performanceTemplate: performanceEntry?.performanceTemplate || null,
     actionBeatList: performanceEntry?.actionBeatList || [],
@@ -58,6 +95,15 @@ function writeArtifacts(shotPackages, artifactContext) {
   }
 
   saveJSON(path.join(artifactContext.outputsDir, 'shot-packages.json'), shotPackages);
+  saveJSON(
+    path.join(artifactContext.outputsDir, 'video-routing-decisions.json'),
+    shotPackages.map((item) => ({
+      shotId: item.shotId,
+      preferredProvider: item.preferredProvider,
+      fallbackProviders: item.fallbackProviders,
+      providerRequestHints: item.providerRequestHints,
+    }))
+  );
   saveJSON(path.join(artifactContext.metricsDir, 'video-routing-metrics.json'), {
     routedShotCount: shotPackages.length,
     preferredProviderBreakdown: shotPackages.reduce((acc, item) => {
@@ -68,7 +114,7 @@ function writeArtifacts(shotPackages, artifactContext) {
   saveJSON(artifactContext.manifestPath, {
     status: 'completed',
     routedShotCount: shotPackages.length,
-    outputFiles: ['shot-packages.json', 'video-routing-metrics.json'],
+    outputFiles: ['shot-packages.json', 'video-routing-decisions.json', 'video-routing-metrics.json'],
   });
   writeAgentQaSummary(
     {
@@ -78,8 +124,12 @@ function writeArtifacts(shotPackages, artifactContext) {
       headline: `已完成 ${shotPackages.length} 个镜头的视频路由`,
       summary: '当前已为镜头生成 provider 选择、参考图绑定和 QA 规则。',
       passItems: [`路由镜头数：${shotPackages.length}`],
-      nextAction: '可以继续进入 Runway 动态镜头生成。',
-      evidenceFiles: ['1-outputs/shot-packages.json', '2-metrics/video-routing-metrics.json'],
+      nextAction: '可以继续进入具体视频 provider 的动态镜头生成。',
+      evidenceFiles: [
+        '1-outputs/shot-packages.json',
+        '1-outputs/video-routing-decisions.json',
+        '2-metrics/video-routing-metrics.json',
+      ],
       metrics: { routedShotCount: shotPackages.length },
     },
     artifactContext
@@ -95,4 +145,6 @@ export async function routeVideoShots(shots = [], motionPlan = [], imageResults 
 export const __testables = {
   buildShotPackage,
   buildShotPackages,
+  buildProviderRequestHints,
+  resolvePreferredVideoProvider,
 };

@@ -19,14 +19,43 @@
 ```mermaid
 flowchart TD
     A[输入剧本 / Project-Script-Episode] --> B[Director]
-    B --> C[生成与检查前半程<br/>script -> prompt -> image -> consistency -> continuity]
-    C --> D[视频主路径<br/>motion -> router -> runway -> shot QA]
-    D --> E[音频与表演路径<br/>dialogue -> tts -> tts QA -> lipsync]
-    E --> F[Video Composer]
-    F --> G[output/final-video.mp4]
-    B --> H[temp/<jobId>/state.json]
-    B --> I[temp/projects/.../run-jobs]
-    B --> J[temp/projects/.../runs/<runId>]
+    B --> C[Script Parser]
+    C --> D[Character Registry]
+    D --> E[Prompt Engineer]
+    E --> F[Image Generator]
+    F --> G[Consistency Checker]
+    G --> H[Continuity Checker]
+    C --> I[Motion Planner]
+    H --> I
+    I --> J[Performance Planner]
+    J --> K[Video Router]
+    F --> K
+    E --> K
+    K --> L{Video Provider}
+    L --> L1[Runway Video Agent]
+    L --> L2[Seedance Video Agent]
+    L1 --> M[Motion Enhancer]
+    L2 --> M
+    M --> N[Shot QA Agent]
+    N --> O[Bridge Shot Planner]
+    O --> P[Bridge Shot Router]
+    P --> Q[Bridge Clip Generator]
+    Q --> R[Bridge QA Agent]
+    C --> S[Dialogue Normalizer]
+    D --> T[TTS Agent]
+    S --> T
+    T --> U[TTS QA Agent]
+    F --> V[Lip-sync Agent]
+    T --> V
+    N --> W[Video Composer]
+    R --> W
+    U --> W
+    V --> W
+    F --> W
+    W --> X[output/final-video.mp4]
+    B --> Y[temp/<jobId>/state.json]
+    B --> Z[temp/projects/.../run-jobs]
+    B --> AA[temp/projects/.../runs/<runId>]
 ```
 
 ## 目录与数据流关系
@@ -37,8 +66,9 @@ flowchart LR
     A --> C[images/]
     A --> D[video/]
     A --> E[audio/]
-    F[temp/projects/.../runs/<runId>] --> G[01~10 agent run packages]
-    F --> H[qa-overview.md]
-    I[output/<project>/<episode>] --> J[final-video.mp4]
-    I --> K[delivery-summary.md]
+    F[temp/projects/.../runs/<runId>] --> G[01~10 + 09g~09j agent run packages]
+    F --> H[qa-overview.md / qa-overview.json]
+    F --> I[state.snapshot.json]
+    J[output/<project>/<episode>] --> K[final-video.mp4]
+    J --> L[delivery-summary.md]
 ```

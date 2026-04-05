@@ -22,6 +22,45 @@ Director 还会在 run 根目录再聚合：
 
 如果只想先判断“这一轮能不能交付、最该先看哪里”，建议先看这两层摘要。
 
+## 模块分层视图
+
+当前 Agent 体系可以按模块理解成 7 层：
+
+- 编排层：
+  - `Director`
+- 文本与视觉预生产层：
+  - `Script Parser`
+  - `Character Registry`
+  - `Prompt Engineer`
+  - `Image Generator`
+  - `Consistency Checker`
+  - `Continuity Checker`
+- 单镜头视频主链：
+  - `Motion Planner`
+  - `Performance Planner`
+  - `Video Router`
+  - `Seedance Video Agent`
+  - `Runway Video Agent`
+  - `Motion Enhancer`
+  - `Shot QA Agent`
+- 高风险 cut 补桥子链：
+  - `Bridge Shot Planner`
+  - `Bridge Shot Router`
+  - `Bridge Clip Generator`
+  - `Bridge QA Agent`
+- 连续动作段子链：
+  - `Action Sequence Planner`
+  - `Action Sequence Router`
+  - `Sequence Clip Generator`
+  - `Sequence QA Agent`
+- 音频与口型子链：
+  - `Dialogue Normalizer`
+  - `TTS Agent`
+  - `TTS QA Agent`
+  - `Lip-sync Agent`
+- 总装交付层：
+  - `Video Composer`
+
 ## Agent 总览
 
 | 序号 | 名称 | 关键职责 | 代码位置 | 文档 |
@@ -40,18 +79,19 @@ Director 还会在 run 根目录再聚合：
 | 12 | Motion Planner | 镜头类型、运镜、时长目标规划 | `src/agents/motionPlanner.js` | [motion-planner.md](motion-planner.md) |
 | 13 | Performance Planner | 表演模板、生成层级、动作节拍规划 | `src/agents/performancePlanner.js` | [performance-planner.md](performance-planner.md) |
 | 14 | Video Router | 组装 `shotPackages` 并决定 provider 路由 | `src/agents/videoRouter.js` | [video-router.md](video-router.md) |
-| 15 | Runway Video Agent | 生成 `rawVideoResults` | `src/agents/runwayVideoAgent.js` | [runway-video-agent.md](runway-video-agent.md) |
-| 16 | Motion Enhancer | 增强或透传原始视频结果 | `src/agents/motionEnhancer.js` | [motion-enhancer.md](motion-enhancer.md) |
-| 17 | Shot QA Agent | 动态镜头工程验收与 motion 验收 | `src/agents/shotQaAgent.js` | [shot-qa-agent.md](shot-qa-agent.md) |
-| 18 | Bridge Shot Planner | 只为高风险 cut 规划桥接镜头 | `src/agents/bridgeShotPlanner.js` | [bridge-shot-planner.md](bridge-shot-planner.md) |
-| 19 | Bridge Shot Router | 组装 `bridgeShotPackages` | `src/agents/bridgeShotRouter.js` | [bridge-shot-router.md](bridge-shot-router.md) |
-| 20 | Bridge Clip Generator | 生成 bridge clip 或返回可解释失败 | `src/agents/bridgeClipGenerator.js` | [bridge-clip-generator.md](bridge-clip-generator.md) |
-| 21 | Bridge QA Agent | 决定 `pass / direct_cut / transition_stub / manual_review` | `src/agents/bridgeQaAgent.js` | [bridge-qa-agent.md](bridge-qa-agent.md) |
-| 22 | Action Sequence Planner | 识别高价值连续动作段并生成 `actionSequencePlan` | `src/agents/actionSequencePlanner.js` | [action-sequence-planner.md](action-sequence-planner.md) |
-| 23 | Action Sequence Router | 组装 `actionSequencePackages` 并选择参考素材层级 | `src/agents/actionSequenceRouter.js` | [action-sequence-router.md](action-sequence-router.md) |
-| 24 | Sequence Clip Generator | 生成连续动作段视频并记录 provider 失败分类 | `src/agents/sequenceClipGenerator.js` | [sequence-clip-generator.md](sequence-clip-generator.md) |
-| 25 | Sequence QA Agent | 决定 sequence 是否可覆盖原始 shot timeline | `src/agents/sequenceQaAgent.js` | [sequence-qa-agent.md](sequence-qa-agent.md) |
-| 26 | Video Composer | 以 `sequence > video > bridge > lipsync > animation > image` 合成成片 | `src/agents/videoComposer.js` | [video-composer.md](video-composer.md) |
+| 15 | Seedance Video Agent | 调用火山方舟 `Seedance 2.0` 生成 `rawVideoResults` | `src/agents/seedanceVideoAgent.js` | [seedance-video-agent.md](seedance-video-agent.md) |
+| 16 | Runway Video Agent | 作为兼容 provider 生成 `rawVideoResults` | `src/agents/runwayVideoAgent.js` | [runway-video-agent.md](runway-video-agent.md) |
+| 17 | Motion Enhancer | 增强或透传原始视频结果 | `src/agents/motionEnhancer.js` | [motion-enhancer.md](motion-enhancer.md) |
+| 18 | Shot QA Agent | 动态镜头工程验收与 motion 验收 | `src/agents/shotQaAgent.js` | [shot-qa-agent.md](shot-qa-agent.md) |
+| 19 | Bridge Shot Planner | 只为高风险 cut 规划桥接镜头 | `src/agents/bridgeShotPlanner.js` | [bridge-shot-planner.md](bridge-shot-planner.md) |
+| 20 | Bridge Shot Router | 组装 `bridgeShotPackages` | `src/agents/bridgeShotRouter.js` | [bridge-shot-router.md](bridge-shot-router.md) |
+| 21 | Bridge Clip Generator | 生成 bridge clip 或返回可解释失败 | `src/agents/bridgeClipGenerator.js` | [bridge-clip-generator.md](bridge-clip-generator.md) |
+| 22 | Bridge QA Agent | 决定 `pass / direct_cut / transition_stub / manual_review` | `src/agents/bridgeQaAgent.js` | [bridge-qa-agent.md](bridge-qa-agent.md) |
+| 23 | Action Sequence Planner | 识别高价值连续动作段并生成 `actionSequencePlan` | `src/agents/actionSequencePlanner.js` | [action-sequence-planner.md](action-sequence-planner.md) |
+| 24 | Action Sequence Router | 组装 `actionSequencePackages` 并选择参考素材层级 | `src/agents/actionSequenceRouter.js` | [action-sequence-router.md](action-sequence-router.md) |
+| 25 | Sequence Clip Generator | 生成连续动作段视频并记录 provider 失败分类 | `src/agents/sequenceClipGenerator.js` | [sequence-clip-generator.md](sequence-clip-generator.md) |
+| 26 | Sequence QA Agent | 决定 sequence 是否可覆盖原始 shot timeline | `src/agents/sequenceQaAgent.js` | [sequence-qa-agent.md](sequence-qa-agent.md) |
+| 27 | Video Composer | 以 `sequence > video > bridge > lipsync > animation > image` 合成成片 | `src/agents/videoComposer.js` | [video-composer.md](video-composer.md) |
 
 ## 当前执行顺序
 
@@ -60,7 +100,7 @@ Director 还会在 run 根目录再聚合：
 3. `Character Registry -> Prompt Engineer -> Image Generator` 完成角色建档、prompt 生成和首轮出图。
 4. `Consistency Checker` 检查角色外观一致性，必要时由 `Director` 触发重生成。
 5. `Continuity Checker` 标记高风险 cut，为后续 `Motion Planner` 和 bridge 子链提供输入。
-6. `Motion Planner -> Performance Planner -> Video Router -> Runway Video Agent -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
+6. `Motion Planner -> Performance Planner -> Video Router -> Seedance / Runway Video Agent -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
 7. `Dialogue Normalizer -> TTS Agent -> TTS QA Agent -> Lip-sync Agent` 形成音频与表演链。
 8. `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent` 只在高风险 cut 上按需触发。
 9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发。

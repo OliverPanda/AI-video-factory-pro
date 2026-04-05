@@ -4,6 +4,13 @@
 
 当前主链已经升级为“静态分镜 + 动态视频镜头 + bridge shot 补桥 + action sequence 连续动作段 + 音频表演 + 时间线合成”的单 Orchestrator 架构，`Director` 仍是唯一调度中心。
 
+当前代码已经支持单镜头视频 provider 双路：
+
+- `Runway`
+- `Seedance 2.0`（火山方舟视频生成 API）
+
+默认主视频 provider 已切到 `Seedance`，`Runway` 作为兼容与 fallback 路径保留。
+
 ## README 现在看什么
 
 这个 README 只保留入口信息：
@@ -34,6 +41,42 @@ project
 ```
 
 ## 当前系统主流程
+
+当前主流程可以按模块分成 7 层：
+
+- 编排层：
+  - `Director`
+- 文本与视觉预生产层：
+  - `Script Parser`
+  - `Character Registry`
+  - `Prompt Engineer`
+  - `Image Generator`
+  - `Consistency Checker`
+  - `Continuity Checker`
+- 单镜头视频主链：
+  - `Motion Planner`
+  - `Performance Planner`
+  - `Video Router`
+  - `Runway Video Agent`
+  - `Motion Enhancer`
+  - `Shot QA Agent`
+- 高风险 cut 补桥子链：
+  - `Bridge Shot Planner`
+  - `Bridge Shot Router`
+  - `Bridge Clip Generator`
+  - `Bridge QA Agent`
+- 连续动作段子链：
+  - `Action Sequence Planner`
+  - `Action Sequence Router`
+  - `Sequence Clip Generator`
+  - `Sequence QA Agent`
+- 音频与口型子链：
+  - `Dialogue Normalizer`
+  - `TTS Agent`
+  - `TTS QA Agent`
+  - `Lip-sync Agent`
+- 总装交付层：
+  - `Video Composer`
 
 ```mermaid
 flowchart TD
@@ -98,6 +141,13 @@ Phase 4 的最小增量位置固定为：
 - 语音驱动动作节拍闭环
 - 商用品质级复杂表演保证
 
+关于视频模型路线：
+
+- 当前实现：`Runway Video Agent` + `Seedance Video Agent`
+- 当前默认：`Seedance`
+- 可切换兼容：`VIDEO_PROVIDER=runway`
+- 当前口径：`Seedance` 走主视频路径，`Runway` 保留兼容与回退能力
+
 ## 快速开始
 
 ### 1. 安装依赖
@@ -125,6 +175,16 @@ cp .env.example .env
 如果要启用动态镜头主路径，还需要：
 
 - `RUNWAY_API_KEY`
+
+跑默认 `Seedance 2.0` 主路径时，还需要：
+
+- `ARK_API_KEY` 或 `SEEDANCE_API_KEY`
+
+说明：
+
+- `ARK_API_KEY / SEEDANCE_API_KEY` 对应当前默认的火山方舟 `Seedance` provider
+- `RUNWAY_API_KEY` 对应兼容 provider
+- 推荐配置项见 [`.env.example`](.env.example)
 
 推荐默认值见 [`.env.example`](.env.example)。
 
@@ -166,6 +226,21 @@ node scripts/run.js samples/寒烬宫变-pro.txt --skip-consistency
 完整 production pipeline：
 
 ```bash
+node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+```
+
+默认 Seedance 主视频 provider：
+
+```bash
+$env:ARK_API_KEY="你的火山方舟Key"
+node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+```
+
+切回 Runway 兼容 provider：
+
+```bash
+$env:VIDEO_PROVIDER="runway"
+$env:RUNWAY_API_KEY="你的RunwayKey"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
@@ -215,6 +290,10 @@ Phase 4 action sequence 收口验收：
 ```bash
 node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.js tests/sequenceClipGenerator.test.js tests/sequenceQaAgent.test.js tests/videoComposer.sequence.test.js tests/director.sequence.integration.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
 ```
+
+Seedance 替换 Runway 的后续实现计划：
+
+- [docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md](docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md)
 
 ## 目录总览
 

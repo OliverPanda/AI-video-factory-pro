@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 `26` 个核心环节的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 `27` 个核心环节的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 快速检查“每个 agent 有没有留下可审计成果物”和“小白 QA 摘要”。
@@ -23,8 +23,11 @@ flowchart TD
     J --> K[Video Router]
     F --> K
     E --> K
-    K --> L[Runway Video Agent]
-    L --> M[Motion Enhancer]
+    K --> L{Video Provider}
+    L --> L1[Runway Video Agent]
+    L --> L2[Seedance Video Agent]
+    L1 --> M[Motion Enhancer]
+    L2 --> M
     M --> N[Shot QA Agent]
     N --> BS[Bridge Shot Planner]
     BS --> BR[Bridge Shot Router]
@@ -64,7 +67,7 @@ flowchart LR
 
     subgraph Asset[资产层]
         IG[Image Generator]
-        RV[Runway Video Agent]
+        RV[Runway / Seedance Video Agent]
         ME[Motion Enhancer]
         TTS[TTS Agent]
         LS[Lip-sync Agent]
@@ -125,6 +128,7 @@ flowchart LR
 资产生成层
 - Image Generator
 - Runway Video Agent
+- Seedance Video Agent
 - Motion Enhancer
 - TTS Agent
 - Lip-sync Agent
@@ -156,8 +160,9 @@ flowchart LR
 | Dialogue Normalizer | `shots + pronunciationLexicon` | `normalizedShots` | `07-tts-agent/` | TTS Agent、Director |
 | Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
 | Performance Planner | `scriptData + shotPlan + motionPlan + continuity context` | `performancePlan` | `09b-performance-planner/` | Video Router、Director |
-| Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages` | `09c-video-router/` | Runway Video Agent、Director |
-| Runway Video Agent | `shotPackages` | `rawVideoResults` | `09d-runway-video-agent/` | Motion Enhancer、Director |
+| Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages + videoRoutingDecisions` | `09c-video-router/` | Runway Video Agent、Seedance Video Agent、Director |
+| Runway Video Agent | `shotPackages(preferredProvider=runway)` | `rawVideoResults` | `09d-runway-video-agent/` | Motion Enhancer、Director |
+| Seedance Video Agent | `shotPackages(preferredProvider=seedance)` | `rawVideoResults` | `09d-seedance-video-agent/` | Motion Enhancer、Director |
 | Motion Enhancer | `rawVideoResults + shotPackages + performancePlan` | `enhancedVideoResults` | `09e-motion-enhancer/` | Shot QA、Director |
 | Shot QA Agent | `enhancedVideoResults` | `shotQaReportV2 + final video bridge decision` | `09f-shot-qa/` | Director、Video Composer |
 | Bridge Shot Planner | `shots + continuityFlaggedTransitions + motionPlan + performancePlan + videoResults` | `bridgeShotPlan` | `09g-bridge-shot-planner/` | Bridge Shot Router、Director |
@@ -518,10 +523,12 @@ Director 会在 run 根目录再汇总一层：
 输出：
 
 - `shotPackages`
+- `videoRoutingDecisions`
 
 关键落盘：
 
 - `09c-video-router/1-outputs/shot-packages.json`
+- `09c-video-router/1-outputs/video-routing-decisions.json`
 - `09c-video-router/2-metrics/video-router-metrics.json`
 - `09c-video-router/1-outputs/qa-summary.md`
 - `09c-video-router/2-metrics/qa-summary.json`
@@ -531,6 +538,7 @@ Director 会在 run 根目录再汇总一层：
 输入：
 
 - `shotPackages`
+- 仅消费 `preferredProvider=runway` 的镜头
 
 输出：
 
@@ -544,7 +552,27 @@ Director 会在 run 根目录再汇总一层：
 - `09d-runway-video-agent/2-metrics/qa-summary.json`
 - `09d-runway-video-agent/3-errors/<shotId>-*.json`
 
-### 15. Motion Enhancer
+### 15. Seedance Video Agent
+
+输入：
+
+- `shotPackages`
+- 仅消费 `preferredProvider=seedance` 的镜头
+
+输出：
+
+- `rawVideoResults`
+
+关键落盘：
+
+- `09d-seedance-video-agent/1-outputs/raw-video-results.json`
+- `09d-seedance-video-agent/1-outputs/video-report.md`
+- `09d-seedance-video-agent/2-metrics/video-generation-report.json`
+- `09d-seedance-video-agent/1-outputs/qa-summary.md`
+- `09d-seedance-video-agent/2-metrics/qa-summary.json`
+- `09d-seedance-video-agent/3-errors/<shotId>-*.json`
+
+### 16. Motion Enhancer
 
 输入：
 
@@ -563,7 +591,7 @@ Director 会在 run 根目录再汇总一层：
 - `09e-motion-enhancer/1-outputs/qa-summary.md`
 - `09e-motion-enhancer/2-metrics/qa-summary.json`
 
-### 16. Shot QA Agent
+### 17. Shot QA Agent
 
 输入：
 
@@ -583,7 +611,7 @@ Director 会在 run 根目录再汇总一层：
 - `09f-shot-qa/1-outputs/qa-summary.md`
 - `09f-shot-qa/2-metrics/qa-summary.json`
 
-### 17. Video Composer
+### 18. Video Composer
 
 输入：
 
@@ -632,6 +660,7 @@ runs/<runDir>/
   09b-performance-planner/manifest.json
   09c-video-router/manifest.json
   09d-runway-video-agent/manifest.json
+  09d-seedance-video-agent/manifest.json
   09e-motion-enhancer/manifest.json
   09f-shot-qa/manifest.json
   09g-bridge-shot-planner/manifest.json

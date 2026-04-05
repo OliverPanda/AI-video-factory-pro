@@ -63,7 +63,7 @@ node scripts/resume-from-step.js --step=audio samples/寒烬宫变-pro.txt --pre
 常见别名也支持，例如：
 
 - `lipsync-agent` -> `lipsync`
-- `video-generation` / `video-router` / `runway-video-agent` / `shot-qa` -> `video`
+- `video-generation` / `video-router` / `seedance-video-agent` / `runway-video-agent` / `shot-qa` -> `video`
 - `tts` / `tts-agent` -> `audio`
 - `video-composer` -> `compose`
 
