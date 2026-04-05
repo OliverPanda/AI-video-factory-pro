@@ -111,12 +111,18 @@ test('seedanceImageToVideo submits, polls, downloads and writes mp4 file', async
 
     const result = await seedanceImageToVideo(
       {
+        sequenceId: 'seq_001',
         shotId: 'shot_001',
         preferredProvider: 'seedance',
         durationTargetSec: 4,
         visualGoal: '人物回身拔剑',
         cameraSpec: { moveType: 'tracking_pan', framing: 'medium', ratio: '9:16' },
         referenceImages: [{ path: imagePath }],
+        referenceStrategy: 'image_first',
+        providerRequestHints: {
+          referenceTier: 'image',
+          referenceCount: 1,
+        },
       },
       outputPath,
       {
@@ -135,6 +141,9 @@ test('seedanceImageToVideo submits, polls, downloads and writes mp4 file', async
     assert.equal(result.taskId, 'cgt-2026-demo');
     assert.equal(result.providerRequest.model, 'doubao-seedance-2-0-260128');
     assert.equal(result.providerMetadata.shotId, 'shot_001');
+    assert.equal(result.providerMetadata.sequenceId, 'seq_001');
+    assert.equal(result.providerMetadata.referenceTier, 'image');
+    assert.equal(result.providerMetadata.referenceStrategy, 'image_first');
     assert.equal(fs.existsSync(outputPath), true);
     assert.deepEqual(calls.map((item) => item[0]), ['post', 'get', 'download']);
   });

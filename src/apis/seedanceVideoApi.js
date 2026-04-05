@@ -192,7 +192,11 @@ export async function seedanceImageToVideo(shotPackage, outputPath, options = {}
     },
     metadata: {
       shotId: shotPackage?.shotId || null,
+      sequenceId: shotPackage?.sequenceId || null,
       referenceImageCount: (shotPackage?.referenceImages || []).length,
+      referenceTier: shotPackage?.providerRequestHints?.referenceTier || null,
+      referenceCount: shotPackage?.providerRequestHints?.referenceCount ?? (shotPackage?.referenceImages || []).length,
+      referenceStrategy: shotPackage?.referenceStrategy || null,
     },
   });
 
