@@ -1486,6 +1486,7 @@ export function createDirector(overrides = {}) {
           deps.logger.info('Director', '【Step 11h/13】连续动作段 QA...');
           sequenceQaReport = await recordStep('sequence_qa', { message: '连续动作段 QA' }, () =>
             deps.runSequenceQa(sequenceClipResults, {
+              shots,
               videoResults,
               bridgeClipResults,
               artifactContext: artifactContext.agents.sequenceQaAgent,

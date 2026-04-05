@@ -725,6 +725,11 @@ function buildApprovedSequenceClips(sequenceClips = [], shots = []) {
       (left, right) => (shotOrder.get(left.startShotId) ?? Number.MAX_SAFE_INTEGER) - (shotOrder.get(right.startShotId) ?? Number.MAX_SAFE_INTEGER)
     )
     .filter((clip) => {
+      const uniqueShotIds = new Set(clip.coveredShotIds);
+      if (uniqueShotIds.size < 2 || uniqueShotIds.size !== clip.coveredShotIds.length) {
+        return false;
+      }
+
       const indexes = clip.coveredShotIds.map((shotId) => shotOrder.get(shotId));
       const hasUnknownShot = indexes.some((index) => !Number.isFinite(index));
       if (hasUnknownShot) {

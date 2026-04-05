@@ -152,3 +152,49 @@ test('buildCompositionPlan ignores overlapping or non-contiguous sequence clips'
     ['sequence:sequence_valid', 'shot_103']
   );
 });
+
+test('buildCompositionPlan ignores pass sequence clips that do not actually cover multiple unique shots', () => {
+  const plan = buildCompositionPlan(
+    [
+      { id: 'shot_201', duration: 2 },
+      { id: 'shot_202', duration: 2 },
+    ],
+    [
+      { shotId: 'shot_201', imagePath: '/tmp/shot_201.png', success: true },
+      { shotId: 'shot_202', imagePath: '/tmp/shot_202.png', success: true },
+    ],
+    [],
+    [
+      {
+        sequenceId: 'sequence_single',
+        coveredShotIds: ['shot_201'],
+        videoPath: '/tmp/sequence_single.mp4',
+        durationSec: 2,
+        finalDecision: 'pass',
+      },
+      {
+        sequenceId: 'sequence_duplicate',
+        coveredShotIds: ['shot_201', 'shot_201'],
+        videoPath: '/tmp/sequence_duplicate.mp4',
+        durationSec: 4,
+        finalDecision: 'pass',
+      },
+    ],
+    [
+      { shotId: 'shot_201', videoPath: '/tmp/shot_201.mp4', durationSec: 2 },
+      { shotId: 'shot_202', videoPath: '/tmp/shot_202.mp4', durationSec: 2 },
+    ],
+    [],
+    [],
+    []
+  );
+
+  assert.deepEqual(
+    plan.map((item) => item.shotId),
+    ['shot_201', 'shot_202']
+  );
+  assert.deepEqual(
+    plan.map((item) => item.visualType),
+    ['generated_video_clip', 'generated_video_clip']
+  );
+});

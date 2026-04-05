@@ -79,7 +79,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: emptyPath,
-          coveredShotIds: ['shot_010'],
+          coveredShotIds: ['shot_010', 'shot_011'],
           targetDurationSec: 4,
           actualDurationSec: 0,
           failureCategory: null,
@@ -91,7 +91,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: pseudoPath,
-          coveredShotIds: ['shot_011'],
+          coveredShotIds: ['shot_012', 'shot_013'],
           targetDurationSec: 4,
           actualDurationSec: 4,
           failureCategory: null,
@@ -103,7 +103,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: badDurationPath,
-          coveredShotIds: ['shot_012'],
+          coveredShotIds: ['shot_014', 'shot_015'],
           targetDurationSec: 4,
           actualDurationSec: 20,
           failureCategory: null,
@@ -133,6 +133,113 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
   });
 });
 
+test('runSequenceQa fails sequence clips whose coveredShotIds are too short duplicated or missing', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const validVideoPath = path.join(tempRoot, 'invalid-coverage.mp4');
+    fs.writeFileSync(validVideoPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_single_shot',
+          status: 'completed',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          videoPath: validVideoPath,
+          coveredShotIds: ['shot_100'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_duplicate_shots',
+          status: 'completed',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          videoPath: validVideoPath,
+          coveredShotIds: ['shot_101', 'shot_101'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_missing_coverage',
+          status: 'completed',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          videoPath: validVideoPath,
+          coveredShotIds: [],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 4 }),
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'pass',
+          continuityCheck: 'pass',
+        }),
+      }
+    );
+
+    assert.equal(report.entries[0].engineCheck, 'fail');
+    assert.equal(report.entries[0].finalDecision, 'fail');
+    assert.match(report.entries[0].notes, /invalid_coverage_range/);
+    assert.equal(report.entries[1].engineCheck, 'fail');
+    assert.equal(report.entries[1].finalDecision, 'fail');
+    assert.match(report.entries[1].notes, /invalid_coverage_range/);
+    assert.equal(report.entries[2].engineCheck, 'fail');
+    assert.equal(report.entries[2].finalDecision, 'fail');
+    assert.match(report.entries[2].notes, /invalid_coverage_range/);
+  });
+});
+
+test('runSequenceQa falls back when coveredShotIds are not contiguous in source shot order', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'non-contiguous.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_non_contiguous',
+          status: 'completed',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          videoPath,
+          coveredShotIds: ['shot_001', 'shot_003'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        shots: [
+          { id: 'shot_001' },
+          { id: 'shot_002' },
+          { id: 'shot_003' },
+        ],
+        probeVideo: async () => ({ durationSec: 4 }),
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'pass',
+          continuityCheck: 'pass',
+        }),
+      }
+    );
+
+    assert.equal(report.entries[0].engineCheck, 'pass');
+    assert.equal(report.entries[0].continuityCheck, 'fail');
+    assert.equal(report.entries[0].finalDecision, 'fallback_to_shot_path');
+    assert.equal(report.entries[0].fallbackAction, 'fallback_to_shot_path');
+    assert.match(report.entries[0].notes, /non_contiguous_coverage/);
+  });
+});
+
 test('runSequenceQa fails when entryExitCheck fails and falls back when continuityCheck fails', async () => {
   await withTempRoot(async (tempRoot) => {
     const artifactContext = {
@@ -158,7 +265,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: entryExitPath,
-          coveredShotIds: ['shot_020'],
+          coveredShotIds: ['shot_020', 'shot_021'],
           targetDurationSec: 4,
           actualDurationSec: 4,
           failureCategory: null,
@@ -170,7 +277,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: continuityPath,
-          coveredShotIds: ['shot_021'],
+          coveredShotIds: ['shot_022', 'shot_023'],
           targetDurationSec: 4,
           actualDurationSec: 4,
           failureCategory: null,
@@ -182,7 +289,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath: manualReviewPath,
-          coveredShotIds: ['shot_022'],
+          coveredShotIds: ['shot_024', 'shot_025'],
           targetDurationSec: 4,
           actualDurationSec: 4,
           failureCategory: null,
@@ -242,7 +349,7 @@ test('runSequenceQa classifies continuity evaluator failures separately from ffp
           provider: 'runway',
           model: 'gen4_turbo',
           videoPath,
-          coveredShotIds: ['shot_040'],
+          coveredShotIds: ['shot_040', 'shot_041'],
           targetDurationSec: 4,
           actualDurationSec: 4,
           failureCategory: null,

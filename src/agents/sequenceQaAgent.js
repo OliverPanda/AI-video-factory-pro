@@ -14,6 +14,23 @@ function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function hasValidCoverageRange(coveredShotIds = []) {
+  const normalizedShotIds = normalizeArray(coveredShotIds).filter(Boolean);
+  return normalizedShotIds.length >= 2 && new Set(normalizedShotIds).size === normalizedShotIds.length;
+}
+
+function isContiguousInShotOrder(coveredShotIds = [], shots = []) {
+  const shotOrder = new Map(normalizeArray(shots).map((shot, index) => [shot?.id, index]));
+  const indexes = normalizeArray(coveredShotIds).map((shotId) => shotOrder.get(shotId));
+
+  if (indexes.some((index) => !Number.isFinite(index))) {
+    return false;
+  }
+
+  const sortedIndexes = [...indexes].sort((left, right) => left - right);
+  return sortedIndexes.every((index, position) => position === 0 || index === sortedIndexes[position - 1] + 1);
+}
+
 async function probeVideo(videoPath) {
   return probeVideoMetadata(videoPath);
 }
@@ -160,9 +177,31 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
     options.evaluator ||
     (async () => defaultEvaluateSequenceContinuity());
   const { referenceContext, videoResults, bridgeClipResults } = buildReferenceContext(options);
+  const shots = normalizeArray(options.shots);
 
   for (const result of sequenceClipResults) {
     const coveredShotIds = normalizeArray(result.coveredShotIds);
+
+    if (!hasValidCoverageRange(coveredShotIds)) {
+      const engineCheck = 'fail';
+      const durationCheck = 'unknown';
+      const entryExitCheck = 'unknown';
+      const continuityCheck = 'unknown';
+      entries.push(
+        createEvaluationEntry({
+          sequenceId: result.sequenceId,
+          coveredShotIds,
+          engineCheck,
+          continuityCheck,
+          durationCheck,
+          entryExitCheck,
+          ...determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck),
+          decisionReason: 'invalid_coverage_range',
+          referenceContext,
+        })
+      );
+      continue;
+    }
 
     if (result.status !== 'completed' || !result.videoPath) {
       const engineCheck = 'fail';
@@ -244,6 +283,13 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
             referenceContext,
           })),
         };
+        if (shots.length > 0 && !isContiguousInShotOrder(coveredShotIds, shots)) {
+          continuityEvaluation = {
+            ...continuityEvaluation,
+            continuityCheck: 'fail',
+            continuityDecisionReason: 'non_contiguous_coverage',
+          };
+        }
       } catch (error) {
         entries.push(
           createEvaluationEntry({
@@ -278,7 +324,7 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
           durationCheck,
           entryExitCheck: continuityEvaluation.entryExitCheck,
           ...decision,
-          decisionReason: decision.decisionReason,
+          decisionReason: continuityEvaluation.continuityDecisionReason || decision.decisionReason,
           referenceContext,
         })
       );
@@ -429,6 +475,8 @@ export const __testables = {
   buildReport,
   determineFinalDecision,
   evaluateSequenceClips,
+  hasValidCoverageRange,
+  isContiguousInShotOrder,
   isDurationAcceptable,
   probeVideo,
 };
