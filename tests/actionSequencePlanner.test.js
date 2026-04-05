@@ -52,14 +52,21 @@ test('createActionSequencePackage and sequence result helpers preserve Phase 4 p
     referenceImages: ['temp/image-001.png'],
     referenceVideos: ['temp/video-001.mp4'],
     bridgeReferences: ['temp/bridge-001.mp4'],
+    referenceStrategy: 'video_first',
     visualGoal: '延续连续动作的视觉节奏',
     cameraSpec: 'handheld_orbit',
     continuitySpec: 'keep_weapon_and_face_direction',
+    sequenceContextSummary: 'sequence type: fight_exchange_sequence | shot coverage: shot_001 -> shot_002',
     entryFrameHint: 'hero_entering_frame_left',
     exitFrameHint: 'hero_exiting_frame_right',
     audioBeatHints: ['impact_on_beat_3'],
     preferredProvider: 'runway',
     fallbackProviders: ['bridge'],
+    providerRequestHints: {
+      referenceTier: 'video',
+      referenceCount: 1,
+      hasAudioBeatHints: true,
+    },
     qaRules: ['no_scene_jump'],
   });
 
@@ -136,14 +143,17 @@ test('shape validators reject malformed array fields', () => {
       referenceImages: 'temp/image-001.png',
       referenceVideos: [],
       bridgeReferences: [],
+      referenceStrategy: 'video_first',
       visualGoal: 'goal',
       cameraSpec: 'spec',
       continuitySpec: 'spec',
+      sequenceContextSummary: 'summary',
       entryFrameHint: 'entry',
       exitFrameHint: 'exit',
       audioBeatHints: [],
       preferredProvider: 'runway',
       fallbackProviders: [],
+      providerRequestHints: {},
       qaRules: [],
     }),
     false
@@ -208,6 +218,13 @@ test('shape validators enforce scalar types while allowing default nulls', () =>
     isActionSequencePackage({
       ...createActionSequencePackage(),
       durationTargetSec: '8',
+    }),
+    false
+  );
+  assert.equal(
+    isActionSequencePackage({
+      ...createActionSequencePackage(),
+      providerRequestHints: 'invalid',
     }),
     false
   );

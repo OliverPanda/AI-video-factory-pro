@@ -27,6 +27,12 @@ test('buildSeedanceVideoRequest maps shot package into official create-task payl
         visualGoal: '皇城长廊里人物缓慢回头',
         cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
         referenceImages: [{ path: imagePath }],
+        sequenceContextSummary: 'sequence type: fight_exchange_sequence | shot coverage: shot_001 -> shot_002',
+        providerRequestHints: {
+          referenceTier: 'image',
+          hasAudioBeatHints: true,
+          audioBeatHints: ['beat_1'],
+        },
       },
       {
         SEEDANCE_MODEL_ID: 'doubao-seedance-2-0-260128',
@@ -41,6 +47,9 @@ test('buildSeedanceVideoRequest maps shot package into official create-task payl
     assert.equal(request.content[1].type, 'image_url');
     assert.equal(request.content[1].role, 'first_frame');
     assert.match(request.content[1].image_url.url, /^data:image\/jpeg;base64,/);
+    assert.match(request.content[0].text, /sequence type: fight_exchange_sequence/i);
+    assert.match(request.content[0].text, /reference tier: image/i);
+    assert.match(request.content[0].text, /audio beat hints: beat_1/i);
   });
 });
 

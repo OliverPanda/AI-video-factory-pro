@@ -23,14 +23,17 @@ export const ACTION_SEQUENCE_PACKAGE_FIELDS = [
   'referenceImages',
   'referenceVideos',
   'bridgeReferences',
+  'referenceStrategy',
   'visualGoal',
   'cameraSpec',
   'continuitySpec',
+  'sequenceContextSummary',
   'entryFrameHint',
   'exitFrameHint',
   'audioBeatHints',
   'preferredProvider',
   'fallbackProviders',
+  'providerRequestHints',
   'qaRules',
 ];
 
@@ -96,6 +99,10 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isNullablePlainObject(value) {
+  return value === null || isPlainObject(value);
+}
+
 function hasArrayFields(value, arrayFields) {
   return arrayFields.every((field) => Array.isArray(value[field]));
 }
@@ -136,6 +143,7 @@ export function createActionSequencePackage(input = {}) {
     bridgeReferences: [],
     audioBeatHints: [],
     fallbackProviders: [],
+    providerRequestHints: null,
     qaRules: [],
   });
 }
@@ -210,14 +218,17 @@ export function isActionSequencePackage(value) {
     ]) &&
     hasStringFields(value, [
       'sequenceId',
+      'referenceStrategy',
       'visualGoal',
       'cameraSpec',
       'continuitySpec',
+      'sequenceContextSummary',
       'entryFrameHint',
       'exitFrameHint',
       'preferredProvider',
     ]) &&
-    hasNumberFields(value, ['durationTargetSec'])
+    hasNumberFields(value, ['durationTargetSec']) &&
+    isNullablePlainObject(value.providerRequestHints)
   );
 }
 

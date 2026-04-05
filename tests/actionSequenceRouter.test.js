@@ -13,6 +13,7 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
       {
         sequenceId: 'seq_001',
         shotIds: ['shot_001', 'shot_002'],
+        sequenceType: 'fight_exchange_sequence',
         durationTargetSec: 8,
         sequenceGoal: '让连续动作保持稳定推进',
         cameraFlowIntent: 'push_in_then_follow',
@@ -52,6 +53,13 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
   assert.deepEqual(packageEntry.shotIds, ['shot_001', 'shot_002']);
   assert.deepEqual(packageEntry.audioBeatHints, ['beat_1']);
   assert.equal(packageEntry.preferredProvider, 'seedance');
+  assert.equal(packageEntry.referenceStrategy, 'video_first');
+  assert.match(packageEntry.sequenceContextSummary, /sequence type: fight_exchange_sequence/i);
+  assert.match(packageEntry.sequenceContextSummary, /shot coverage: shot_001 -> shot_002/i);
+  assert.equal(packageEntry.providerRequestHints.referenceTier, 'video');
+  assert.equal(packageEntry.providerRequestHints.referenceCount, 1);
+  assert.equal(packageEntry.providerRequestHints.hasAudioBeatHints, true);
+  assert.equal(packageEntry.providerRequestHints.generationMode, 'standalone_sequence');
 });
 
 test('buildActionSequencePackages prefers QA-passed videoResults over bridgeClipResults and imageResults', () => {
@@ -157,6 +165,8 @@ test('buildActionSequencePackages falls back to QA-passed bridgeClipResults befo
   assert.equal(packageEntry.bridgeReferences.length > 0, true);
   assert.deepEqual(packageEntry.bridgeReferences.map((entry) => entry.path), ['/tmp/bridge_seq_bridge.mp4']);
   assert.deepEqual(packageEntry.referenceImages, []);
+  assert.equal(packageEntry.referenceStrategy, 'bridge_first');
+  assert.equal(packageEntry.providerRequestHints.referenceTier, 'bridge');
 });
 
 test('buildActionSequencePackages does not elevate a bridge that only matches sequenceId or partial coverage', () => {
@@ -242,6 +252,9 @@ test('buildActionSequencePackages falls back to imageResults when QA-passed vide
     '/tmp/shot_030.png',
     '/tmp/shot_031.png',
   ]);
+  assert.equal(packageEntry.referenceStrategy, 'image_first');
+  assert.equal(packageEntry.providerRequestHints.referenceTier, 'image');
+  assert.equal(packageEntry.providerRequestHints.referenceCount, 2);
 });
 
 test('buildActionSequencePackages defaults provider to seedance when plan entry omits preferredProvider', () => {
@@ -388,6 +401,9 @@ test('buildActionSequencePackages marks insufficient references as skip instead 
   assert.deepEqual(packageEntry.bridgeReferences, []);
   assert.deepEqual(packageEntry.referenceImages, []);
   assert.match(packageEntry.qaRules.join(' '), /skip|fallback/i);
+  assert.equal(packageEntry.referenceStrategy, 'skip_generation');
+  assert.equal(packageEntry.providerRequestHints.referenceTier, 'skip');
+  assert.equal(packageEntry.providerRequestHints.referenceCount, 0);
 });
 
 test('routeActionSequencePackages writes artifacts, metrics, manifest and qa summary', async (t) => {

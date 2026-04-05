@@ -45,10 +45,20 @@ function inferRatio(shotPackage, env = process.env) {
 }
 
 function buildPromptText(shotPackage) {
+  const providerRequestHints = shotPackage?.providerRequestHints;
+  const audioBeatHints = Array.isArray(providerRequestHints?.audioBeatHints)
+    ? providerRequestHints.audioBeatHints
+    : Array.isArray(shotPackage?.audioBeatHints)
+      ? shotPackage.audioBeatHints
+      : [];
+
   return [
     shotPackage?.visualGoal || '',
+    shotPackage?.sequenceContextSummary || '',
     shotPackage?.cameraSpec?.moveType ? `camera motion: ${shotPackage.cameraSpec.moveType}` : '',
     shotPackage?.cameraSpec?.framing ? `framing: ${shotPackage.cameraSpec.framing}` : '',
+    providerRequestHints?.referenceTier ? `reference tier: ${providerRequestHints.referenceTier}` : '',
+    audioBeatHints.length > 0 ? `audio beat hints: ${audioBeatHints.join(', ')}` : '',
   ]
     .filter(Boolean)
     .join('. ');

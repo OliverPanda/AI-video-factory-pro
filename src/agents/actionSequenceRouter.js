@@ -236,6 +236,62 @@ function buildQaRules(referenceTier) {
   return rules;
 }
 
+function buildReferenceStrategy(referenceTier) {
+  if (referenceTier === 'video') {
+    return 'video_first';
+  }
+  if (referenceTier === 'bridge') {
+    return 'bridge_first';
+  }
+  if (referenceTier === 'image') {
+    return 'image_first';
+  }
+  return 'skip_generation';
+}
+
+function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], referenceTier = 'skip', audioBeatHints = []) {
+  const summaryParts = [
+    `sequence type: ${planEntry.sequenceType || 'unknown_sequence'}`,
+    `shot coverage: ${normalizeArray(sequenceShotIds).join(' -> ') || 'none'}`,
+    `camera flow: ${planEntry.cameraFlowIntent || 'unspecified'}`,
+    `reference tier: ${referenceTier}`,
+  ];
+
+  const continuityTargets = [
+    ...uniqueStrings(planEntry.motionContinuityTargets),
+    ...uniqueStrings(planEntry.subjectContinuityTargets),
+    ...uniqueStrings(planEntry.environmentContinuityTargets),
+  ];
+  if (continuityTargets.length > 0) {
+    summaryParts.push(`continuity targets: ${continuityTargets.join(', ')}`);
+  }
+  if (planEntry.entryConstraint) {
+    summaryParts.push(`entry: ${planEntry.entryConstraint}`);
+  }
+  if (planEntry.exitConstraint) {
+    summaryParts.push(`exit: ${planEntry.exitConstraint}`);
+  }
+  if (audioBeatHints.length > 0) {
+    summaryParts.push(`audio beat hints: ${audioBeatHints.join(', ')}`);
+  }
+
+  return summaryParts.join(' | ');
+}
+
+function buildProviderRequestHints(planEntry = {}, referenceTier = 'skip', referenceCount = 0, audioBeatHints = []) {
+  return {
+    sequenceType: planEntry.sequenceType || null,
+    generationMode: planEntry.generationMode || null,
+    referenceTier,
+    referenceCount,
+    hasAudioBeatHints: audioBeatHints.length > 0,
+    audioBeatHints,
+    durationTargetSec: Number.isFinite(Number(planEntry.durationTargetSec)) ? Number(planEntry.durationTargetSec) : null,
+    preferredProvider: planEntry.preferredProvider || 'seedance',
+    fallbackStrategy: planEntry.fallbackStrategy || null,
+  };
+}
+
 function buildActionSequencePackage(planEntry = {}, options = {}) {
   const sequenceShotIds = normalizeArray(planEntry.shotIds);
   const durationTargetSec = Number(planEntry.durationTargetSec);
@@ -243,6 +299,15 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
   const bridgeReferences = buildBridgeReferences(planEntry, options.bridgeClipResults);
   const referenceImages = buildReferenceImages(sequenceShotIds, options.imageResults);
   const referenceTier = selectReferenceTier(referenceVideos, bridgeReferences, referenceImages);
+  const audioBeatHints = buildAudioBeatHints(sequenceShotIds, options.performancePlan);
+  const selectedReferenceCount =
+    referenceTier === 'video'
+      ? referenceVideos.length
+      : referenceTier === 'bridge'
+        ? bridgeReferences.length
+        : referenceTier === 'image'
+          ? referenceImages.length
+          : 0;
 
   return createActionSequencePackage({
     sequenceId: planEntry.sequenceId,
@@ -251,14 +316,17 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     referenceImages: referenceTier === 'image' ? referenceImages : [],
     referenceVideos: referenceTier === 'video' ? referenceVideos : [],
     bridgeReferences: referenceTier === 'bridge' ? bridgeReferences : [],
+    referenceStrategy: buildReferenceStrategy(referenceTier),
     visualGoal: planEntry.sequenceGoal || '',
     cameraSpec: planEntry.cameraFlowIntent || '',
     continuitySpec: buildContinuitySpec(planEntry),
+    sequenceContextSummary: buildSequenceContextSummary(planEntry, sequenceShotIds, referenceTier, audioBeatHints),
     entryFrameHint: planEntry.entryConstraint || '',
     exitFrameHint: planEntry.exitConstraint || '',
-    audioBeatHints: buildAudioBeatHints(sequenceShotIds, options.performancePlan),
+    audioBeatHints,
     preferredProvider: referenceTier === 'skip' ? 'skip' : planEntry.preferredProvider || 'seedance',
     fallbackProviders: buildFallbackProviders(referenceTier),
+    providerRequestHints: buildProviderRequestHints(planEntry, referenceTier, selectedReferenceCount, audioBeatHints),
     qaRules: buildQaRules(referenceTier),
   });
 }
@@ -340,8 +408,11 @@ export const __testables = {
   buildBridgeReferences,
   buildContinuitySpec,
   buildFallbackProviders,
+  buildProviderRequestHints,
   buildReferenceImages,
+  buildReferenceStrategy,
   buildReferenceVideos,
+  buildSequenceContextSummary,
   hasFullSequenceCoverage,
   isBridgeApprovedResult,
   selectReferenceTier,
