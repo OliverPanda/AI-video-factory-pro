@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 `21` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 `26` 个核心环节的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 快速检查“每个 agent 有没有留下可审计成果物”和“小白 QA 摘要”。
@@ -30,13 +30,19 @@ flowchart TD
     BS --> BR[Bridge Shot Router]
     BR --> BG[Bridge Clip Generator]
     BG --> BQ[Bridge QA Agent]
-    C --> O[TTS Agent]
+    BQ --> ASP[Action Sequence Planner]
+    ASP --> ASR[Action Sequence Router]
+    ASR --> ASG[Sequence Clip Generator]
+    ASG --> ASQ[Sequence QA Agent]
+    C --> DN[Dialogue Normalizer]
+    DN --> O[TTS Agent]
     D --> O
     O --> P[TTS QA Agent]
     F --> Q[Lip-sync Agent]
     O --> Q
     N --> R[Video Composer]
     BQ --> R
+    ASQ --> R
     P --> R
     Q --> R
     F --> R
@@ -53,6 +59,7 @@ flowchart LR
         MP[Motion Planner]
         PP[Performance Planner]
         VR[Video Router]
+        DN[Dialogue Normalizer]
     end
 
     subgraph Asset[资产层]
@@ -67,6 +74,7 @@ flowchart LR
         CC[Consistency Checker]
         CQ[Continuity Checker]
         SQ[Shot QA Agent v2]
+        BQ[Bridge QA Agent]
         TQ[TTS QA Agent]
     end
 
@@ -85,11 +93,13 @@ flowchart LR
     VR --> RV
     RV --> ME
     ME --> SQ
-    SP --> TTS
+    SP --> DN
+    DN --> TTS
     TTS --> TQ
     IG --> LS
     TTS --> LS
     SQ --> VC
+    BQ --> VC
     LS --> VC
     IG --> VC
     TQ --> VC
@@ -123,6 +133,7 @@ flowchart LR
 - Consistency Checker
 - Continuity Checker
 - Shot QA Agent
+- Bridge QA Agent
 - TTS QA Agent
 - Run QA Overview（Director 聚合）
 
@@ -142,6 +153,7 @@ flowchart LR
 | Image Generator | `prompts + style + provider route` | `imageResults / KeyframeAsset refs` | `04-image-generator/` | Consistency Checker、Continuity Checker、Lip-sync、Video Composer |
 | Consistency Checker | `characterRegistry + imageResults` | `reports + needsRegeneration` | `05-consistency-checker/` | Director |
 | Continuity Checker | `shots + imageResults` | `reports + flaggedTransitions` | `06-continuity-checker/` | Director、Video Composer |
+| Dialogue Normalizer | `shots + pronunciationLexicon` | `normalizedShots` | `07-tts-agent/` | TTS Agent、Director |
 | Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
 | Performance Planner | `scriptData + shotPlan + motionPlan + continuity context` | `performancePlan` | `09b-performance-planner/` | Video Router、Director |
 | Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages` | `09c-video-router/` | Runway Video Agent、Director |
@@ -152,35 +164,43 @@ flowchart LR
 | Bridge Shot Router | `bridgeShotPlan + imageResults + videoResults` | `bridgeShotPackages` | `09h-bridge-shot-router/` | Bridge Clip Generator、Director |
 | Bridge Clip Generator | `bridgeShotPackages` | `bridgeClipResults` | `09i-bridge-clip-generator/` | Bridge QA、Director |
 | Bridge QA Agent | `bridgeClipResults` | `bridgeQaReport` | `09j-bridge-qa/` | Director、Video Composer |
-| TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | TTS QA、Lip-sync、Video Composer |
+| Action Sequence Planner | `shots + motionPlan + performancePlan + continuity/bridge context` | `actionSequencePlan` | `09k-action-sequence-planner/` | Action Sequence Router、Director |
+| Action Sequence Router | `actionSequencePlan + imageResults + videoResults + bridgeClipResults` | `actionSequencePackages` | `09l-action-sequence-router/` | Sequence Clip Generator、Director |
+| Sequence Clip Generator | `actionSequencePackages` | `sequenceClipResults` | `09m-sequence-clip-generator/` | Sequence QA、Director |
+| Sequence QA Agent | `sequenceClipResults + videoResults + bridgeClipResults` | `sequenceQaReport` | `09n-sequence-qa/` | Director、Video Composer |
+| TTS Agent | `normalizedShots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | TTS QA、Lip-sync、Video Composer |
 | TTS QA Agent | `shots + audioResults + voiceResolution` | `tts-qa report + ASR report + manual review sample` | `08-tts-qa/` | Director、人工 QA |
 | Lip-sync Agent | `shots + imageResults + audioResults` | `lipsync clips + lipsync report` | `08b-lipsync-agent/` | Video Composer、人工 QA |
-| Video Composer | `shots + videoResults + imageResults + audioResults + lipsyncClips` | `final video`、compose artifacts | `10-video-composer/`、`output/` | 最终交付 |
+| Video Composer | `shots + sequenceClips + videoResults + bridgeClips + imageResults + audioResults + lipsyncClips` | `final video`、compose artifacts | `10-video-composer/`、`output/` | 最终交付 |
 
 ## Compose 优先级图
 
 ```mermaid
 flowchart TD
-    A[videoResults] --> E{镜头可用?}
-    B[lipsyncResults] --> E
-    C[animationClips] --> E
-    D[imageResults] --> E
-    E --> F[Video Composer 写入 timeline]
+    A[sequenceClips] --> Z{镜头可用?}
+    B[videoResults] --> Z
+    C[bridgeClips] --> Z
+    D[lipsyncResults] --> Z
+    E[animationClips] --> Z
+    F[imageResults] --> Z
+    Z --> Y[Video Composer 写入 timeline]
 ```
 
 当前实际优先级固定为：
 
-1. `videoResults`
-2. `bridgeClips`
-3. `lipsyncResults`
-4. `animationClips`
-5. `imageResults`
+1. `sequenceClips`
+2. `videoResults`
+3. `bridgeClips`
+4. `lipsyncResults`
+5. `animationClips`
+6. `imageResults`
 
 注意：
 
-- `videoComposer` 继续只消费 `videoResults`
+- `videoComposer` 会消费 `sequenceClips + videoResults + bridgeClips + lipsyncResults + animationClips + imageResults`
 - `rawVideoResults / enhancedVideoResults` 只在视频主链内部流转
 - `Director` 会在 `Shot QA v2` 完成后统一桥接最终 `videoResults`
+- `Director` 只会把 `Sequence QA` 通过的 `sequenceClips` 送进 composer，被覆盖的 `shotIds` 不会再重复写入 timeline
 
 ## QA 摘要层
 

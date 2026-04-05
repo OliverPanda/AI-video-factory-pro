@@ -26,6 +26,10 @@ import { planBridgeShots } from './bridgeShotPlanner.js';
 import { routeBridgeShots } from './bridgeShotRouter.js';
 import { generateBridgeClips } from './bridgeClipGenerator.js';
 import { runBridgeQa } from './bridgeQaAgent.js';
+import { planActionSequences } from './actionSequencePlanner.js';
+import { routeActionSequencePackages } from './actionSequenceRouter.js';
+import { generateSequenceClips } from './sequenceClipGenerator.js';
+import { runSequenceQa } from './sequenceQaAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
@@ -33,6 +37,7 @@ import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScr
 import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
 import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
+import { createActionSequencePackage, createActionSequencePlanEntry, createSequenceClipResult, createSequenceQaReport } from '../utils/actionSequenceProtocol.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
 import { writeRunQaOverview } from '../utils/qaSummary.js';
@@ -65,8 +70,76 @@ function buildLegacyBridgeIdentity(scriptFilePath) {
   };
 }
 
+function initializePhase4SequenceState(state = {}) {
+  return {
+    actionSequencePlan: Array.isArray(state.actionSequencePlan)
+      ? state.actionSequencePlan.map((entry) => createActionSequencePlanEntry(entry))
+      : [],
+    actionSequencePackages: Array.isArray(state.actionSequencePackages)
+      ? state.actionSequencePackages.map((entry) => createActionSequencePackage(entry))
+      : [],
+    sequenceClipResults: Array.isArray(state.sequenceClipResults)
+      ? state.sequenceClipResults.map((entry) => createSequenceClipResult(entry))
+      : [],
+    sequenceQaReport: state.sequenceQaReport ? createSequenceQaReport(state.sequenceQaReport) : null,
+  };
+}
+
 function hashContent(value) {
   return createHash('sha1').update(String(value || '')).digest('hex');
+}
+
+function simplifyNormalizedShotsForCache(normalizedShots = []) {
+  return (Array.isArray(normalizedShots) ? normalizedShots : []).map((shot) => ({
+    id: shot?.id || shot?.shotId || null,
+    dialogue: shot?.dialogue || '',
+    speaker: shot?.speaker || shot?.speakerId || '',
+  }));
+}
+
+function simplifyVoiceCastForCache(voiceCast = []) {
+  return (Array.isArray(voiceCast) ? voiceCast : []).map((entry) => ({
+    characterId: entry?.characterId || entry?.episodeCharacterId || entry?.name || null,
+    voicePresetId: entry?.voicePresetId || null,
+    provider: entry?.provider || null,
+    voiceId: entry?.voiceId || null,
+  }));
+}
+
+function buildAudioResultsSignature(audioResults = []) {
+  return (Array.isArray(audioResults) ? audioResults : []).map((entry) => {
+    const audioPath = entry?.audioPath || null;
+    let statSignature = null;
+    if (audioPath && fs.existsSync(audioPath)) {
+      const stat = fs.statSync(audioPath);
+      statSignature = `${stat.size}:${Math.round(stat.mtimeMs)}`;
+    }
+    return {
+      shotId: entry?.shotId || null,
+      audioPath,
+      statSignature,
+    };
+  });
+}
+
+function buildAudioCacheKey({ normalizedShots, voiceProjectId, voiceCast }) {
+  return hashContent(
+    JSON.stringify({
+      voiceProjectId: normalizeProjectId(voiceProjectId),
+      normalizedShots: simplifyNormalizedShotsForCache(normalizedShots),
+      voiceCast: simplifyVoiceCastForCache(voiceCast),
+    })
+  );
+}
+
+function buildLipsyncCacheKey({ normalizedShots, voiceProjectId, audioResults }) {
+  return hashContent(
+    JSON.stringify({
+      voiceProjectId: normalizeProjectId(voiceProjectId),
+      normalizedShots: simplifyNormalizedShotsForCache(normalizedShots),
+      audioResults: buildAudioResultsSignature(audioResults),
+    })
+  );
 }
 
 function createRunJobAttemptId(jobId, now = new Date()) {
@@ -161,8 +234,94 @@ function buildBridgeClipBridge(bridgeShotPlan = [], bridgeClipResults = [], brid
     .filter((entry) => entry.fromShotId && entry.toShotId);
 }
 
+function buildSequenceClipBridge(actionSequencePlan = [], sequenceClipResults = [], sequenceQaReport = null) {
+  const approvedSequenceIds = sequenceQaReport?.entries
+    ? new Set(
+        sequenceQaReport.entries
+          .filter((entry) => entry?.finalDecision === 'pass')
+          .map((entry) => entry.sequenceId)
+      )
+    : null;
+  const planBySequenceId = new Map(
+    (Array.isArray(actionSequencePlan) ? actionSequencePlan : []).map((entry) => [entry.sequenceId, entry])
+  );
+  const qaBySequenceId = new Map(
+    (Array.isArray(sequenceQaReport?.entries) ? sequenceQaReport.entries : []).map((entry) => [entry.sequenceId, entry])
+  );
+
+  return (Array.isArray(sequenceClipResults) ? sequenceClipResults : [])
+    .filter((result) => result?.sequenceId && result?.videoPath)
+    .filter((result) => !approvedSequenceIds || approvedSequenceIds.has(result.sequenceId))
+    .map((result) => {
+      const planEntry = planBySequenceId.get(result.sequenceId) || {};
+      const qaEntry = qaBySequenceId.get(result.sequenceId) || {};
+      const coveredShotIds = Array.isArray(qaEntry.coveredShotIds) && qaEntry.coveredShotIds.length > 0
+        ? qaEntry.coveredShotIds
+        : (Array.isArray(result.coveredShotIds) && result.coveredShotIds.length > 0
+          ? result.coveredShotIds
+          : Array.isArray(planEntry.shotIds)
+            ? planEntry.shotIds
+            : []);
+
+      return {
+        sequenceId: result.sequenceId,
+        coveredShotIds,
+        videoPath: result.videoPath,
+        durationSec: result.actualDurationSec || result.targetDurationSec || planEntry.durationTargetSec || null,
+        finalDecision: 'pass',
+        provider: result.provider || planEntry.preferredProvider || 'runway',
+      };
+    })
+    .filter((entry) => entry.coveredShotIds.length > 0);
+}
+
 function normalizeProjectId(projectId) {
   return projectId ?? null;
+}
+
+function buildPipelineSummaryMetrics({
+  motionPlan,
+  videoResults,
+  shotQaReport,
+  actionSequencePlan,
+  sequenceClipResults,
+  sequenceQaReport,
+}) {
+  const plannedVideoShotCount = Array.isArray(motionPlan) ? motionPlan.length : 0;
+  const generatedVideoShotCount = Array.isArray(videoResults)
+    ? videoResults.filter((item) => item?.status === 'completed' && item?.videoPath).length
+    : 0;
+  const fallbackVideoShotCount = Number.isFinite(shotQaReport?.fallbackCount) ? shotQaReport.fallbackCount : 0;
+  const videoProviderBreakdown = Array.isArray(videoResults)
+    ? videoResults.reduce((acc, item) => {
+        const key = item?.provider || item?.preferredProvider || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {})
+    : {};
+  const plannedSequenceCount = Array.isArray(actionSequencePlan) ? actionSequencePlan.length : 0;
+  const generatedSequenceCount = Array.isArray(sequenceClipResults)
+    ? sequenceClipResults.filter((item) => item?.status === 'completed' && item?.videoPath).length
+    : 0;
+  const sequenceFallbackCount = Number.isFinite(sequenceQaReport?.fallbackCount) ? sequenceQaReport.fallbackCount : 0;
+  const sequenceProviderBreakdown = Array.isArray(sequenceClipResults)
+    ? sequenceClipResults.reduce((acc, item) => {
+        const key = item?.provider || item?.preferredProvider || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {})
+    : {};
+
+  return {
+    planned_video_shot_count: plannedVideoShotCount,
+    generated_video_shot_count: generatedVideoShotCount,
+    video_provider_breakdown: videoProviderBreakdown,
+    fallback_video_shot_count: fallbackVideoShotCount,
+    planned_sequence_count: plannedSequenceCount,
+    generated_sequence_count: generatedSequenceCount,
+    sequence_provider_breakdown: sequenceProviderBreakdown,
+    sequence_fallback_count: sequenceFallbackCount,
+  };
 }
 
 function createDeliverySummary({
@@ -179,8 +338,19 @@ function createDeliverySummary({
   motionPlan,
   videoResults,
   shotQaReport,
+  actionSequencePlan,
+  sequenceClipResults,
+  sequenceQaReport,
   composeResult,
 }) {
+  const pipelineSummary = buildPipelineSummaryMetrics({
+    motionPlan,
+    videoResults,
+    shotQaReport,
+    actionSequencePlan,
+    sequenceClipResults,
+    sequenceQaReport,
+  });
   const manualReviewShots = Array.isArray(lipsyncReport?.manualReviewShots)
     ? lipsyncReport.manualReviewShots
     : [];
@@ -204,19 +374,6 @@ function createDeliverySummary({
   const composeWarnings = Array.isArray(composeResult?.report?.warnings) ? composeResult.report.warnings : [];
   const composeStatus = composeResult?.status || 'not_run';
   const composeArtifacts = composeResult?.artifacts || null;
-  const plannedVideoShotCount = Array.isArray(motionPlan) ? motionPlan.length : 0;
-  const generatedVideoShotCount = Array.isArray(videoResults)
-    ? videoResults.filter((item) => item?.status === 'completed' && item?.videoPath).length
-    : 0;
-  const fallbackVideoShotCount = Number.isFinite(shotQaReport?.fallbackCount) ? shotQaReport.fallbackCount : 0;
-  const videoProviderBreakdown = videoResults
-    ? videoResults.reduce((acc, item) => {
-        const key = item?.provider || item?.preferredProvider || 'unknown';
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {})
-    : {};
-
   return [
     '# Delivery Summary',
     '',
@@ -228,10 +385,18 @@ function createDeliverySummary({
     `- Job：${jobId}`,
     `- 成片：${path.basename(outputPath)}`,
     `- Compose Status：${composeStatus}`,
-    `- Planned Video Shots：${plannedVideoShotCount}`,
-    `- Generated Video Shots：${generatedVideoShotCount}`,
-    `- Video Provider Breakdown：${Object.keys(videoProviderBreakdown).length > 0 ? JSON.stringify(videoProviderBreakdown) : '{}'}`,
-    `- Fallback Video Shots：${fallbackVideoShotCount}`,
+    `- Planned Video Shots：${pipelineSummary.planned_video_shot_count}`,
+    `- Generated Video Shots：${pipelineSummary.generated_video_shot_count}`,
+    `- Video Provider Breakdown：${Object.keys(pipelineSummary.video_provider_breakdown).length > 0 ? JSON.stringify(pipelineSummary.video_provider_breakdown) : '{}'}`,
+    `- Fallback Video Shots：${pipelineSummary.fallback_video_shot_count}`,
+    `- Planned Sequences：${pipelineSummary.planned_sequence_count}`,
+    `- Generated Sequences：${pipelineSummary.generated_sequence_count}`,
+    `- Sequence Provider Breakdown：${Object.keys(pipelineSummary.sequence_provider_breakdown).length > 0 ? JSON.stringify(pipelineSummary.sequence_provider_breakdown) : '{}'}`,
+    `- Sequence Fallback Count：${pipelineSummary.sequence_fallback_count}`,
+    `- planned_sequence_count: ${pipelineSummary.planned_sequence_count}`,
+    `- generated_sequence_count: ${pipelineSummary.generated_sequence_count}`,
+    `- sequence_provider_breakdown: ${JSON.stringify(pipelineSummary.sequence_provider_breakdown)}`,
+    `- sequence_fallback_count: ${pipelineSummary.sequence_fallback_count}`,
     `- TTS QA：${ttsQaReport?.status || 'not_run'}`,
     `- Lip-sync QA：${lipsyncReport?.status || 'not_run'}`,
     `- 人工抽查建议：${ttsManualReviewShots.length > 0 ? ttsManualReviewShots.join(', ') : '无'}`,
@@ -336,6 +501,14 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     runwayVideoAgent: 'Runway Video Agent',
     motionEnhancer: 'Motion Enhancer',
     shotQaAgent: 'Shot QA Agent',
+    bridgeShotPlanner: 'Bridge Shot Planner',
+    bridgeShotRouter: 'Bridge Shot Router',
+    bridgeClipGenerator: 'Bridge Clip Generator',
+    bridgeQaAgent: 'Bridge QA Agent',
+    actionSequencePlanner: 'Action Sequence Planner',
+    actionSequenceRouter: 'Action Sequence Router',
+    sequenceClipGenerator: 'Sequence Clip Generator',
+    sequenceQaAgent: 'Sequence QA Agent',
     videoComposer: 'Video Composer',
   };
 
@@ -355,6 +528,14 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'runwayVideoAgent',
     'motionEnhancer',
     'shotQaAgent',
+    'bridgeShotPlanner',
+    'bridgeShotRouter',
+    'bridgeClipGenerator',
+    'bridgeQaAgent',
+    'actionSequencePlanner',
+    'actionSequenceRouter',
+    'sequenceClipGenerator',
+    'sequenceQaAgent',
     'videoComposer',
   ];
 
@@ -458,6 +639,10 @@ export function createDirector(overrides = {}) {
     routeBridgeShots,
     generateBridgeClips,
     runBridgeQa,
+    planActionSequences,
+    routeActionSequencePackages,
+    generateSequenceClips,
+    runSequenceQa,
     composeVideo,
     saveJSON,
     loadJSON,
@@ -494,7 +679,8 @@ export function createDirector(overrides = {}) {
 
       const dirs = deps.initDirs(jobId);
       const stateFile = path.join(dirs.root, 'state.json');
-      const state = deps.loadJSON(stateFile) || {};
+      const loadedState = deps.loadJSON(stateFile) || {};
+      const state = Object.assign(loadedState, initializePhase4SequenceState(loadedState));
       const runStartedAt = options.startedAt || new Date().toISOString();
       let runJobRef = null;
       let runJobCreated = false;
@@ -1179,6 +1365,97 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        const hasCompletedSequenceCache = state.sequenceQaReport !== null && state.sequenceQaReport !== undefined;
+        let actionSequencePlan =
+          Array.isArray(state.actionSequencePlan) && hasCompletedSequenceCache ? state.actionSequencePlan : null;
+        if (!actionSequencePlan) {
+          deps.logger.info('Director', '【Step 11e/13】规划连续动作段...');
+          actionSequencePlan = await recordStep('plan_action_sequences', { message: '规划连续动作段' }, () =>
+            deps.planActionSequences(shots, {
+              motionPlan,
+              performancePlan,
+              shotQaReport,
+              bridgeQaReport,
+              bridgeShotPlan,
+              videoResults,
+              continuityReport: state.continuityReport || [],
+              continuityFlaggedTransitions: state.continuityFlaggedTransitions || [],
+              artifactContext: artifactContext.agents.actionSequencePlanner,
+            })
+          );
+          saveState({ actionSequencePlan });
+        } else {
+          deps.logger.info('Director', '【Step 11e/13】使用缓存的连续动作段规划');
+          appendStepRun('plan_action_sequences', {
+            status: 'cached',
+            detail: '使用缓存的连续动作段规划',
+          });
+        }
+
+        let actionSequencePackages =
+          Array.isArray(state.actionSequencePackages) && hasCompletedSequenceCache ? state.actionSequencePackages : null;
+        if (!actionSequencePackages) {
+          deps.logger.info('Director', '【Step 11f/13】路由连续动作段...');
+          actionSequencePackages = await recordStep('route_action_sequences', { message: '路由连续动作段' }, () =>
+            deps.routeActionSequencePackages(actionSequencePlan, {
+              imageResults,
+              videoResults,
+              bridgeClipResults,
+              performancePlan,
+              artifactContext: artifactContext.agents.actionSequenceRouter,
+            })
+          );
+          saveState({ actionSequencePackages });
+        } else {
+          deps.logger.info('Director', '【Step 11f/13】使用缓存的连续动作段路由');
+          appendStepRun('route_action_sequences', {
+            status: 'cached',
+            detail: '使用缓存的连续动作段路由',
+          });
+        }
+
+        let sequenceClipResults =
+          Array.isArray(state.sequenceClipResults) && hasCompletedSequenceCache ? state.sequenceClipResults : null;
+        if (!sequenceClipResults) {
+          deps.logger.info('Director', '【Step 11g/13】生成连续动作段片段...');
+          const sequenceClipRun = await recordStep('generate_sequence_clips', { message: '生成连续动作段片段' }, () =>
+            deps.generateSequenceClips(
+              actionSequencePackages,
+              dirs.video || path.join(dirs.root, 'video'),
+              {
+                artifactContext: artifactContext.agents.sequenceClipGenerator,
+              }
+            )
+          );
+          sequenceClipResults = Array.isArray(sequenceClipRun?.results) ? sequenceClipRun.results : [];
+          saveState({ sequenceClipResults });
+        } else {
+          deps.logger.info('Director', '【Step 11g/13】使用缓存的连续动作段片段结果');
+          appendStepRun('generate_sequence_clips', {
+            status: 'cached',
+            detail: '使用缓存的连续动作段片段结果',
+          });
+        }
+
+        let sequenceQaReport = state.sequenceQaReport || null;
+        if (!sequenceQaReport) {
+          deps.logger.info('Director', '【Step 11h/13】连续动作段 QA...');
+          sequenceQaReport = await recordStep('sequence_qa', { message: '连续动作段 QA' }, () =>
+            deps.runSequenceQa(sequenceClipResults, {
+              videoResults,
+              bridgeClipResults,
+              artifactContext: artifactContext.agents.sequenceQaAgent,
+            })
+          );
+          saveState({ sequenceQaReport });
+        } else {
+          deps.logger.info('Director', '【Step 11h/13】使用缓存的连续动作段 QA 结果');
+          appendStepRun('sequence_qa', {
+            status: 'cached',
+            detail: '使用缓存的连续动作段 QA 结果',
+          });
+        }
+
         const voiceProjectId = normalizeProjectId(
           options.voiceProjectId === undefined ? projectId : options.voiceProjectId
         );
@@ -1213,7 +1490,15 @@ export function createDirector(overrides = {}) {
           ? deps.loadVoiceCast(voiceProjectId, options.storeOptions) || []
           : [];
         const cachedAudioProjectId = normalizeProjectId(state.audioProjectId);
-        const canReuseAudioCache = state.audioResults && cachedAudioProjectId === voiceProjectId;
+        const audioCacheKey = buildAudioCacheKey({
+          normalizedShots,
+          voiceProjectId,
+          voiceCast,
+        });
+        const canReuseAudioCache =
+          state.audioResults &&
+          cachedAudioProjectId === voiceProjectId &&
+          state.audioCacheKey === audioCacheKey;
         let audioResults = canReuseAudioCache ? state.audioResults : null;
         let audioVoiceResolution = Array.isArray(state.audioVoiceResolution) ? state.audioVoiceResolution : [];
         if (!audioResults) {
@@ -1233,14 +1518,14 @@ export function createDirector(overrides = {}) {
             })
           );
           audioVoiceResolution = Array.isArray(audioResults.voiceResolution) ? audioResults.voiceResolution : [];
-          saveState({ audioResults, audioVoiceResolution, audioProjectId: voiceProjectId });
+          saveState({ audioResults, audioVoiceResolution, audioProjectId: voiceProjectId, audioCacheKey });
         } else {
           deps.logger.info('Director', '【Step 13/14】使用缓存的音频结果');
           appendStepRun('generate_audio', {
             status: 'cached',
             detail: '使用缓存的音频结果',
           });
-          saveState({ audioProjectId: cachedAudioProjectId });
+          saveState({ audioProjectId: cachedAudioProjectId, audioCacheKey: state.audioCacheKey || audioCacheKey });
         }
 
         const ttsQaReport = await recordStep('tts_qa', { message: 'TTS 验收' }, async () => {
@@ -1253,7 +1538,15 @@ export function createDirector(overrides = {}) {
           return qaResult;
         });
 
-        let lipsyncResults = Array.isArray(state.lipsyncResults) ? state.lipsyncResults : null;
+        const lipsyncCacheKey = buildLipsyncCacheKey({
+          normalizedShots,
+          voiceProjectId,
+          audioResults,
+        });
+        const canReuseLipsyncCache =
+          Array.isArray(state.lipsyncResults) &&
+          state.lipsyncCacheKey === lipsyncCacheKey;
+        let lipsyncResults = canReuseLipsyncCache ? state.lipsyncResults : null;
         let lipsyncReport = state.lipsyncReport || null;
         if (!lipsyncResults) {
           deps.logger.info('Director', '【Step 12/13】生成口型同步片段...');
@@ -1264,13 +1557,14 @@ export function createDirector(overrides = {}) {
           );
           lipsyncResults = Array.isArray(lipsyncRun?.results) ? lipsyncRun.results : [];
           lipsyncReport = lipsyncRun?.report || null;
-          saveState({ lipsyncResults, lipsyncReport });
+          saveState({ lipsyncResults, lipsyncReport, lipsyncCacheKey });
         } else {
           deps.logger.info('Director', '【Step 12/13】使用缓存的口型同步结果');
           appendStepRun('lipsync', {
             status: 'cached',
             detail: '使用缓存的口型同步结果',
           });
+          saveState({ lipsyncCacheKey: state.lipsyncCacheKey || lipsyncCacheKey });
         }
 
         if (lipsyncReport?.status === 'block') {
@@ -1292,10 +1586,12 @@ export function createDirector(overrides = {}) {
         );
         const videoClips = buildVideoClipBridge(videoResults, shotQaReport);
         const bridgeClips = buildBridgeClipBridge(bridgeShotPlan, bridgeClipResults, bridgeQaReport);
+        const sequenceClips = buildSequenceClipBridge(actionSequencePlan, sequenceClipResults, sequenceQaReport);
 
         const composeRun = await recordStep('compose_video', { message: '合成视频' }, () =>
           deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
+            sequenceClips,
             videoClips,
             bridgeClips,
             animationClips,
@@ -1314,6 +1610,14 @@ export function createDirector(overrides = {}) {
           );
         }
 
+        const pipelineSummary = buildPipelineSummaryMetrics({
+          motionPlan,
+          videoResults,
+          shotQaReport,
+          actionSequencePlan,
+          sequenceClipResults,
+          sequenceQaReport,
+        });
         const deliverySummaryPath = path.join(path.dirname(finalOutputPath), 'delivery-summary.md');
         ensureDir(path.dirname(deliverySummaryPath));
         fs.writeFileSync(
@@ -1332,6 +1636,9 @@ export function createDirector(overrides = {}) {
             motionPlan,
             videoResults,
             shotQaReport,
+            actionSequencePlan,
+            sequenceClipResults,
+            sequenceQaReport,
             composeResult,
           }),
           'utf-8'
@@ -1342,6 +1649,7 @@ export function createDirector(overrides = {}) {
         );
 
         saveState({
+          pipelineSummary,
           outputPath: finalOutputPath,
           composeResult,
           deliverySummaryPath,
@@ -1401,7 +1709,8 @@ export function createDirector(overrides = {}) {
 
       const dirs = deps.initDirs(legacy.jobId);
       const stateFile = path.join(dirs.root, 'state.json');
-      const state = deps.loadJSON(stateFile) || {};
+      const loadedState = deps.loadJSON(stateFile) || {};
+      const state = Object.assign(loadedState, initializePhase4SequenceState(loadedState));
       let activeArtifactContext = options.artifactContext || null;
 
       function saveState(update) {
@@ -1570,6 +1879,11 @@ const director = createDirector();
 export function createRunPipeline(overrides = {}) {
   return createDirector(overrides).runPipeline;
 }
+
+export const __testables = {
+  collectRunQaOverview,
+  initializePhase4SequenceState,
+};
 
 export const runEpisodePipeline = director.runEpisodePipeline;
 export const runPipeline = director.runPipeline;

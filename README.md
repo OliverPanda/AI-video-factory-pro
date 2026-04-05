@@ -2,6 +2,8 @@
 
 输入剧本文件，或按 `project / script / episode` 定位已有项目数据，自动生成可发布到抖音、视频号、快手、小红书的竖屏漫剧短视频。
 
+当前主链已经升级为“静态分镜 + 动态视频镜头 + bridge shot 补桥 + action sequence 连续动作段 + 音频表演 + 时间线合成”的单 Orchestrator 架构，`Director` 仍是唯一调度中心。
+
 ## README 现在看什么
 
 这个 README 只保留入口信息：
@@ -31,6 +33,71 @@ project
         └── shot plan
 ```
 
+## 当前系统主流程
+
+```mermaid
+flowchart TD
+    A[输入剧本 / Project-Script-Episode] --> B[Director]
+    B --> C[Script Parser]
+    C --> D[Character Registry]
+    D --> E[Prompt Engineer]
+    E --> F[Image Generator]
+    F --> G[Consistency Checker]
+    G --> H[Continuity Checker]
+    C --> I[Motion Planner]
+    H --> I
+    I --> J[Performance Planner]
+    J --> K[Video Router]
+    F --> K
+    E --> K
+    K --> L[Runway Video Agent]
+    L --> M[Motion Enhancer]
+    M --> N[Shot QA Agent]
+    N --> O[Bridge Shot Planner]
+    O --> P[Bridge Shot Router]
+    P --> Q[Bridge Clip Generator]
+    Q --> R[Bridge QA Agent]
+    R --> AS1[Action Sequence Planner]
+    AS1 --> AS2[Action Sequence Router]
+    AS2 --> AS3[Sequence Clip Generator]
+    AS3 --> AS4[Sequence QA Agent]
+    C --> S[Dialogue Normalizer]
+    D --> T[TTS Agent]
+    S --> T
+    T --> U[TTS QA Agent]
+    F --> V[Lip-sync Agent]
+    T --> V
+    N --> W[Video Composer]
+    R --> W
+    AS4 --> W
+    U --> W
+    V --> W
+    F --> W
+    W --> X[output/final-video.mp4]
+```
+
+当前 compose 视觉优先级：
+
+1. `sequenceClips`
+2. `videoResults`
+3. `bridgeClips`
+4. `lipsyncResults`
+5. `animationClips`
+6. `imageResults`
+
+Phase 4 的最小增量位置固定为：
+
+- `Shot QA Agent`
+- `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent`
+- `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent`
+- `Video Composer`
+
+当前 MVP 只解决“连续动作段优先吃整段 sequence clip”这件事，还不包含：
+
+- 多人群战自动编排闭环
+- 语音驱动动作节拍闭环
+- 商用品质级复杂表演保证
+
 ## 快速开始
 
 ### 1. 安装依赖
@@ -55,7 +122,7 @@ cp .env.example .env
 - `XFYUN_TTS_API_KEY`
 - `XFYUN_TTS_API_SECRET`
 
-如果要启用 Phase 2 的动态镜头主路径，还需要：
+如果要启用动态镜头主路径，还需要：
 
 - `RUNWAY_API_KEY`
 
@@ -137,6 +204,18 @@ npm run test:director:prod:keep-artifacts
 npm run test:agents:prod
 ```
 
+动态镜头与 bridge shot 回归：
+
+```bash
+node --test tests/bridgeShotPlanner.test.js tests/bridgeShotRouter.test.js tests/bridgeClipGenerator.test.js tests/bridgeQaAgent.test.js tests/director.bridge.integration.test.js tests/videoComposer.bridge.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
+```
+
+Phase 4 action sequence 收口验收：
+
+```bash
+node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.js tests/sequenceClipGenerator.test.js tests/sequenceQaAgent.test.js tests/videoComposer.sequence.test.js tests/director.sequence.integration.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
+```
+
 ## 目录总览
 
 ```text
@@ -193,14 +272,15 @@ output/
 
 如果你只想先判断“这一轮过没过、卡在哪”，优先看 run 根目录的 `qa-overview.md`。
 
-## Phase 2 / Phase 3 动态镜头主链
+## 动态镜头 / Bridge Shot 主链
 
 当前成片主视觉优先级保持为：
 
 1. `videoResults`
-2. `lipsyncResults`
-3. `animationClips`
-4. `imageResults`
+2. `bridgeClips`
+3. `lipsyncResults`
+4. `animationClips`
+5. `imageResults`
 
 但 `videoResults` 的内部生成链路已经升级为：
 
@@ -218,10 +298,10 @@ motionPlan
 也就是说：
 
 - 配了 `RUNWAY_API_KEY` 且视频镜头通过 `Shot QA v2` 时，成片会优先使用增强后的真实视频镜头
-- `videoComposer` 继续只消费 `videoResults`，不直接理解 `rawVideoResults / enhancedVideoResults`
+- `videoComposer` 不直接理解 `rawVideoResults / enhancedVideoResults`，而是消费 `Director` 桥接后的 `videoResults + bridgeClips`
 - 没有视频结果或 QA 不通过时，系统会显式回退到旧的静图/口型/动画路径
 
-对应 Phase 2 run package 目录：
+对应 run package 目录：
 
 - `09a-motion-planner`
 - `09b-performance-planner`
@@ -231,7 +311,7 @@ motionPlan
 - `09f-shot-qa`
 - `10-video-composer`
 
-Phase 3 在此基础上新增了一条“按需触发”的 bridge shot 子链：
+在此基础上，系统还会按需触发一条 bridge shot 子链：
 
 ```text
 continuityFlaggedTransitions
@@ -255,16 +335,3 @@ continuityFlaggedTransitions
 - 只对高风险 cut 点触发，不会给所有镜头默认插桥
 - 只有 `bridgeQaReport.entries[].finalDecision === "pass"` 的 bridge clip 才会进入 compose timeline
 - `fallback_to_direct_cut / fallback_to_transition_stub / manual_review` 都不会破坏主链成片
-
-Phase 2 当前解决的是“单镜头更像真实动态镜头”，不等于已经完成：
-
-- 多角色复杂打斗总编排
-- bridge shot agent
-- 多镜头级连续性重构
-- 商用品质最终达标
-
-建议验收命令：
-
-```bash
-node --test tests/bridgeShotPlanner.test.js tests/bridgeShotRouter.test.js tests/bridgeClipGenerator.test.js tests/bridgeQaAgent.test.js tests/director.bridge.integration.test.js tests/videoComposer.bridge.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
-```

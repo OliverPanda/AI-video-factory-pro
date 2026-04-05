@@ -64,6 +64,10 @@ test('getStateKeysToDelete for video step clears video generation caches but pre
     'lastError',
     'failedAt',
     ...BRIDGE_STATE_FIELDS,
+    'actionSequencePlan',
+    'actionSequencePackages',
+    'sequenceClipResults',
+    'sequenceQaReport',
   ]);
 });
 
@@ -79,6 +83,14 @@ test('getStateKeysToDelete for compose step preserves Phase 2 planning and video
   const composeKeys = __testables.getStateKeysToDelete('compose');
   for (const bridgeKey of BRIDGE_STATE_FIELDS) {
     assert.equal(composeKeys.includes(bridgeKey), false, `compose step should preserve ${bridgeKey}`);
+  }
+  for (const sequenceKey of [
+    'actionSequencePlan',
+    'actionSequencePackages',
+    'sequenceClipResults',
+    'sequenceQaReport',
+  ]) {
+    assert.equal(composeKeys.includes(sequenceKey), false, `compose step should preserve ${sequenceKey}`);
   }
 });
 
@@ -109,6 +121,41 @@ test('collectFilesToRemove targets shared lipsync clips and final delivery outpu
   assert.equal(files.some((item) => item.endsWith(path.normalize('output\\demo\\delivery-summary.md'))), true);
   assert.equal(files.some((item) => item.endsWith(path.normalize('temp\\job\\audio'))), false);
   assert.equal(files.some((item) => item.endsWith(path.normalize('temp\\job\\images'))), false);
+});
+
+test('collectFilesToRemove skips paths outside allowed deletion roots', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-resume-delete-'));
+
+  try {
+    const safeVideoDir = path.join(tempRoot, 'job-safe', 'video');
+    const unsafeVideoPath = path.resolve(tempRoot, '..', 'escape-zone', 'video.mp4');
+    const unsafeOutputPath = path.resolve(tempRoot, '..', 'escape-zone', 'final-video.mp4');
+    const safeOutputDir = path.join(tempRoot, 'output-safe');
+    const files = __testables.collectFilesToRemove(
+      'video',
+      {
+        videoResults: [{ shotId: 'shot_001', videoPath: unsafeVideoPath }],
+        rawVideoResults: [],
+        enhancedVideoResults: [],
+        lipsyncResults: [],
+        outputPath: unsafeOutputPath,
+        deliverySummaryPath: path.join(tempRoot, '..', 'escape-zone', 'delivery-summary.md'),
+      },
+      {
+        images: path.join(tempRoot, 'job-safe', 'images'),
+        video: safeVideoDir,
+        audio: path.join(tempRoot, 'job-safe', 'audio'),
+      },
+      tempRoot
+    );
+
+    assert.equal(files.includes(path.resolve(safeVideoDir)), true);
+    assert.equal(files.some((item) => item === unsafeVideoPath), false);
+    assert.equal(files.some((item) => item === unsafeOutputPath), false);
+    assert.equal(files.some((item) => item.endsWith(path.normalize('escape-zone\\delivery-summary.md'))), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('resolveResumeContext locates latest project-mode run job and corresponding state path', () => {

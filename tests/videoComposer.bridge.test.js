@@ -14,6 +14,7 @@ test('buildCompositionPlan inserts approved bridge clips between primary shots',
       { shotId: 'shot_002', imagePath: '/tmp/shot_002.png', success: true },
     ],
     [],
+    [],
     [
       { shotId: 'shot_001', videoPath: '/tmp/shot_001.mp4', durationSec: 2 },
       { shotId: 'shot_002', videoPath: '/tmp/shot_002.mp4', durationSec: 2 },
@@ -71,5 +72,29 @@ test('insertBridgeClips ignores direct-cut fallback and manual-review bridge ent
   assert.deepEqual(
     timeline.map((item) => item.shotId),
     ['shot_011', 'shot_012']
+  );
+});
+
+test('insertBridgeClips ignores bridges whose toShotId is not the next timeline anchor', () => {
+  const timeline = __testables.insertBridgeClips(
+    [
+      { shotId: 'shot_021', visualType: 'generated_video_clip', videoPath: '/tmp/shot_021.mp4', duration: 2, audioPath: null, dialogue: '' },
+      { shotId: 'shot_022', visualType: 'generated_video_clip', videoPath: '/tmp/shot_022.mp4', duration: 2, audioPath: null, dialogue: '' },
+    ],
+    [
+      {
+        bridgeId: 'bridge_wrong_target',
+        fromShotId: 'shot_021',
+        toShotId: 'shot_099',
+        videoPath: '/tmp/bridge_wrong_target.mp4',
+        durationSec: 1,
+        finalDecision: 'pass',
+      },
+    ]
+  );
+
+  assert.deepEqual(
+    timeline.map((item) => item.shotId),
+    ['shot_021', 'shot_022']
   );
 });

@@ -1,0 +1,32 @@
+# Sequence Clip Generator
+
+## 职责
+
+- 生成连续动作段视频
+- 输出 `sequenceClipResults`
+- 记录 provider 失败分类，供 Director 决定是否回退
+
+## 典型输入
+
+- `actionSequencePackages`
+
+## 典型输出
+
+- `sequenceId`
+- `coveredShotIds`
+- `videoPath`
+- `targetDurationSec`
+- `actualDurationSec`
+- `failureCategory`
+
+## 落盘
+
+- `09m-sequence-clip-generator/1-outputs/sequence-clip-results.json`
+- `09m-sequence-clip-generator/2-metrics/sequence-clip-generation-report.json`
+- `09m-sequence-clip-generator/3-errors/*.json`
+
+## 当前 MVP 边界
+
+- 只负责生成与下载
+- 不负责最终是否覆盖原始 shot timeline
+- 单段失败时允许回退到 `videoResults + bridgeClips`

@@ -225,6 +225,10 @@ const STEP_STATE_KEYS = {
     'bridgeShotPackages',
     'bridgeClipResults',
     'bridgeQaReport',
+    'actionSequencePlan',
+    'actionSequencePackages',
+    'sequenceClipResults',
+    'sequenceQaReport',
   ],
   dialogue: [
     'normalizedShots',
@@ -664,6 +668,37 @@ function collectShotIds(state) {
   );
 }
 
+function buildAllowedDeleteRoots(dirs, baseTempDir = process.env.TEMP_DIR || './temp') {
+  const outputRoot = process.env.OUTPUT_DIR || './output';
+  const roots = [
+    path.join(baseTempDir, 'lipsync'),
+    dirs?.images,
+    dirs?.video,
+    dirs?.audio,
+    dirs?.images ? path.dirname(dirs.images) : null,
+    dirs?.video ? path.dirname(dirs.video) : null,
+    dirs?.audio ? path.dirname(dirs.audio) : null,
+    outputRoot,
+  ]
+    .filter(Boolean)
+    .map((root) => path.resolve(root));
+
+  return Array.from(new Set(roots));
+}
+
+function isPathWithinAllowedRoots(targetPath, allowedRoots) {
+  if (typeof targetPath !== 'string' || targetPath.trim() === '') {
+    return false;
+  }
+
+  const resolvedTarget = path.resolve(targetPath);
+  return allowedRoots.some((root) => {
+    const resolvedRoot = path.resolve(root);
+    const relative = path.relative(resolvedRoot, resolvedTarget);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
+}
+
 function collectFilesToRemove(step, state, dirs, baseTempDir = process.env.TEMP_DIR || './temp') {
   const files = [];
   const shotIds = collectShotIds(state);
@@ -714,14 +749,27 @@ function collectFilesToRemove(step, state, dirs, baseTempDir = process.env.TEMP_
     if (deliverySummaryPath) files.push(deliverySummaryPath);
   }
 
-  return Array.from(new Set(files.filter(Boolean).map((filePath) => path.resolve(filePath))));
+  const allowedRoots = buildAllowedDeleteRoots(dirs, baseTempDir);
+
+  return Array.from(
+    new Set(
+      files
+        .filter(Boolean)
+        .map((filePath) => path.resolve(filePath))
+        .filter((filePath) => isPathWithinAllowedRoots(filePath, allowedRoots))
+    )
+  );
 }
 
-function removePathSafe(targetPath) {
-  if (!fs.existsSync(targetPath)) {
+function removePathSafe(targetPath, allowedRoots = []) {
+  if (!isPathWithinAllowedRoots(targetPath, allowedRoots)) {
     return false;
   }
-  fs.rmSync(targetPath, { recursive: true, force: true });
+  const resolvedTarget = path.resolve(targetPath);
+  if (!fs.existsSync(resolvedTarget)) {
+    return false;
+  }
+  fs.rmSync(resolvedTarget, { recursive: true, force: true });
   return true;
 }
 
@@ -858,6 +906,14 @@ export async function resumeFromStep(args, overrides = {}) {
     video: path.join(getJobDir(context.jobId, baseTempDir), 'video'),
     audio: path.join(getJobDir(context.jobId, baseTempDir), 'audio'),
   }, baseTempDir);
+  const allowedDeleteRoots = buildAllowedDeleteRoots(
+    {
+      images: path.join(getJobDir(context.jobId, baseTempDir), 'images'),
+      video: path.join(getJobDir(context.jobId, baseTempDir), 'video'),
+      audio: path.join(getJobDir(context.jobId, baseTempDir), 'audio'),
+    },
+    baseTempDir
+  );
   const missingPrerequisites = collectMissingPrerequisites(parsed.step, state);
 
   const planSummary = describeResumePlan(parsed, context, stateKeysToDelete, filesToRemove);
@@ -890,7 +946,7 @@ export async function resumeFromStep(args, overrides = {}) {
 
   const removedPaths = [];
   for (const filePath of filesToRemove) {
-    if (removePathSafe(filePath)) {
+    if (removePathSafe(filePath, allowedDeleteRoots)) {
       removedPaths.push(filePath);
     }
   }

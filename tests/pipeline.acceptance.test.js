@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createDirector } from '../src/agents/director.js';
+import { buildCompositionPlan } from '../src/agents/videoComposer.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 
@@ -198,11 +199,110 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         warnings: [],
         blockers: [],
       }),
+      planActionSequences: async () => [
+        {
+          sequenceId: 'seq_001',
+          shotIds: ['shot_001', 'shot_002'],
+          sequenceType: 'fight_exchange_sequence',
+          sequenceGoal: '连续动作保持节奏',
+          durationTargetSec: 4,
+          cameraFlowIntent: 'push_in_then_follow',
+          motionContinuityTargets: ['hand_position'],
+          subjectContinuityTargets: ['沈清'],
+          environmentContinuityTargets: ['lighting'],
+          mustPreserveElements: ['subject_identity'],
+          entryConstraint: '接住上一镜的动作惯性',
+          exitConstraint: '落到下一轮攻防节拍',
+          generationMode: 'bridge_assisted',
+          preferredProvider: 'runway',
+          fallbackStrategy: 'fallback_to_shot_and_bridge',
+        },
+      ],
+      routeActionSequencePackages: async () => [
+        {
+          sequenceId: 'seq_001',
+          shotIds: ['shot_001', 'shot_002'],
+          durationTargetSec: 4,
+          referenceImages: [],
+          referenceVideos: [
+            {
+              type: 'qa_passed_video',
+              shotId: 'shot_001',
+              path: path.join(dirs.video, 'shot_001.mp4'),
+              provider: 'runway',
+              qaDecision: 'pass',
+            },
+          ],
+          bridgeReferences: [],
+          visualGoal: '连续动作保持节奏',
+          cameraSpec: 'push_in_then_follow',
+          continuitySpec: 'keep_motion_flow',
+          entryFrameHint: '接住上一镜的动作惯性',
+          exitFrameHint: '落到下一轮攻防节拍',
+          audioBeatHints: [],
+          preferredProvider: 'runway',
+          fallbackProviders: ['bridge_clip', 'image'],
+          qaRules: ['reference_tier:video'],
+        },
+      ],
+      generateSequenceClips: async () => ({
+        results: [
+          {
+            sequenceId: 'seq_001',
+            status: 'completed',
+            provider: 'runway',
+            model: 'gen4_turbo',
+            videoPath: path.join(dirs.video, 'seq_001.mp4'),
+            coveredShotIds: ['shot_001', 'shot_002'],
+            targetDurationSec: 4,
+            actualDurationSec: 4,
+            failureCategory: null,
+            error: null,
+          },
+        ],
+      }),
+      runSequenceQa: async () => ({
+        status: 'pass',
+        entries: [
+          {
+            sequenceId: 'seq_001',
+            coveredShotIds: ['shot_001', 'shot_002'],
+            engineCheck: 'pass',
+            continuityCheck: 'pass',
+            durationCheck: 'pass',
+            entryExitCheck: 'pass',
+            finalDecision: 'pass',
+            fallbackAction: 'none',
+            notes: 'ok',
+          },
+        ],
+        passedCount: 1,
+        fallbackCount: 0,
+        manualReviewCount: 0,
+        warnings: [],
+        blockers: [],
+      }),
       generateAllAudio: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, audioPath: path.join(dirs.audio, `${shot.id}.mp3`) })),
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
-      composeVideo: async (_shots, _images, _audio, outputPath, options) => {
-        composeCalls.push(options.bridgeClips || []);
+      composeVideo: async (shots, imageResults, audioResults, outputPath, options) => {
+        const plan = buildCompositionPlan(
+          shots,
+          imageResults,
+          audioResults,
+          options.sequenceClips || [],
+          options.videoClips || [],
+          options.animationClips || [],
+          options.lipsyncClips || [],
+          options.bridgeClips || []
+        );
+        composeCalls.push({
+          bridgeClips: options.bridgeClips || [],
+          sequenceClips: options.sequenceClips || [],
+          plan,
+        });
+        assert.equal(options.sequenceClips.length, 1);
+        assert.deepEqual(options.sequenceClips[0].coveredShotIds, ['shot_001', 'shot_002']);
         fs.writeFileSync(outputPath, 'video');
         return outputPath;
       },
@@ -230,6 +330,11 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     );
     assert.equal(fs.existsSync(path.join(path.dirname(outputPath), 'delivery-summary.md')), true);
     assert.equal(runJobs.length, 1);
+    const deliverySummary = fs.readFileSync(path.join(path.dirname(outputPath), 'delivery-summary.md'), 'utf-8');
+    assert.match(deliverySummary, /planned_sequence_count: 1/);
+    assert.match(deliverySummary, /generated_sequence_count: 1/);
+    assert.match(deliverySummary, /sequence_provider_breakdown: \{\"runway\":1\}/);
+    assert.match(deliverySummary, /sequence_fallback_count: 0/);
 
     const artifactContext = createRunArtifactContext({
       baseTempDir: tempRoot,
@@ -265,9 +370,19 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.bridgeShotRouter.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.bridgeClipGenerator.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.bridgeQaAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.actionSequencePlanner.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.actionSequenceRouter.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.sequenceClipGenerator.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.sequenceQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
-    assert.equal(composeCalls[0].length, 1);
-    assert.equal(composeCalls[0][0].bridgeId, 'bridge_shot_001_shot_002');
+    assert.equal(composeCalls[0].bridgeClips.length, 1);
+    assert.equal(composeCalls[0].bridgeClips[0].bridgeId, 'bridge_shot_001_shot_002');
+    assert.equal(composeCalls[0].sequenceClips.length, 1);
+    assert.equal(composeCalls[0].sequenceClips[0].sequenceId, 'seq_001');
+    assert.deepEqual(
+      composeCalls[0].plan.map((item) => item.shotId),
+      ['sequence:seq_001']
+    );
 
     const qaOverview = JSON.parse(
       fs.readFileSync(path.join(artifactContext.runDir, 'qa-overview.json'), 'utf-8')

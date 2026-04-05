@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import { __testables as directorTestables } from '../src/agents/director.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-run-artifacts-'));
@@ -67,6 +68,10 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'bridgeShotRouter',
       'bridgeClipGenerator',
       'bridgeQaAgent',
+      'actionSequencePlanner',
+      'actionSequenceRouter',
+      'sequenceClipGenerator',
+      'sequenceQaAgent',
       'videoComposer',
     ]);
 
@@ -75,6 +80,10 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       bridgeShotRouter: '09h-bridge-shot-router',
       bridgeClipGenerator: '09i-bridge-clip-generator',
       bridgeQaAgent: '09j-bridge-qa',
+      actionSequencePlanner: '09k-action-sequence-planner',
+      actionSequenceRouter: '09l-action-sequence-router',
+      sequenceClipGenerator: '09m-sequence-clip-generator',
+      sequenceQaAgent: '09n-sequence-qa',
     };
     for (const [agentKey, dirName] of Object.entries(expectedBridgeDirs)) {
       const agentContext = ctx.agents[agentKey];
@@ -128,4 +137,63 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       errorsDir: path.join(ctx.runDir, '01-script-parser', '3-errors'),
     });
   });
+});
+
+test('collectRunQaOverview includes bridge and sequence agents in qa counts', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-qa-overview-'));
+
+  try {
+    const agentNames = [
+      'scriptParser',
+      'bridgeShotPlanner',
+      'bridgeShotRouter',
+      'bridgeClipGenerator',
+      'bridgeQaAgent',
+      'actionSequencePlanner',
+      'actionSequenceRouter',
+      'sequenceClipGenerator',
+      'sequenceQaAgent',
+    ];
+    const agents = Object.fromEntries(
+      agentNames.map((agentKey) => {
+        const dir = path.join(tempRoot, agentKey);
+        return [
+          agentKey,
+          {
+            dir,
+            manifestPath: path.join(dir, 'manifest.json'),
+            metricsDir: path.join(dir, '2-metrics'),
+          },
+        ];
+      })
+    );
+    const manifestByPath = Object.fromEntries(
+      Object.values(agents).map((ctx, index) => [
+        ctx.manifestPath,
+        {
+          agentKey: agentNames[index],
+          status: 'completed',
+        },
+      ])
+    );
+
+    const overview = directorTestables.collectRunQaOverview(
+      (filePath) => manifestByPath[filePath] || null,
+      { agents },
+      { releasable: true }
+    );
+
+    assert.equal(overview.status, 'pass');
+    assert.equal(overview.passCount, agentNames.length);
+    assert.equal(
+      overview.agentSummaries.some((entry) => entry.agentKey === 'bridgeShotPlanner'),
+      true
+    );
+    assert.equal(
+      overview.agentSummaries.some((entry) => entry.agentKey === 'sequenceQaAgent'),
+      true
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

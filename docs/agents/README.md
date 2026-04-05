@@ -1,26 +1,82 @@
 # Agent 文档总览
 
-本文档作为 agents 相关内容的入口，按执行顺序列出全部 Agent，并指向更细的链路文档与根 README。
+本文档作为 `docs/agents/` 的入口，按当前项目真实执行顺序整理全部核心 agent / 环节，并指向对应专页。
 
-如果你现在更关心“怎么接手、怎么排障、怎么验收”，请先看 [docs/sop/README.md](/d:/My-Project/AI-video-factory-pro/docs/sop/README.md)。
+如果你更关心：
 
-从当前版本开始，大多数运行中的 agent 在产出核心成果物后，还会额外写出一份面向非研发读者的轻量 QA 摘要：
+- 运行目录和产物位置：看 [../runtime/README.md](../runtime/README.md)
+- 排障、验收、交接：看 [../sop/README.md](../sop/README.md)
+- 全链路输入输出：看 [agent-io-map.md](agent-io-map.md)
+
+## 先看哪层摘要
+
+当前大多数 agent 都会额外落两层“给人直接看”的摘要：
 
 - `1-outputs/qa-summary.md`
 - `2-metrics/qa-summary.json`
 
-Director 还会在 run 根目录汇总生成：
+Director 还会在 run 根目录再聚合：
 
 - `qa-overview.md`
 - `qa-overview.json`
 
-如果你只想先快速判断“这一轮有没有达标、最该先看什么问题”，建议先看这两层摘要，再决定是否深入看原始证据。
+如果只想先判断“这一轮能不能交付、最该先看哪里”，建议先看这两层摘要。
 
-## 单 Agent 测试入口
+## Agent 总览
 
-从当前版本开始，每个主要 agent 都有单独的 production-style 测试入口，并支持 `keep-artifacts` 保留成果物。
+| 序号 | 名称 | 关键职责 | 代码位置 | 文档 |
+|------|------|----------|----------|------|
+| 1 | 导演 Agent | 单一 orchestrator，负责缓存、续跑、桥接与交付 | `src/agents/director.js` | [director.md](director.md) |
+| 2 | Script Parser | 剧本拆分为分集与扁平分镜 | `src/agents/scriptParser.js` | [script-parser.md](script-parser.md) |
+| 3 | Character Registry | 角色建档与身份映射 | `src/agents/characterRegistry.js` | [character-registry.md](character-registry.md) |
+| 4 | Prompt Engineer | 生成分镜级视觉 prompt | `src/agents/promptEngineer.js` | [prompt-engineer.md](prompt-engineer.md) |
+| 5 | Image Generator | 批量出图与重生成 | `src/agents/imageGenerator.js` | [image-generator.md](image-generator.md) |
+| 6 | Consistency Checker | 角色外观一致性检查 | `src/agents/consistencyChecker.js` | [consistency-checker.md](consistency-checker.md) |
+| 7 | Continuity Checker | 跨镜头连贯性检查与高风险 cut 标记 | `src/agents/continuityChecker.js` | [continuity-checker.md](continuity-checker.md) |
+| 8 | Dialogue Normalizer | 对白标准化、分段、时长预算 | `src/agents/dialogueNormalizer.js` | [dialogue-normalizer.md](dialogue-normalizer.md) |
+| 9 | TTS Agent | 配音生成与声线解析 | `src/agents/ttsAgent.js` | [tts-agent.md](tts-agent.md) |
+| 10 | TTS QA Agent | 音频时长、ASR、voice drift 与人工抽检规划 | `src/agents/ttsQaAgent.js` | [tts-qa-agent.md](tts-qa-agent.md) |
+| 11 | Lip-sync Agent | 口型片段生成、降级和人工复核建议 | `src/agents/lipsyncAgent.js` | [lipsync-agent.md](lipsync-agent.md) |
+| 12 | Motion Planner | 镜头类型、运镜、时长目标规划 | `src/agents/motionPlanner.js` | [motion-planner.md](motion-planner.md) |
+| 13 | Performance Planner | 表演模板、生成层级、动作节拍规划 | `src/agents/performancePlanner.js` | [performance-planner.md](performance-planner.md) |
+| 14 | Video Router | 组装 `shotPackages` 并决定 provider 路由 | `src/agents/videoRouter.js` | [video-router.md](video-router.md) |
+| 15 | Runway Video Agent | 生成 `rawVideoResults` | `src/agents/runwayVideoAgent.js` | [runway-video-agent.md](runway-video-agent.md) |
+| 16 | Motion Enhancer | 增强或透传原始视频结果 | `src/agents/motionEnhancer.js` | [motion-enhancer.md](motion-enhancer.md) |
+| 17 | Shot QA Agent | 动态镜头工程验收与 motion 验收 | `src/agents/shotQaAgent.js` | [shot-qa-agent.md](shot-qa-agent.md) |
+| 18 | Bridge Shot Planner | 只为高风险 cut 规划桥接镜头 | `src/agents/bridgeShotPlanner.js` | [bridge-shot-planner.md](bridge-shot-planner.md) |
+| 19 | Bridge Shot Router | 组装 `bridgeShotPackages` | `src/agents/bridgeShotRouter.js` | [bridge-shot-router.md](bridge-shot-router.md) |
+| 20 | Bridge Clip Generator | 生成 bridge clip 或返回可解释失败 | `src/agents/bridgeClipGenerator.js` | [bridge-clip-generator.md](bridge-clip-generator.md) |
+| 21 | Bridge QA Agent | 决定 `pass / direct_cut / transition_stub / manual_review` | `src/agents/bridgeQaAgent.js` | [bridge-qa-agent.md](bridge-qa-agent.md) |
+| 22 | Action Sequence Planner | 识别高价值连续动作段并生成 `actionSequencePlan` | `src/agents/actionSequencePlanner.js` | [action-sequence-planner.md](action-sequence-planner.md) |
+| 23 | Action Sequence Router | 组装 `actionSequencePackages` 并选择参考素材层级 | `src/agents/actionSequenceRouter.js` | [action-sequence-router.md](action-sequence-router.md) |
+| 24 | Sequence Clip Generator | 生成连续动作段视频并记录 provider 失败分类 | `src/agents/sequenceClipGenerator.js` | [sequence-clip-generator.md](sequence-clip-generator.md) |
+| 25 | Sequence QA Agent | 决定 sequence 是否可覆盖原始 shot timeline | `src/agents/sequenceQaAgent.js` | [sequence-qa-agent.md](sequence-qa-agent.md) |
+| 26 | Video Composer | 以 `sequence > video > bridge > lipsync > animation > image` 合成成片 | `src/agents/videoComposer.js` | [video-composer.md](video-composer.md) |
 
-常用命令：
+## 当前执行顺序
+
+1. `Director` 读取剧本或 `project / script / episode`，初始化 `state.json`、run package 和可观测产物。
+2. `Script Parser` 生成扁平 `shots`、角色抽取结果和镜头表。
+3. `Character Registry -> Prompt Engineer -> Image Generator` 完成角色建档、prompt 生成和首轮出图。
+4. `Consistency Checker` 检查角色外观一致性，必要时由 `Director` 触发重生成。
+5. `Continuity Checker` 标记高风险 cut，为后续 `Motion Planner` 和 bridge 子链提供输入。
+6. `Motion Planner -> Performance Planner -> Video Router -> Runway Video Agent -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
+7. `Dialogue Normalizer -> TTS Agent -> TTS QA Agent -> Lip-sync Agent` 形成音频与表演链。
+8. `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent` 只在高风险 cut 上按需触发。
+9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发。
+10. `Video Composer` 消费 `sequenceClips + videoResults + bridgeClips + lipsyncResults + animationClips + imageResults` 完成合成。
+
+## 最常用文档
+
+- [Agent 间输入输出关系图](agent-io-map.md)
+- [运行包目录示例](run-package-example.md)
+- [视觉设计链路说明](visual-design.md)
+- [配音链路说明](tts-agent.md)
+- [合成 Agent 详细说明](video-composer.md)
+
+## 单 Agent 生产向测试
+
+当前仓库保留的常用单 agent production-style 测试入口：
 
 - `npm run test:script-parser:prod`
 - `npm run test:character-registry:prod`
@@ -34,85 +90,10 @@ Director 还会在 run 根目录汇总生成：
 - `npm run test:video-composer:prod`
 - `npm run test:director:prod`
 
-如果要保留成果物，把命令改成对应的 `:keep-artifacts` 版本。
+如果要保留成果物，使用对应的 `:keep-artifacts` 版本。
 
-目录规则：
+## 相关文档
 
-- 整条 production pipeline：`temp/projects/...`
-- 单 agent 测试成果物：`temp/<agentName>/...`
-
-例如：
-
-- `npm run test:tts-agent:prod:keep-artifacts` -> `temp/tts-agent/`
-- `npm run test:video-composer:prod:keep-artifacts` -> `temp/video-composer/`
-- `npm run test:director:prod:keep-artifacts` -> `temp/director/`
-
-## Agent 总览
-
-| 序号 | 名称 | 关键职责 | 代码位置 |
-|------|------|----------|----------|
-| 1 | 导演Agent（Orchestrator） | 拆解剧本、调度子 Agent、管理状态与异常 | `src/agents/director.js` |
-| 2 | 编剧Agent（Script Parser） | 将剧本解析为结构化分镜 JSON | `src/agents/scriptParser.js` |
-| 3 | 角色设定Agent（Character Registry） | 生成角色视觉 ID 卡，确保跨镜头一致 | `src/agents/characterRegistry.js` |
-| 4 | 视觉设计Agent（Prompt Engineer） | 为每个分镜生成图像 Prompt，注入角色/风格/镜头词 | `src/agents/promptEngineer.js` |
-| 5 | 图像生成Agent（Image Generator） | 调用图像 API，批量并发出图并重试 | `src/agents/imageGenerator.js` |
-| 6 | 一致性验证Agent（Consistency Checker） | 使用多模态 LLM 检查角色外观一致性并触发重生成 | `src/agents/consistencyChecker.js` |
-| 7 | 连贯性检查Agent（Continuity Checker） | 检查跨分镜的基础连贯性并标记问题转场 | `src/agents/continuityChecker.js` |
-| 8 | 配音Agent（TTS） | 批量合成对白音频，自动区分角色音色 | `src/agents/ttsAgent.js` |
-| 9 | TTS QA Agent | 对配音结果做最小自动验收，输出 `pass / warn / block` | `src/agents/ttsQaAgent.js` |
-| 10 | Lip-sync Agent | 为需要说话表演的镜头生成口型片段，并输出 fallback / 人工复核建议 | `src/agents/lipsyncAgent.js` |
-| 11 | Motion Planner Agent | 为每个镜头生成 `shotType / cameraIntent / durationTargetSec` 动态规划 | `src/agents/motionPlanner.js` |
-| 12 | Performance Planner Agent | 把镜头规划升级为 `performancePlan`，补齐动作节拍、表演模板、生成层级 | `src/agents/performancePlanner.js` |
-| 13 | Video Router Agent | 把 `motionPlan + performancePlan + imageResults` 组装为 `shotPackage v2` | `src/agents/videoRouter.js` |
-| 14 | Runway Video Agent | 调用 Runway 生成镜头级视频，输出 `rawVideoResults` | `src/agents/runwayVideoAgent.js` |
-| 15 | Motion Enhancer Agent | 对原始镜头做时长/编码/轻运动增强，输出 `enhancedVideoResults` | `src/agents/motionEnhancer.js` |
-| 16 | Shot QA Agent | 对增强后镜头做工程可用 + 动态可用双层验收，并桥接最终 `videoResults` | `src/agents/shotQaAgent.js` |
-| 17 | Bridge Shot Planner Agent | 只对高风险 cut 点生成 `bridgeShotPlan` | `src/agents/bridgeShotPlanner.js` |
-| 18 | Bridge Shot Router Agent | 把 `bridgeShotPlan` 组装成 `bridgeShotPackage` 并做能力路由 | `src/agents/bridgeShotRouter.js` |
-| 19 | Bridge Clip Generator Agent | 生成 bridge clip，并对不支持能力的请求给出可解释失败 | `src/agents/bridgeClipGenerator.js` |
-| 20 | Bridge QA Agent | 对 bridge clip 做工程验收与连续性决策 | `src/agents/bridgeQaAgent.js` |
-| 21 | 合成Agent（Video Composer） | 消费 `videoResults + bridgeClips`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
-
-## 执行顺序
-
-1. 导演Agent 读取剧本与运行状态，按顺序触发子 Agent。
-2. 编剧Agent → 角色设定Agent → 视觉设计Agent 顺序构建分镜与 Prompt。
-3. 图像生成Agent 负责批量出图，随后一致性验证Agent 检查并在必要时触发重试。
-4. 一致性验证之后，连贯性检查Agent 评估跨分镜承接。
-5. 连贯性检查之后，Motion Planner Agent 生成镜头级动态规划。
-6. Performance Planner Agent 把动态规划升级为 `performancePlan`，补齐动作节拍、表演模板和 `generationTier / variantCount`。
-7. Video Router Agent 把参考图、镜头规划和表演规划组装成 `shotPackage v2`。
-8. Runway Video Agent 生成 `rawVideoResults`，Motion Enhancer Agent 产出 `enhancedVideoResults`。
-9. Shot QA Agent 做工程可用 + 动态可用双层验收，由 Director 桥接最终 `videoResults`。
-10. Bridge Shot Planner / Router / Generator / QA 只在高风险 cut 点上形成 bridge 子链。
-11. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
-12. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
-13. 合成Agent 最终按 `video > bridge > lipsync > animation > image` 的时间线策略拼装成片。
-
-## 详细文档入口
-
-- [导演 Agent 详细说明](director.md)
-- [编剧 Agent 详细说明（Script Parser）](script-parser.md)
-- [角色设定 Agent（Character Registry）](character-registry.md)
-- [视觉设计 Agent（Prompt Engineer）](prompt-engineer.md)
-- [图像生成 Agent（Image Generator）](image-generator.md)
-- [一致性验证 Agent（Consistency Checker）](consistency-checker.md)
-- [连贯性检查 Agent（Continuity Checker）](continuity-checker.md)
-- [配音 Agent（TTS）](tts-agent.md)
-- [表演规划 Agent（Performance Planner）](performance-planner.md)
-- [镜头增强 Agent（Motion Enhancer）](motion-enhancer.md)
-- [Bridge Shot Planner Agent](bridge-shot-planner.md)
-- [Bridge Clip Generator Agent](bridge-clip-generator.md)
-- [Bridge QA Agent](bridge-qa-agent.md)
-- [合成 Agent 详细说明（Video Composer）](video-composer.md)
-- [视觉设计链路说明](visual-design.md)
-- [Agent 间输入输出关系图](agent-io-map.md)
-- [运行包目录示例](run-package-example.md)
-- [temp/ 目录说明](../runtime/temp-structure.md)
-- [output/ 目录说明](../runtime/output-structure.md)
+- [仓库 README](../../README.md)
+- [运行时目录文档](../runtime/README.md)
 - [SOP 总览](../sop/README.md)
-- [运行排障 Runbook](../sop/runbook.md)
-- [QA 验收 SOP](../sop/qa-acceptance.md)
-
-如果你想先看仓库入口、快速开始和文档导航，请回到 [README.md](../../README.md)。
-

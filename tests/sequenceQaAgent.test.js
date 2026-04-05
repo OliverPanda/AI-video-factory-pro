@@ -1,0 +1,325 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { __testables, runSequenceQa } from '../src/agents/sequenceQaAgent.js';
+
+function withTempRoot(fn) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-sequence-qa-'));
+  return Promise.resolve()
+    .then(() => fn(tempRoot))
+    .finally(() => {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    });
+}
+
+test('runSequenceQa passes a readable mp4-like clip with non-zero duration and covered shot ids', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'sequence-pass.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_pass',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath,
+          coveredShotIds: ['shot_001', 'shot_002'],
+          targetDurationSec: 4,
+          actualDurationSec: 4.1,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        videoResults: [{ shotId: 'shot_001' }],
+        bridgeClipResults: [{ bridgeId: 'bridge_001' }],
+        referenceContext: {
+          sequenceId: 'seq_pass',
+          shotIds: ['shot_001', 'shot_002'],
+        },
+        probeVideo: async () => ({ durationSec: 4.1 }),
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'pass',
+          continuityCheck: 'pass',
+        }),
+      }
+    );
+
+    assert.equal(report.status, 'pass');
+    assert.equal(report.passedCount, 1);
+    assert.equal(report.fallbackCount, 0);
+    assert.equal(report.entries[0].finalDecision, 'pass');
+    assert.deepEqual(report.entries[0].coveredShotIds, ['shot_001', 'shot_002']);
+    assert.equal(report.entries[0].engineCheck, 'pass');
+    assert.equal(report.entries[0].durationCheck, 'pass');
+    assert.equal(report.entries[0].entryExitCheck, 'pass');
+    assert.equal(report.entries[0].continuityCheck, 'pass');
+  });
+});
+
+test('runSequenceQa fails empty files pseudo files and abnormal durations', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const emptyPath = path.join(tempRoot, 'empty.mp4');
+    const pseudoPath = path.join(tempRoot, 'pseudo.mp4');
+    const badDurationPath = path.join(tempRoot, 'bad-duration.mp4');
+    fs.writeFileSync(emptyPath, '');
+    fs.writeFileSync(pseudoPath, 'not-a-real-mp4');
+    fs.writeFileSync(badDurationPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_empty',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: emptyPath,
+          coveredShotIds: ['shot_010'],
+          targetDurationSec: 4,
+          actualDurationSec: 0,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_pseudo',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: pseudoPath,
+          coveredShotIds: ['shot_011'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_duration',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: badDurationPath,
+          coveredShotIds: ['shot_012'],
+          targetDurationSec: 4,
+          actualDurationSec: 20,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        probeVideo: async (videoPath) => {
+          if (videoPath === pseudoPath) {
+            throw new Error('ffprobe parse failed');
+          }
+          return { durationSec: 20 };
+        },
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'pass',
+          continuityCheck: 'pass',
+        }),
+      }
+    );
+
+    assert.equal(report.entries[0].engineCheck, 'fail');
+    assert.equal(report.entries[0].finalDecision, 'fail');
+    assert.equal(report.entries[1].engineCheck, 'fail');
+    assert.equal(report.entries[1].finalDecision, 'fail');
+    assert.equal(report.entries[2].durationCheck, 'fail');
+    assert.equal(report.entries[2].finalDecision, 'fail');
+  });
+});
+
+test('runSequenceQa fails when entryExitCheck fails and falls back when continuityCheck fails', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const artifactContext = {
+      outputsDir: path.join(tempRoot, '1-outputs'),
+      metricsDir: path.join(tempRoot, '2-metrics'),
+      manifestPath: path.join(tempRoot, 'manifest.json'),
+    };
+    fs.mkdirSync(artifactContext.outputsDir, { recursive: true });
+    fs.mkdirSync(artifactContext.metricsDir, { recursive: true });
+
+    const entryExitPath = path.join(tempRoot, 'entry-exit.mp4');
+    const continuityPath = path.join(tempRoot, 'continuity.mp4');
+    const manualReviewPath = path.join(tempRoot, 'manual-review.mp4');
+    fs.writeFileSync(entryExitPath, 'sequence-video');
+    fs.writeFileSync(continuityPath, 'sequence-video');
+    fs.writeFileSync(manualReviewPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_entry_exit',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: entryExitPath,
+          coveredShotIds: ['shot_020'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_continuity',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: continuityPath,
+          coveredShotIds: ['shot_021'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+        {
+          sequenceId: 'seq_manual_review',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath: manualReviewPath,
+          coveredShotIds: ['shot_022'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        artifactContext,
+        probeVideo: async () => ({ durationSec: 4 }),
+        evaluateSequenceContinuity: async (result) => {
+          if (result.sequenceId === 'seq_entry_exit') {
+            return {
+              entryExitCheck: 'fail',
+              continuityCheck: 'pass',
+            };
+          }
+          if (result.sequenceId === 'seq_manual_review') {
+            return {
+              entryExitCheck: 'warn',
+              continuityCheck: 'pass',
+            };
+          }
+          return {
+            entryExitCheck: 'pass',
+            continuityCheck: 'fail',
+          };
+        },
+      }
+    );
+
+    assert.equal(report.entries[0].finalDecision, 'fail');
+    assert.equal(report.entries[0].fallbackAction, 'none');
+    assert.equal(report.entries[1].finalDecision, 'fallback_to_shot_path');
+    assert.equal(report.entries[1].fallbackAction, 'fallback_to_shot_path');
+    assert.equal(report.entries[2].finalDecision, 'manual_review');
+    assert.equal(report.entries[2].fallbackAction, 'manual_review');
+    assert.equal(report.fallbackCount, 1);
+    assert.equal(report.manualReviewCount, 1);
+    assert.equal(report.warnings.some((warning) => warning.includes('seq_continuity')), true);
+
+    const qaSummary = fs.readFileSync(path.join(artifactContext.outputsDir, 'qa-summary.md'), 'utf-8');
+    assert.equal(qaSummary.includes('回退到 shot path'), true);
+    assert.equal(qaSummary.includes('人工复核'), true);
+  });
+});
+
+test('runSequenceQa classifies continuity evaluator failures separately from ffprobe failures', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'continuity-failure.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const [entry] = await __testables.evaluateSequenceClips(
+      [
+        {
+          sequenceId: 'seq_eval_fail',
+          status: 'completed',
+          provider: 'runway',
+          model: 'gen4_turbo',
+          videoPath,
+          coveredShotIds: ['shot_040'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 4 }),
+        evaluateSequenceContinuity: async () => {
+          throw new Error('continuity evaluator offline');
+        },
+      }
+    );
+
+    assert.equal(entry.engineCheck, 'pass');
+    assert.equal(entry.continuityCheck, 'error');
+    assert.equal(entry.finalDecision, 'fail');
+    assert.equal(entry.fallbackAction, 'none');
+    assert.equal(entry.notes.includes('continuity_evaluator_failed'), true);
+    assert.equal(entry.notes.includes('ffprobe_failed'), false);
+  });
+});
+
+test('runSequenceQa writes report metrics manifest and qa summary artifacts', async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-sequence-qa-artifact-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+
+  const artifactContext = {
+    outputsDir: path.join(tempRoot, '1-outputs'),
+    metricsDir: path.join(tempRoot, '2-metrics'),
+    manifestPath: path.join(tempRoot, 'manifest.json'),
+  };
+  fs.mkdirSync(artifactContext.outputsDir, { recursive: true });
+  fs.mkdirSync(artifactContext.metricsDir, { recursive: true });
+
+  const videoPath = path.join(tempRoot, 'sequence-artifact.mp4');
+  fs.writeFileSync(videoPath, 'sequence-video');
+
+  const report = await runSequenceQa(
+    [
+      {
+        sequenceId: 'seq_artifact',
+        status: 'completed',
+        provider: 'runway',
+        model: 'gen4_turbo',
+        videoPath,
+        coveredShotIds: ['shot_030', 'shot_031'],
+        targetDurationSec: 4,
+        actualDurationSec: 4,
+        failureCategory: null,
+        error: null,
+      },
+    ],
+    {
+      artifactContext,
+      probeVideo: async () => ({ durationSec: 4 }),
+      evaluateSequenceContinuity: async () => ({
+        entryExitCheck: 'pass',
+        continuityCheck: 'pass',
+      }),
+    }
+  );
+
+  assert.equal(report.passedCount, 1);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.json')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'fallback-sequence-paths.json')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.md')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'manual-review-sequences.json')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'sequence-qa-metrics.json')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'qa-summary.md')), true);
+  const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
+  assert.equal(manifest.status, 'completed');
+  assert.deepEqual(manifest.outputFiles, [
+    'sequence-qa-report.json',
+    'fallback-sequence-paths.json',
+    'manual-review-sequences.json',
+    'sequence-qa-metrics.json',
+    'sequence-qa-report.md',
+  ]);
+});

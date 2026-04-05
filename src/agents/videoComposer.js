@@ -211,6 +211,7 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
       shots,
       imageResults,
       audioResults,
+      sequenceClips: options.sequenceClips || [],
       videoResults: options.videoClips || [],
       animationClips: options.animationClips || [],
       lipsyncResults: options.lipsyncClips || [],
@@ -263,6 +264,7 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
     adaptedInput.shots,
     adaptedInput.imageResults,
     adaptedInput.audioResults,
+    adaptedInput.sequenceClips,
     adaptedInput.videoResults,
     adaptedInput.animationClips,
     adaptedInput.lipsyncResults,
@@ -367,6 +369,17 @@ function buildLegacyAssetBundle(input = {}) {
           durationSec: entry.durationSec ?? entry.targetDurationSec ?? null,
           format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
         }))),
+      ...((input.sequenceClips || [])
+        .filter((entry) => entry?.videoPath)
+        .map((entry) => ({
+          assetId: `sequence_${entry.sequenceId}`,
+          shotId: (entry.coveredShotIds || [])[0] || entry.sequenceId,
+          role: 'sequence',
+          type: 'video',
+          uri: entry.videoPath,
+          durationSec: entry.durationSec ?? entry.actualDurationSec ?? entry.targetDurationSec ?? null,
+          format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
+        }))),
       ...((input.animationClips || [])
         .filter((entry) => entry?.videoPath)
         .map((entry) => ({
@@ -418,6 +431,7 @@ function adaptLegacyComposeInput(input = {}) {
     })),
     imageResults: input.imageResults || [],
     audioResults: input.audioResults || [],
+    sequenceClips: input.sequenceClips || [],
     videoResults: input.videoResults || [],
     animationClips: input.animationClips || [],
     lipsyncResults: input.lipsyncResults || [],
@@ -510,6 +524,18 @@ function adaptCompositionJobToLegacy(job = {}) {
         } : null;
       })
       .filter(Boolean),
+    sequenceClips: Array.isArray(job?.sequenceClips)
+      ? job.sequenceClips
+          .filter((clip) => clip?.sequenceId && clip?.videoPath)
+          .map((clip) => ({
+            sequenceId: clip.sequenceId,
+            coveredShotIds: Array.isArray(clip.coveredShotIds) ? clip.coveredShotIds : [],
+            videoPath: clip.videoPath,
+            durationSec: clip.durationSec ?? clip.actualDurationSec ?? clip.targetDurationSec ?? null,
+            status: clip.status || 'completed',
+            finalDecision: clip.finalDecision || 'pass',
+          }))
+      : [],
   };
 }
 
@@ -577,13 +603,41 @@ export function buildCompositionPlan(
   shots,
   imageResults = [],
   audioResults = [],
+  sequenceClips = [],
   videoClips = [],
   animationClips = [],
   lipsyncClips = [],
   bridgeClips = []
 ) {
+  const approvedSequenceClips = buildApprovedSequenceClips(sequenceClips, shots);
+  const coveredShotIds = new Set(approvedSequenceClips.flatMap((clip) => clip.coveredShotIds));
+  const insertedSequenceIds = new Set();
+
   const basePlan = shots
     .map((shot) => {
+      const sequenceClip = approvedSequenceClips.find(
+        (clip) => clip.startShotId === shot.id && !insertedSequenceIds.has(clip.sequenceId)
+      );
+      if (sequenceClip) {
+        insertedSequenceIds.add(sequenceClip.sequenceId);
+        return {
+          shotId: `sequence:${sequenceClip.sequenceId}`,
+          sequenceId: sequenceClip.sequenceId,
+          coveredShotIds: sequenceClip.coveredShotIds,
+          timelineFromShotId: sequenceClip.startShotId,
+          timelineToShotId: sequenceClip.endShotId,
+          visualType: 'sequence_clip',
+          videoPath: sequenceClip.videoPath,
+          audioPath: null,
+          dialogue: '',
+          duration: normalizeDuration(sequenceClip.durationSec),
+        };
+      }
+
+      if (coveredShotIds.has(shot.id)) {
+        return null;
+      }
+
       const visual = resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
       if (!visual) return null;
@@ -642,6 +696,56 @@ function resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsy
   };
 }
 
+function buildApprovedSequenceClips(sequenceClips = [], shots = []) {
+  const shotOrder = new Map((Array.isArray(shots) ? shots : []).map((shot, index) => [shot.id, index]));
+  const consumedShotIds = new Set();
+
+  return (Array.isArray(sequenceClips) ? sequenceClips : [])
+    .filter(
+      (clip) =>
+        clip?.sequenceId &&
+        clip?.videoPath &&
+        clip?.finalDecision === 'pass' &&
+        Array.isArray(clip.coveredShotIds) &&
+        clip.coveredShotIds.length > 0
+    )
+    .map((clip) => {
+      const orderedShotIds = [...clip.coveredShotIds].sort(
+        (left, right) => (shotOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (shotOrder.get(right) ?? Number.MAX_SAFE_INTEGER)
+      );
+      return {
+        ...clip,
+        coveredShotIds: orderedShotIds,
+        startShotId: orderedShotIds[0],
+        endShotId: orderedShotIds[orderedShotIds.length - 1],
+        durationSec: clip.durationSec ?? clip.actualDurationSec ?? clip.targetDurationSec ?? null,
+      };
+    })
+    .sort(
+      (left, right) => (shotOrder.get(left.startShotId) ?? Number.MAX_SAFE_INTEGER) - (shotOrder.get(right.startShotId) ?? Number.MAX_SAFE_INTEGER)
+    )
+    .filter((clip) => {
+      const indexes = clip.coveredShotIds.map((shotId) => shotOrder.get(shotId));
+      const hasUnknownShot = indexes.some((index) => !Number.isFinite(index));
+      if (hasUnknownShot) {
+        return false;
+      }
+
+      const isContiguous = indexes.every((index, position) => position === 0 || index === indexes[position - 1] + 1);
+      if (!isContiguous) {
+        return false;
+      }
+
+      const overlapsExisting = clip.coveredShotIds.some((shotId) => consumedShotIds.has(shotId));
+      if (overlapsExisting) {
+        return false;
+      }
+
+      clip.coveredShotIds.forEach((shotId) => consumedShotIds.add(shotId));
+      return true;
+    });
+}
+
 function insertBridgeClips(plan, bridgeClips = []) {
   const approvedBridgeClips = (Array.isArray(bridgeClips) ? bridgeClips : []).filter(
     (clip) => clip?.videoPath && clip?.finalDecision === 'pass' && clip?.fromShotId && clip?.toShotId
@@ -651,9 +755,12 @@ function insertBridgeClips(plan, bridgeClips = []) {
   }
 
   const timeline = [];
-  for (const item of plan) {
+  for (const [index, item] of plan.entries()) {
     timeline.push(item);
-    for (const clip of approvedBridgeClips.filter((entry) => entry.fromShotId === item.shotId)) {
+    const anchorShotId = item.timelineToShotId || item.shotId;
+    const nextItem = plan[index + 1] || null;
+    const nextAnchorShotId = nextItem?.timelineFromShotId || nextItem?.shotId || null;
+    for (const clip of approvedBridgeClips.filter((entry) => entry.fromShotId === anchorShotId && entry.toShotId === nextAnchorShotId)) {
       timeline.push({
         shotId: `bridge:${clip.bridgeId}`,
         bridgeId: clip.bridgeId,
@@ -683,6 +790,7 @@ function validatePlanPaths(plan, options = {}) {
         : item.imagePath,
     videoPath:
       item.visualType === 'generated_video_clip' ||
+      item.visualType === 'sequence_clip' ||
       item.visualType === 'bridge_clip' ||
       item.visualType === 'animation_clip' ||
       item.visualType === 'lipsync_clip'
@@ -789,7 +897,12 @@ function createVisualSegments(plan, outputPath, options = {}) {
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
   const tasks = segmentJobs.map((job) => {
-    if (job.visualType === 'animation_clip' || job.visualType === 'lipsync_clip' || job.visualType === 'bridge_clip') {
+    if (
+      job.visualType === 'animation_clip' ||
+      job.visualType === 'lipsync_clip' ||
+      job.visualType === 'bridge_clip' ||
+      job.visualType === 'sequence_clip'
+    ) {
       return transcodeAnimationClip(job, job.segmentPath).then(() => job.segmentPath);
     }
     return renderStaticImageSegment(job, job.segmentPath).then(() => job.segmentPath);
@@ -1004,6 +1117,7 @@ export const __testables = {
   buildDeliveryReport,
   buildCompositionPlan,
   buildVideoMetrics,
+  buildApprovedSequenceClips,
   insertBridgeClips,
   buildSubtitlePath: (outputPath) => outputPath.replace(/\.mp4$/i, '.ass'),
   normalizeAudioDuration: normalizeDuration,

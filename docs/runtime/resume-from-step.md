@@ -8,6 +8,12 @@
 2. 删除该步骤及后续步骤的缓存字段
 3. 清理对应临时产物，然后重新调用主流程
 
+小白话理解：
+
+- 它不是“从某个函数行号接着跑”
+- 而是“把这个步骤和它后面的缓存删掉，再让 Director 用前面还保留的成果物重新接上”
+- 所以它现在仍然是 `step 级续跑`，不是更细的 `sequence 级` 或 `shot 级` CLI
+
 ## 适用场景
 
 - `08b-lipsync-agent` 出错，想从 lipsync 之后继续
@@ -89,6 +95,10 @@ flowchart TD
     G --> H[route_bridge_shots]
     H --> I[generate_bridge_clips]
     I --> J[bridge_qa]
+    J --> K[plan_action_sequences]
+    K --> L[route_action_sequences]
+    L --> M[generate_sequence_clips]
+    M --> N[sequence_qa]
 ```
 
 ## 两种运行模式
@@ -150,6 +160,10 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - `bridgeShotPackages`
   - `bridgeClipResults`
   - `bridgeQaReport`
+  - `actionSequencePlan`
+  - `actionSequencePackages`
+  - `sequenceClipResults`
+  - `sequenceQaReport`
   - `normalizedShots`
   - `audioResults`
   - `audioVoiceResolution`
@@ -174,6 +188,10 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - 不会清掉 `bridgeShotPackages`
   - 不会清掉 `bridgeClipResults`
   - 不会清掉 `bridgeQaReport`
+  - 不会清掉 `actionSequencePlan`
+  - 不会清掉 `actionSequencePackages`
+  - 不会清掉 `sequenceClipResults`
+  - 不会清掉 `sequenceQaReport`
   - 只重做最终成片合成
 
 ## 续跑决策图

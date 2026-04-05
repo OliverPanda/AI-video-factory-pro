@@ -44,7 +44,7 @@ test('buildCompositionPlan prefers generated video clips over animation clips wh
   ];
   const audioResults = [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }];
 
-  const plan = buildCompositionPlan(shots, imageResults, audioResults, videoClips, animationClips);
+  const plan = buildCompositionPlan(shots, imageResults, audioResults, [], videoClips, animationClips);
 
   assert.deepEqual(plan, [
     {
@@ -69,7 +69,7 @@ test('buildCompositionPlan falls back to static image when no animation clip exi
     },
   ];
 
-  const plan = buildCompositionPlan(shots, imageResults, [], []);
+  const plan = buildCompositionPlan(shots, imageResults, [], [], []);
 
   assert.deepEqual(plan, [
     {
@@ -232,6 +232,7 @@ test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
     imageResults,
     audioResults,
     [],
+    [],
     animationClips,
     lipsyncClips
   );
@@ -252,6 +253,7 @@ test('buildCompositionPlan falls back to animation clips when generated video an
   const plan = buildCompositionPlan(
     [{ id: 'shot_2', dialogue: '第二句', duration: 3 }],
     [{ shotId: 'shot_2', imagePath: '/tmp/shot_2.png', success: true }],
+    [],
     [],
     [],
     [{ shotId: 'shot_2', videoPath: '/tmp/shot_2-anim.mp4', durationSec: 5 }],

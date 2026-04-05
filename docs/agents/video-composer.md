@@ -1,11 +1,11 @@
 # 合成 Agent（Video Composer）
 
-本文档基于 `src/agents/videoComposer.js`，描述当前合成阶段的真实实现，以及 2026-04 的 Phase 2 / Phase 3 视频主链收口方式。
+本文档基于 `src/agents/videoComposer.js`，描述当前合成阶段的真实实现，以及 2026-04 的 Phase 2 / Phase 3 / Phase 4 视频主链收口方式。
 
 ## 职责
 
 1. 接收已经准备好的镜头资产，生成可执行合成计划。
-2. 在 `generated video clip > bridge clip > lipsync clip > animation clip > static image` 的优先级下选择最终视觉素材。
+2. 在 `sequence clip > generated video clip > bridge clip > lipsync clip > animation clip > static image` 的优先级下选择最终视觉素材。
 3. 生成 ASS 硬字幕，并把所有镜头音频拼成统一主音轨。
 4. 用 FFmpeg 输出最终 MP4。
 5. 输出结构化交付结果，同时保持现有 run package 审计产物不变。
@@ -59,6 +59,8 @@
   - 典型元素：`{ shotId, videoPath, durationSec?, status?, qaStatus? }`
 - `bridgeClips`
   - 典型元素：`{ bridgeId, fromShotId, toShotId, videoPath, durationSec, finalDecision }`
+- `sequenceClips`
+  - 典型元素：`{ sequenceId, coveredShotIds, videoPath, durationSec?, finalDecision }`
 - `ttsQaReport`
 - `lipsyncReport`
 
@@ -72,6 +74,7 @@
 - `imageResults[].imagePath -> visuals`
 - `audioResults[].audioPath -> audios`
 - `videoResults[].videoPath -> video clips(role=video)`
+- `sequenceClips[].videoPath -> video clips(role=sequence)`
 - `bridgeClips[].videoPath -> video clips(role=bridge)`
 - `animationClips[].videoPath -> video clips(role=animation)`
 - `lipsyncResults[].videoPath -> video clips(role=lipsync)`
@@ -129,13 +132,21 @@
 
 视觉优先级：
 
-1. `generated_video_clip`
-2. `bridge_clip`
-3. `lipsync_clip`
-4. `animation_clip`
-5. `static_image`
+1. `sequence_clip`
+2. `generated_video_clip`
+3. `bridge_clip`
+4. `lipsync_clip`
+5. `animation_clip`
+6. `static_image`
 
 如果镜头没有任何可用视觉来源，就不会进入最终 plan。
+
+Phase 4 补充规则：
+
+- 只有 `finalDecision === "pass"` 的 `sequenceClips` 才会进入主 timeline
+- `sequenceClips` 一旦覆盖一段 `coveredShotIds`，这些 shot 不会再各自重复写入
+- `bridgeClips` 只会插在当前时间线上真实相邻的两个锚点之间，不会再盲插错误目标
+- 如果 `sequenceQaReport` 为 `manual_review / fail / fallback`，composer 会自然退回 `videoResults + bridgeClips` 路径
 
 Phase 2 口径补充：
 
