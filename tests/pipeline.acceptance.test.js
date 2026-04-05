@@ -23,6 +23,7 @@ function createDirs(root) {
     root,
     images: path.join(root, 'images'),
     audio: path.join(root, 'audio'),
+    video: path.join(root, 'video'),
     output: path.join(root, 'output'),
   };
 
@@ -34,6 +35,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
     const runJobs = [];
+    const composeCalls = [];
 
     const director = createDirector({
       initDirs: () => dirs,
@@ -74,12 +76,12 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           {
             previousShotId: 'shot_001',
             shotId: 'shot_002',
-            continuityScore: 9,
+            continuityScore: 5,
             violations: [],
             repairHints: [],
           },
         ],
-        flaggedTransitions: [],
+        flaggedTransitions: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 5 }],
       }),
       planPerformance: async (motionPlan) =>
         motionPlan.map((item) => ({
@@ -134,10 +136,73 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         fallbackShots: [],
         warnings: [],
       }),
+      planBridgeShots: async () => [
+        {
+          bridgeId: 'bridge_shot_001_shot_002',
+          fromShotId: 'shot_001',
+          toShotId: 'shot_002',
+          bridgeType: 'motion_carry',
+          bridgeGoal: 'carry_action_across_cut',
+          durationTargetSec: 1.6,
+          continuityRisk: 'high',
+          cameraTransitionIntent: 'follow_through_motion',
+          subjectContinuityTargets: ['沈清'],
+          environmentContinuityTargets: ['lighting'],
+          mustPreserveElements: ['subject_identity'],
+          bridgeGenerationMode: 'image_to_video_bridge',
+          preferredProvider: 'runway',
+          fallbackStrategy: 'direct_cut',
+        },
+      ],
+      routeBridgeShots: async () => [
+        {
+          bridgeId: 'bridge_shot_001_shot_002',
+          fromShotRef: { shotId: 'shot_001' },
+          toShotRef: { shotId: 'shot_002' },
+          fromReferenceImage: path.join(dirs.images, 'shot_001.png'),
+          toReferenceImage: path.join(dirs.images, 'shot_002.png'),
+          promptDirectives: ['bridge type: motion_carry'],
+          negativePromptDirectives: ['identity drift'],
+          durationTargetSec: 1.6,
+          providerCapabilityRequirement: 'image_to_video',
+          firstLastFrameMode: 'disabled',
+          preferredProvider: 'runway',
+          fallbackProviders: ['direct_cut'],
+          qaRules: { mustProbeWithFfprobe: true },
+        },
+      ],
+      generateBridgeClips: async () => ({
+        results: [
+          {
+            bridgeId: 'bridge_shot_001_shot_002',
+            status: 'completed',
+            provider: 'runway',
+            model: 'gen4_turbo',
+            videoPath: path.join(dirs.video, 'bridge_shot_001_shot_002.mp4'),
+            targetDurationSec: 1.6,
+            actualDurationSec: 1.6,
+          },
+        ],
+      }),
+      runBridgeQa: async () => ({
+        status: 'pass',
+        entries: [
+          {
+            bridgeId: 'bridge_shot_001_shot_002',
+            finalDecision: 'pass',
+          },
+        ],
+        passedCount: 1,
+        fallbackCount: 0,
+        manualReviewCount: 0,
+        warnings: [],
+        blockers: [],
+      }),
       generateAllAudio: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, audioPath: path.join(dirs.audio, `${shot.id}.mp3`) })),
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
-      composeVideo: async (_shots, _images, _audio, outputPath) => {
+      composeVideo: async (_shots, _images, _audio, outputPath, options) => {
+        composeCalls.push(options.bridgeClips || []);
         fs.writeFileSync(outputPath, 'video');
         return outputPath;
       },
@@ -196,7 +261,13 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.runwayVideoAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.motionEnhancer.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.shotQaAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.bridgeShotPlanner.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.bridgeShotRouter.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.bridgeClipGenerator.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.bridgeQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
+    assert.equal(composeCalls[0].length, 1);
+    assert.equal(composeCalls[0][0].bridgeId, 'bridge_shot_001_shot_002');
 
     const qaOverview = JSON.parse(
       fs.readFileSync(path.join(artifactContext.runDir, 'qa-overview.json'), 'utf-8')

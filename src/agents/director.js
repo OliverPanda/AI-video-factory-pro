@@ -22,6 +22,10 @@ import { routeVideoShots } from './videoRouter.js';
 import { runRunwayVideo } from './runwayVideoAgent.js';
 import { runMotionEnhancer } from './motionEnhancer.js';
 import { runShotQa } from './shotQaAgent.js';
+import { planBridgeShots } from './bridgeShotPlanner.js';
+import { routeBridgeShots } from './bridgeShotRouter.js';
+import { generateBridgeClips } from './bridgeClipGenerator.js';
+import { runBridgeQa } from './bridgeQaAgent.js';
 import { composeVideo } from './videoComposer.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
@@ -128,6 +132,33 @@ function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
       status: result.status || 'completed',
       provider: result.provider || 'runway',
     }));
+}
+
+function buildBridgeClipBridge(bridgeShotPlan = [], bridgeClipResults = [], bridgeQaReport = null) {
+  const approvedBridgeIds = bridgeQaReport?.entries
+    ? new Set(
+        bridgeQaReport.entries
+          .filter((entry) => entry?.finalDecision === 'pass')
+          .map((entry) => entry.bridgeId)
+      )
+    : null;
+  const planByBridgeId = new Map((Array.isArray(bridgeShotPlan) ? bridgeShotPlan : []).map((entry) => [entry.bridgeId, entry]));
+
+  return (Array.isArray(bridgeClipResults) ? bridgeClipResults : [])
+    .filter((result) => result?.bridgeId && result?.videoPath)
+    .filter((result) => !approvedBridgeIds || approvedBridgeIds.has(result.bridgeId))
+    .map((result) => {
+      const planEntry = planByBridgeId.get(result.bridgeId) || {};
+      return {
+        bridgeId: result.bridgeId,
+        fromShotId: planEntry.fromShotId || null,
+        toShotId: planEntry.toShotId || null,
+        videoPath: result.videoPath,
+        durationSec: result.actualDurationSec || result.targetDurationSec || null,
+        finalDecision: 'pass',
+      };
+    })
+    .filter((entry) => entry.fromShotId && entry.toShotId);
 }
 
 function normalizeProjectId(projectId) {
@@ -423,6 +454,10 @@ export function createDirector(overrides = {}) {
     runRunwayVideo,
     runMotionEnhancer,
     runShotQa,
+    planBridgeShots,
+    routeBridgeShots,
+    generateBridgeClips,
+    runBridgeQa,
     composeVideo,
     saveJSON,
     loadJSON,
@@ -904,6 +939,22 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        const bridgeStateUpdates = {};
+        if (!state.hasOwnProperty('bridgeShotPlan')) {
+          bridgeStateUpdates.bridgeShotPlan = [];
+        }
+        if (!state.hasOwnProperty('bridgeShotPackages')) {
+          bridgeStateUpdates.bridgeShotPackages = [];
+        }
+        if (!state.hasOwnProperty('bridgeClipResults')) {
+          bridgeStateUpdates.bridgeClipResults = [];
+        }
+        if (!state.hasOwnProperty('bridgeQaReport')) {
+          bridgeStateUpdates.bridgeQaReport = null;
+        }
+        if (Object.keys(bridgeStateUpdates).length > 0) {
+          saveState(bridgeStateUpdates);
+        }
         let motionPlan = Array.isArray(state.motionPlan) ? state.motionPlan : null;
         if (!motionPlan) {
           deps.logger.info('Director', '【Step 6/11】规划动态镜头...');
@@ -1042,6 +1093,92 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        const hasCompletedBridgeCache = state.bridgeQaReport !== null && state.bridgeQaReport !== undefined;
+        let bridgeShotPlan =
+          Array.isArray(state.bridgeShotPlan) && hasCompletedBridgeCache ? state.bridgeShotPlan : null;
+        if (!bridgeShotPlan) {
+          deps.logger.info('Director', '【Step 11a/13】规划桥接镜头...');
+          bridgeShotPlan = await recordStep('plan_bridge_shots', { message: '规划桥接镜头' }, () =>
+            deps.planBridgeShots(shots, {
+              continuityFlaggedTransitions: state.continuityFlaggedTransitions || [],
+              continuityReport: state.continuityReport || [],
+              motionPlan,
+              performancePlan,
+              imageResults,
+              videoResults,
+              artifactContext: artifactContext.agents.bridgeShotPlanner,
+            })
+          );
+          saveState({ bridgeShotPlan });
+        } else {
+          deps.logger.info('Director', '【Step 11a/13】使用缓存的桥接镜头规划');
+          appendStepRun('plan_bridge_shots', {
+            status: 'cached',
+            detail: '使用缓存的桥接镜头规划',
+          });
+        }
+
+        let bridgeShotPackages =
+          Array.isArray(state.bridgeShotPackages) && hasCompletedBridgeCache ? state.bridgeShotPackages : null;
+        if (!bridgeShotPackages) {
+          deps.logger.info('Director', '【Step 11b/13】路由桥接镜头...');
+          bridgeShotPackages = await recordStep('route_bridge_shots', { message: '路由桥接镜头' }, () =>
+            deps.routeBridgeShots(bridgeShotPlan, {
+              imageResults,
+              videoResults,
+              performancePlan,
+              artifactContext: artifactContext.agents.bridgeShotRouter,
+            })
+          );
+          saveState({ bridgeShotPackages });
+        } else {
+          deps.logger.info('Director', '【Step 11b/13】使用缓存的桥接镜头路由');
+          appendStepRun('route_bridge_shots', {
+            status: 'cached',
+            detail: '使用缓存的桥接镜头路由',
+          });
+        }
+
+        let bridgeClipResults =
+          Array.isArray(state.bridgeClipResults) && hasCompletedBridgeCache ? state.bridgeClipResults : null;
+        if (!bridgeClipResults) {
+          deps.logger.info('Director', '【Step 11c/13】生成桥接片段...');
+          const bridgeClipRun = await recordStep('generate_bridge_clips', { message: '生成桥接片段' }, () =>
+            deps.generateBridgeClips(
+              bridgeShotPackages,
+              dirs.video || path.join(dirs.root, 'video'),
+              {
+                artifactContext: artifactContext.agents.bridgeClipGenerator,
+              }
+            )
+          );
+          bridgeClipResults = Array.isArray(bridgeClipRun?.results) ? bridgeClipRun.results : [];
+          saveState({ bridgeClipResults });
+        } else {
+          deps.logger.info('Director', '【Step 11c/13】使用缓存的桥接片段结果');
+          appendStepRun('generate_bridge_clips', {
+            status: 'cached',
+            detail: '使用缓存的桥接片段结果',
+          });
+        }
+
+        let bridgeQaReport = state.bridgeQaReport || null;
+        if (!bridgeQaReport) {
+          deps.logger.info('Director', '【Step 11d/13】桥接片段 QA...');
+          bridgeQaReport = await recordStep('bridge_qa', { message: '桥接片段 QA' }, () =>
+            deps.runBridgeQa(bridgeClipResults, {
+              artifactContext: artifactContext.agents.bridgeQaAgent,
+            })
+          );
+          saveState({ bridgeQaReport });
+        } else {
+          deps.logger.info('Director', '【Step 11d/13】使用缓存的桥接片段 QA 结果');
+          appendStepRun('bridge_qa', {
+            status: 'cached',
+            detail: '使用缓存的桥接片段 QA 结果',
+          });
+        }
+
         const voiceProjectId = normalizeProjectId(
           options.voiceProjectId === undefined ? projectId : options.voiceProjectId
         );
@@ -1154,11 +1291,13 @@ export function createDirector(overrides = {}) {
           state.animationClips || episode.animationClips || []
         );
         const videoClips = buildVideoClipBridge(videoResults, shotQaReport);
+        const bridgeClips = buildBridgeClipBridge(bridgeShotPlan, bridgeClipResults, bridgeQaReport);
 
         const composeRun = await recordStep('compose_video', { message: '合成视频' }, () =>
           deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
             title: `${scriptTitle} - ${episodeTitle}`,
             videoClips,
+            bridgeClips,
             animationClips,
             lipsyncClips: lipsyncResults,
             artifactContext: artifactContext.agents.videoComposer,

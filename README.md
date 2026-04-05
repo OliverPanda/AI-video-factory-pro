@@ -175,6 +175,8 @@ output/
 - [Phase 1 验收报告](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase1-acceptance.md)
 - [Phase 2 设计文档](docs/superpowers/specs/2026-04-04-dynamic-shortdrama-phase2-design.md)
 - [Phase 2 实施计划](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase2-implementation.md)
+- [Phase 3 Bridge Shot 设计文档](docs/superpowers/specs/2026-04-05-dynamic-shortdrama-phase3-bridge-shot-design.md)
+- [Phase 3 Bridge Shot 实施计划](docs/superpowers/plans/2026-04-05-dynamic-shortdrama-phase3-bridge-shot-implementation.md)
 
 ### SOP
 
@@ -191,7 +193,7 @@ output/
 
 如果你只想先判断“这一轮过没过、卡在哪”，优先看 run 根目录的 `qa-overview.md`。
 
-## Phase 2 动态镜头主链
+## Phase 2 / Phase 3 动态镜头主链
 
 当前成片主视觉优先级保持为：
 
@@ -229,6 +231,31 @@ motionPlan
 - `09f-shot-qa`
 - `10-video-composer`
 
+Phase 3 在此基础上新增了一条“按需触发”的 bridge shot 子链：
+
+```text
+continuityFlaggedTransitions
+-> bridgeShotPlan
+-> bridgeShotPackages
+-> bridgeClipResults
+-> bridgeQaReport
+-> bridgeClips
+-> composer timeline
+```
+
+对应 Phase 3 run package 目录：
+
+- `09g-bridge-shot-planner`
+- `09h-bridge-shot-router`
+- `09i-bridge-clip-generator`
+- `09j-bridge-qa`
+
+当前 bridge shot 规则是：
+
+- 只对高风险 cut 点触发，不会给所有镜头默认插桥
+- 只有 `bridgeQaReport.entries[].finalDecision === "pass"` 的 bridge clip 才会进入 compose timeline
+- `fallback_to_direct_cut / fallback_to_transition_stub / manual_review` 都不会破坏主链成片
+
 Phase 2 当前解决的是“单镜头更像真实动态镜头”，不等于已经完成：
 
 - 多角色复杂打斗总编排
@@ -239,5 +266,5 @@ Phase 2 当前解决的是“单镜头更像真实动态镜头”，不等于已
 建议验收命令：
 
 ```bash
-node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/bridgeShotPlanner.test.js tests/bridgeShotRouter.test.js tests/bridgeClipGenerator.test.js tests/bridgeQaAgent.test.js tests/director.bridge.integration.test.js tests/videoComposer.bridge.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
 ```

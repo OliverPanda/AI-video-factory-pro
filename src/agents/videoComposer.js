@@ -214,6 +214,7 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
       videoResults: options.videoClips || [],
       animationClips: options.animationClips || [],
       lipsyncResults: options.lipsyncClips || [],
+      bridgeClips: options.bridgeClips || [],
       ttsQaReport: options.ttsQaReport,
       lipsyncReport: options.lipsyncReport,
     },
@@ -264,7 +265,8 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
     adaptedInput.audioResults,
     adaptedInput.videoResults,
     adaptedInput.animationClips,
-    adaptedInput.lipsyncResults
+    adaptedInput.lipsyncResults,
+    adaptedInput.bridgeClips
   );
   if (plan.length === 0) throw new Error('没有可合成的分镜（无可用动画片段或静态图像）');
   const safePlan = validatePlanPaths(plan, { allowedRoots });
@@ -387,6 +389,17 @@ function buildLegacyAssetBundle(input = {}) {
           durationSec: entry.durationSec ?? null,
           format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
         }))),
+      ...((input.bridgeClips || [])
+        .filter((entry) => entry?.videoPath)
+        .map((entry) => ({
+          assetId: `bridge_${entry.bridgeId}`,
+          shotId: entry.fromShotId || entry.shotId || entry.bridgeId,
+          role: 'bridge',
+          type: 'video',
+          uri: entry.videoPath,
+          durationSec: entry.durationSec ?? null,
+          format: path.extname(entry.videoPath).replace('.', '').toLowerCase() || 'mp4',
+        }))),
     ],
   };
 }
@@ -408,6 +421,7 @@ function adaptLegacyComposeInput(input = {}) {
     videoResults: input.videoResults || [],
     animationClips: input.animationClips || [],
     lipsyncResults: input.lipsyncResults || [],
+    bridgeClips: input.bridgeClips || [],
     assets: buildLegacyAssetBundle(input),
     normalizedShots,
   };
@@ -565,9 +579,10 @@ export function buildCompositionPlan(
   audioResults = [],
   videoClips = [],
   animationClips = [],
-  lipsyncClips = []
+  lipsyncClips = [],
+  bridgeClips = []
 ) {
-  return shots
+  const basePlan = shots
     .map((shot) => {
       const visual = resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips);
       const audioResult = audioResults.find((r) => r.shotId === shot.id);
@@ -582,6 +597,8 @@ export function buildCompositionPlan(
       };
     })
     .filter(Boolean);
+
+  return insertBridgeClips(basePlan, bridgeClips);
 }
 
 function resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips) {
@@ -625,6 +642,35 @@ function resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsy
   };
 }
 
+function insertBridgeClips(plan, bridgeClips = []) {
+  const approvedBridgeClips = (Array.isArray(bridgeClips) ? bridgeClips : []).filter(
+    (clip) => clip?.videoPath && clip?.finalDecision === 'pass' && clip?.fromShotId && clip?.toShotId
+  );
+  if (approvedBridgeClips.length === 0) {
+    return plan;
+  }
+
+  const timeline = [];
+  for (const item of plan) {
+    timeline.push(item);
+    for (const clip of approvedBridgeClips.filter((entry) => entry.fromShotId === item.shotId)) {
+      timeline.push({
+        shotId: `bridge:${clip.bridgeId}`,
+        bridgeId: clip.bridgeId,
+        fromShotId: clip.fromShotId,
+        toShotId: clip.toShotId,
+        visualType: 'bridge_clip',
+        videoPath: clip.videoPath,
+        audioPath: null,
+        dialogue: '',
+        duration: normalizeDuration(clip.durationSec),
+      });
+    }
+  }
+
+  return timeline;
+}
+
 function validatePlanPaths(plan, options = {}) {
   return plan.map((item) => ({
     ...item,
@@ -637,6 +683,7 @@ function validatePlanPaths(plan, options = {}) {
         : item.imagePath,
     videoPath:
       item.visualType === 'generated_video_clip' ||
+      item.visualType === 'bridge_clip' ||
       item.visualType === 'animation_clip' ||
       item.visualType === 'lipsync_clip'
         ? assertSafeWorkspacePath(item.videoPath, `分镜 ${item.shotId} 动画`, {
@@ -742,7 +789,7 @@ function createVisualSegments(plan, outputPath, options = {}) {
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
   const tasks = segmentJobs.map((job) => {
-    if (job.visualType === 'animation_clip' || job.visualType === 'lipsync_clip') {
+    if (job.visualType === 'animation_clip' || job.visualType === 'lipsync_clip' || job.visualType === 'bridge_clip') {
       return transcodeAnimationClip(job, job.segmentPath).then(() => job.segmentPath);
     }
     return renderStaticImageSegment(job, job.segmentPath).then(() => job.segmentPath);
@@ -957,6 +1004,7 @@ export const __testables = {
   buildDeliveryReport,
   buildCompositionPlan,
   buildVideoMetrics,
+  insertBridgeClips,
   buildSubtitlePath: (outputPath) => outputPath.replace(/\.mp4$/i, '.ass'),
   normalizeAudioDuration: normalizeDuration,
 };

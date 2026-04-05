@@ -28,6 +28,8 @@
 - [接手 SOP](onboarding.md)
 - [运行排障 Runbook](runbook.md)
 - [QA 验收 SOP](qa-acceptance.md)
+- [Phase 2 试跑与复盘 SOP](2026-04-04-phase2-pilot-run-and-retro.md)
+- [Phase 2 试跑预复盘样例：寒烬宫变](2026-04-04-phase2-pilot-retro-%E5%AF%92%E7%83%AC%E5%AE%AB%E5%8F%98.md)
 - [TTS 落地方案（2026-04）](2026-04-03-tts-landing-plan.zh-CN.md)
 - [Agent 验收矩阵](agent-matrix.md)
 - [变更检查清单](change-checklist.md)
@@ -40,5 +42,7 @@
   先看 [运行排障 Runbook](runbook.md)
 - 想判断这轮 run 能不能签收
   先看 [QA 验收 SOP](qa-acceptance.md) 和 [Agent 验收矩阵](agent-matrix.md)
+- 刚做完 Phase 2，准备跑真实样例并决定要不要进 Phase 3
+  先看 [Phase 2 试跑与复盘 SOP](2026-04-04-phase2-pilot-run-and-retro.md)
 - 改了某个 agent，准备提测或提交
   先看 [变更检查清单](change-checklist.md)

@@ -85,6 +85,10 @@ flowchart TD
     C --> D[generate_raw_video_clips]
     D --> E[enhance_video_clips]
     E --> F[shot_qa_v2]
+    F --> G[plan_bridge_shots]
+    G --> H[route_bridge_shots]
+    H --> I[generate_bridge_clips]
+    I --> J[bridge_qa]
 ```
 
 ## 两种运行模式
@@ -142,6 +146,10 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - `videoResults`
   - `shotQaReport`
   - `shotQaReportV2`
+  - `bridgeShotPlan`
+  - `bridgeShotPackages`
+  - `bridgeClipResults`
+  - `bridgeQaReport`
   - `normalizedShots`
   - `audioResults`
   - `audioVoiceResolution`
@@ -162,6 +170,10 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
   - 不会清掉 `videoResults`
   - 不会清掉 `shotQaReport`
   - 不会清掉 `shotQaReportV2`
+  - 不会清掉 `bridgeShotPlan`
+  - 不会清掉 `bridgeShotPackages`
+  - 不会清掉 `bridgeClipResults`
+  - 不会清掉 `bridgeQaReport`
   - 只重做最终成片合成
 
 ## 续跑决策图

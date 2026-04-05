@@ -25,6 +25,10 @@ export const AGENT_ARTIFACT_LAYOUT = {
   runwayVideoAgent: '09d-runway-video-agent',
   motionEnhancer: '09e-motion-enhancer',
   shotQaAgent: '09f-shot-qa',
+  bridgeShotPlanner: '09g-bridge-shot-planner',
+  bridgeShotRouter: '09h-bridge-shot-router',
+  bridgeClipGenerator: '09i-bridge-clip-generator',
+  bridgeQaAgent: '09j-bridge-qa',
   videoComposer: '10-video-composer',
 };
 
@@ -90,6 +94,10 @@ export function createRunArtifactContext(input) {
       runwayVideoAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.runwayVideoAgent),
       motionEnhancer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.motionEnhancer),
       shotQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.shotQaAgent),
+      bridgeShotPlanner: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.bridgeShotPlanner),
+      bridgeShotRouter: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.bridgeShotRouter),
+      bridgeClipGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.bridgeClipGenerator),
+      bridgeQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.bridgeQaAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
     },
   };

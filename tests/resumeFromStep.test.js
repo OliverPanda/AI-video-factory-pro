@@ -35,6 +35,13 @@ test('getStateKeysToDelete cascades from lipsync to compose only', () => {
   ]);
 });
 
+const BRIDGE_STATE_FIELDS = [
+  'bridgeShotPlan',
+  'bridgeShotPackages',
+  'bridgeClipResults',
+  'bridgeQaReport',
+];
+
 test('getStateKeysToDelete for video step clears video generation caches but preserves motionPlan', () => {
   assert.deepEqual(__testables.getStateKeysToDelete('video'), [
     'performancePlan',
@@ -56,6 +63,7 @@ test('getStateKeysToDelete for video step clears video generation caches but pre
     'completedAt',
     'lastError',
     'failedAt',
+    ...BRIDGE_STATE_FIELDS,
   ]);
 });
 
@@ -68,6 +76,10 @@ test('getStateKeysToDelete for compose step preserves Phase 2 planning and video
     'lastError',
     'failedAt',
   ]);
+  const composeKeys = __testables.getStateKeysToDelete('compose');
+  for (const bridgeKey of BRIDGE_STATE_FIELDS) {
+    assert.equal(composeKeys.includes(bridgeKey), false, `compose step should preserve ${bridgeKey}`);
+  }
 });
 
 test('collectFilesToRemove targets shared lipsync clips and final delivery outputs without clearing audio cache', () => {

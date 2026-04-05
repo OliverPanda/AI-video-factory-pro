@@ -63,8 +63,24 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'runwayVideoAgent',
       'motionEnhancer',
       'shotQaAgent',
+      'bridgeShotPlanner',
+      'bridgeShotRouter',
+      'bridgeClipGenerator',
+      'bridgeQaAgent',
       'videoComposer',
     ]);
+
+    const expectedBridgeDirs = {
+      bridgeShotPlanner: '09g-bridge-shot-planner',
+      bridgeShotRouter: '09h-bridge-shot-router',
+      bridgeClipGenerator: '09i-bridge-clip-generator',
+      bridgeQaAgent: '09j-bridge-qa',
+    };
+    for (const [agentKey, dirName] of Object.entries(expectedBridgeDirs)) {
+      const agentContext = ctx.agents[agentKey];
+      assert.ok(agentContext, `${agentKey} context missing`);
+      assert.equal(agentContext.dir.endsWith(path.join(dirName)), true);
+    }
     assert.equal(
       ctx.qaOverviewJsonPath,
       path.join(ctx.runDir, 'qa-overview.json')

@@ -221,6 +221,10 @@ const STEP_STATE_KEYS = {
     'completedAt',
     'lastError',
     'failedAt',
+    'bridgeShotPlan',
+    'bridgeShotPackages',
+    'bridgeClipResults',
+    'bridgeQaReport',
   ],
   dialogue: [
     'normalizedShots',

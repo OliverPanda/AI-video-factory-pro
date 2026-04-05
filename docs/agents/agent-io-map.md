@@ -1,6 +1,6 @@
 # Agent 间输入输出关系图
 
-本文档把当前工作流里 `17` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
+本文档把当前工作流里 `21` 个核心 agent 的输入、输出、落盘位置和下游消费者串起来看，重点服务两个目的：
 
 1. 快速理解整条 pipeline 到底怎么流转。
 2. 快速检查“每个 agent 有没有留下可审计成果物”和“小白 QA 摘要”。
@@ -26,12 +26,17 @@ flowchart TD
     K --> L[Runway Video Agent]
     L --> M[Motion Enhancer]
     M --> N[Shot QA Agent]
+    N --> BS[Bridge Shot Planner]
+    BS --> BR[Bridge Shot Router]
+    BR --> BG[Bridge Clip Generator]
+    BG --> BQ[Bridge QA Agent]
     C --> O[TTS Agent]
     D --> O
     O --> P[TTS QA Agent]
     F --> Q[Lip-sync Agent]
     O --> Q
     N --> R[Video Composer]
+    BQ --> R
     P --> R
     Q --> R
     F --> R
@@ -143,6 +148,10 @@ flowchart LR
 | Runway Video Agent | `shotPackages` | `rawVideoResults` | `09d-runway-video-agent/` | Motion Enhancer、Director |
 | Motion Enhancer | `rawVideoResults + shotPackages + performancePlan` | `enhancedVideoResults` | `09e-motion-enhancer/` | Shot QA、Director |
 | Shot QA Agent | `enhancedVideoResults` | `shotQaReportV2 + final video bridge decision` | `09f-shot-qa/` | Director、Video Composer |
+| Bridge Shot Planner | `shots + continuityFlaggedTransitions + motionPlan + performancePlan + videoResults` | `bridgeShotPlan` | `09g-bridge-shot-planner/` | Bridge Shot Router、Director |
+| Bridge Shot Router | `bridgeShotPlan + imageResults + videoResults` | `bridgeShotPackages` | `09h-bridge-shot-router/` | Bridge Clip Generator、Director |
+| Bridge Clip Generator | `bridgeShotPackages` | `bridgeClipResults` | `09i-bridge-clip-generator/` | Bridge QA、Director |
+| Bridge QA Agent | `bridgeClipResults` | `bridgeQaReport` | `09j-bridge-qa/` | Director、Video Composer |
 | TTS Agent | `shots + characterRegistry + voice presets` | `audioResults + voiceResolution` | `07-tts-agent/` | TTS QA、Lip-sync、Video Composer |
 | TTS QA Agent | `shots + audioResults + voiceResolution` | `tts-qa report + ASR report + manual review sample` | `08-tts-qa/` | Director、人工 QA |
 | Lip-sync Agent | `shots + imageResults + audioResults` | `lipsync clips + lipsync report` | `08b-lipsync-agent/` | Video Composer、人工 QA |
@@ -162,9 +171,10 @@ flowchart TD
 当前实际优先级固定为：
 
 1. `videoResults`
-2. `lipsyncResults`
-3. `animationClips`
-4. `imageResults`
+2. `bridgeClips`
+3. `lipsyncResults`
+4. `animationClips`
+5. `imageResults`
 
 注意：
 
@@ -604,6 +614,10 @@ runs/<runDir>/
   09d-runway-video-agent/manifest.json
   09e-motion-enhancer/manifest.json
   09f-shot-qa/manifest.json
+  09g-bridge-shot-planner/manifest.json
+  09h-bridge-shot-router/manifest.json
+  09i-bridge-clip-generator/manifest.json
+  09j-bridge-qa/manifest.json
   10-video-composer/manifest.json
 ```
 

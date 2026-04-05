@@ -67,7 +67,11 @@ Director 还会在 run 根目录汇总生成：
 | 14 | Runway Video Agent | 调用 Runway 生成镜头级视频，输出 `rawVideoResults` | `src/agents/runwayVideoAgent.js` |
 | 15 | Motion Enhancer Agent | 对原始镜头做时长/编码/轻运动增强，输出 `enhancedVideoResults` | `src/agents/motionEnhancer.js` |
 | 16 | Shot QA Agent | 对增强后镜头做工程可用 + 动态可用双层验收，并桥接最终 `videoResults` | `src/agents/shotQaAgent.js` |
-| 17 | 合成Agent（Video Composer） | 继续只消费 `videoResults`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
+| 17 | Bridge Shot Planner Agent | 只对高风险 cut 点生成 `bridgeShotPlan` | `src/agents/bridgeShotPlanner.js` |
+| 18 | Bridge Shot Router Agent | 把 `bridgeShotPlan` 组装成 `bridgeShotPackage` 并做能力路由 | `src/agents/bridgeShotRouter.js` |
+| 19 | Bridge Clip Generator Agent | 生成 bridge clip，并对不支持能力的请求给出可解释失败 | `src/agents/bridgeClipGenerator.js` |
+| 20 | Bridge QA Agent | 对 bridge clip 做工程验收与连续性决策 | `src/agents/bridgeQaAgent.js` |
+| 21 | 合成Agent（Video Composer） | 消费 `videoResults + bridgeClips`，再回退到 lipsync/animation/image 完成总装 | `src/agents/videoComposer.js` |
 
 ## 执行顺序
 
@@ -80,9 +84,10 @@ Director 还会在 run 根目录汇总生成：
 7. Video Router Agent 把参考图、镜头规划和表演规划组装成 `shotPackage v2`。
 8. Runway Video Agent 生成 `rawVideoResults`，Motion Enhancer Agent 产出 `enhancedVideoResults`。
 9. Shot QA Agent 做工程可用 + 动态可用双层验收，由 Director 桥接最终 `videoResults`。
-10. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
-11. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
-12. 合成Agent 最终按 `video > lipsync > animation > image` 的优先级拼装成片。
+10. Bridge Shot Planner / Router / Generator / QA 只在高风险 cut 点上形成 bridge 子链。
+11. 配音Agent 生成对白音频，TTS QA Agent 做最小自动验收。
+12. Lip-sync Agent 为需要说话表演的镜头生成口型同步片段，并给出 fallback / 人工复核信息。
+13. 合成Agent 最终按 `video > bridge > lipsync > animation > image` 的时间线策略拼装成片。
 
 ## 详细文档入口
 
@@ -96,6 +101,9 @@ Director 还会在 run 根目录汇总生成：
 - [配音 Agent（TTS）](tts-agent.md)
 - [表演规划 Agent（Performance Planner）](performance-planner.md)
 - [镜头增强 Agent（Motion Enhancer）](motion-enhancer.md)
+- [Bridge Shot Planner Agent](bridge-shot-planner.md)
+- [Bridge Clip Generator Agent](bridge-clip-generator.md)
+- [Bridge QA Agent](bridge-qa-agent.md)
 - [合成 Agent 详细说明（Video Composer）](video-composer.md)
 - [视觉设计链路说明](visual-design.md)
 - [Agent 间输入输出关系图](agent-io-map.md)
