@@ -1,12 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { probeVideoMetadata } from '../utils/mediaProbe.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-const execFileAsync = promisify(execFile);
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -18,24 +15,7 @@ function normalizeArray(value) {
 }
 
 async function probeVideo(videoPath) {
-  const { stdout } = await execFileAsync(
-    'ffprobe',
-    [
-      '-v',
-      'error',
-      '-show_entries',
-      'format=duration',
-      '-of',
-      'default=noprint_wrappers=1:nokey=1',
-      videoPath,
-    ],
-    { windowsHide: true }
-  );
-
-  const durationSec = Number.parseFloat(String(stdout || '').trim());
-  return {
-    durationSec: Number.isFinite(durationSec) ? durationSec : null,
-  };
+  return probeVideoMetadata(videoPath);
 }
 
 function isDurationAcceptable(targetDurationSec, actualDurationSec) {
