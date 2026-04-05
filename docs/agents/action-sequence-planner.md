@@ -22,6 +22,7 @@
 - `sequenceType`
 - `durationTargetSec`
 - `cameraFlowIntent`
+- `preferredProvider`
 - `fallbackStrategy`
 
 ## 落盘
@@ -34,6 +35,8 @@
 ## 当前 MVP 边界
 
 - 只做规则版规划
+- 默认把连续动作段的 `preferredProvider` 跟随当前主视频链，当前默认是 `Seedance`
+- 显式指定 `Runway` 时仍保留兼容
 - 只覆盖连续动作段，不做全片 sequence 化
 - 不做多人群战自动编排闭环
 - 不做语音联动闭环

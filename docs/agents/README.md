@@ -103,7 +103,7 @@ Director 还会在 run 根目录再聚合：
 6. `Motion Planner -> Performance Planner -> Video Router -> Seedance / Runway Video Agent -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
 7. `Dialogue Normalizer -> TTS Agent -> TTS QA Agent -> Lip-sync Agent` 形成音频与表演链。
 8. `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent` 只在高风险 cut 上按需触发。
-9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发。
+9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发，默认沿用当前 `Seedance` 主视频 provider，显式 `Runway` 仍兼容。
 10. `Video Composer` 消费 `sequenceClips + videoResults + bridgeClips + lipsyncResults + animationClips + imageResults` 完成合成。
 
 ## 最常用文档

@@ -5,6 +5,7 @@
 - 生成连续动作段视频
 - 输出 `sequenceClipResults`
 - 记录 provider 失败分类，供 Director 决定是否回退
+- 默认走 `Seedance` sequence 视频路径，显式 `Runway` 仍兼容
 
 ## 典型输入
 

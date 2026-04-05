@@ -23,7 +23,7 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
         entryConstraint: '接住上一镜的挥臂姿态',
         exitConstraint: '落到下一轮攻防节拍',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -51,7 +51,7 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
   assert.equal(packageEntry.sequenceId, 'seq_001');
   assert.deepEqual(packageEntry.shotIds, ['shot_001', 'shot_002']);
   assert.deepEqual(packageEntry.audioBeatHints, ['beat_1']);
-  assert.equal(packageEntry.preferredProvider, 'runway');
+  assert.equal(packageEntry.preferredProvider, 'seedance');
 });
 
 test('buildActionSequencePackages prefers QA-passed videoResults over bridgeClipResults and imageResults', () => {
@@ -70,7 +70,7 @@ test('buildActionSequencePackages prefers QA-passed videoResults over bridgeClip
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -122,7 +122,7 @@ test('buildActionSequencePackages falls back to QA-passed bridgeClipResults befo
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -175,7 +175,7 @@ test('buildActionSequencePackages does not elevate a bridge that only matches se
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -221,7 +221,7 @@ test('buildActionSequencePackages falls back to imageResults when QA-passed vide
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -244,6 +244,39 @@ test('buildActionSequencePackages falls back to imageResults when QA-passed vide
   ]);
 });
 
+test('buildActionSequencePackages defaults provider to seedance when plan entry omits preferredProvider', () => {
+  const [packageEntry] = __testables.buildActionSequencePackages(
+    [
+      {
+        sequenceId: 'seq_default_provider',
+        shotIds: ['shot_032', 'shot_033'],
+        durationTargetSec: 6,
+        sequenceGoal: '保持连续动作节奏',
+        cameraFlowIntent: 'continuous_follow',
+        motionContinuityTargets: ['direction_of_travel'],
+        subjectContinuityTargets: ['char_c'],
+        environmentContinuityTargets: ['lighting'],
+        mustPreserveElements: ['subject_identity'],
+        entryConstraint: '接住上一镜的动作惯性',
+        exitConstraint: '落到下一镜的动作落点',
+        generationMode: 'standalone_sequence',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+    ],
+    {
+      imageResults: [
+        { shotId: 'shot_032', imagePath: '/tmp/shot_032.png', success: true },
+        { shotId: 'shot_033', imagePath: '/tmp/shot_033.png', success: true },
+      ],
+      videoResults: [],
+      bridgeClipResults: [],
+      performancePlan: [],
+    }
+  );
+
+  assert.equal(packageEntry.preferredProvider, 'seedance');
+});
+
 test('buildActionSequencePackages picks the best duplicate video and image candidate by explicit priority', () => {
   const [packageEntry] = __testables.buildActionSequencePackages(
     [
@@ -260,7 +293,7 @@ test('buildActionSequencePackages picks the best duplicate video and image candi
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -303,7 +336,7 @@ test('buildActionSequencePackages picks the best duplicate video and image candi
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -337,7 +370,7 @@ test('buildActionSequencePackages marks insufficient references as skip instead 
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],
@@ -383,7 +416,7 @@ test('routeActionSequencePackages writes artifacts, metrics, manifest and qa sum
         entryConstraint: '接住上一镜的动作惯性',
         exitConstraint: '落到下一镜的动作落点',
         generationMode: 'standalone_sequence',
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'fallback_to_shot_and_bridge',
       },
     ],

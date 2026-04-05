@@ -76,9 +76,9 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
         flaggedTransitions: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 4 }],
       }),
       planMotion: async () => [
-        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '逼近', videoGenerationMode: 'runway_image_to_video' },
-        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '压上', videoGenerationMode: 'runway_image_to_video' },
-        { shotId: 'shot_003', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '反击', videoGenerationMode: 'runway_image_to_video' },
+        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '逼近', videoGenerationMode: 'seedance_image_to_video' },
+        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '压上', videoGenerationMode: 'seedance_image_to_video' },
+        { shotId: 'shot_003', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '反击', videoGenerationMode: 'seedance_image_to_video' },
       ],
       planPerformance: async () => [
         { shotId: 'shot_001', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
@@ -86,15 +86,15 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
         { shotId: 'shot_003', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
       ],
       routeVideoShots: async () => [
-        { shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 },
-        { shotId: 'shot_002', preferredProvider: 'runway', durationTargetSec: 2 },
-        { shotId: 'shot_003', preferredProvider: 'runway', durationTargetSec: 2 },
+        { shotId: 'shot_001', preferredProvider: 'seedance', durationTargetSec: 2 },
+        { shotId: 'shot_002', preferredProvider: 'seedance', durationTargetSec: 2 },
+        { shotId: 'shot_003', preferredProvider: 'seedance', durationTargetSec: 2 },
       ],
-      runRunwayVideo: async () => ({
+      runSeedanceVideo: async () => ({
         results: [
-          { shotId: 'shot_001', status: 'completed', provider: 'runway', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 },
-          { shotId: 'shot_002', status: 'completed', provider: 'runway', videoPath: '/tmp/shot_002.mp4', targetDurationSec: 2 },
-          { shotId: 'shot_003', status: 'completed', provider: 'runway', videoPath: '/tmp/shot_003.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_001', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_002', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_002.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_003', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_003.mp4', targetDurationSec: 2 },
         ],
       }),
       runMotionEnhancer: async (results) =>
@@ -131,7 +131,7 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
             sequenceId: 'sequence_001_002',
             shotIds: ['shot_001', 'shot_002'],
             durationTargetSec: 4,
-            preferredProvider: 'runway',
+            preferredProvider: 'seedance',
           },
         ];
       },
@@ -143,7 +143,7 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
             sequenceId: 'sequence_001_002',
             shotIds: ['shot_001', 'shot_002'],
             durationTargetSec: 4,
-            preferredProvider: 'runway',
+            preferredProvider: 'seedance',
           },
         ];
       },
@@ -155,7 +155,7 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
             {
               sequenceId: 'sequence_001_002',
               status: 'completed',
-              provider: 'runway',
+              provider: 'seedance',
               videoPath: '/tmp/sequence_001_002.mp4',
               coveredShotIds: ['shot_001', 'shot_002'],
               targetDurationSec: 4,
@@ -229,7 +229,7 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
         sequenceId: 'sequence_001_002',
         shotIds: ['shot_001', 'shot_002'],
         durationTargetSec: 4,
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
       },
     ]);
     assert.deepEqual(state.actionSequencePackages, [
@@ -237,14 +237,14 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
         sequenceId: 'sequence_001_002',
         shotIds: ['shot_001', 'shot_002'],
         durationTargetSec: 4,
-        preferredProvider: 'runway',
+        preferredProvider: 'seedance',
       },
     ]);
     assert.equal(state.sequenceClipResults[0].sequenceId, 'sequence_001_002');
     assert.equal(state.sequenceQaReport.passedCount, 1);
     assert.equal(state.pipelineSummary.planned_sequence_count, 1);
     assert.equal(state.pipelineSummary.generated_sequence_count, 1);
-    assert.deepEqual(state.pipelineSummary.sequence_provider_breakdown, { runway: 1 });
+    assert.deepEqual(state.pipelineSummary.sequence_provider_breakdown, { seedance: 1 });
     assert.equal(state.pipelineSummary.sequence_fallback_count, 0);
   });
 });

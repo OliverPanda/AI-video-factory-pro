@@ -421,6 +421,39 @@ test('buildActionSequencePlan does not default every shot into a sequence', () =
   assert.deepEqual(plan, []);
 });
 
+test('buildActionSequencePlan defaults preferredProvider to seedance for generated sequence entries', () => {
+  const plan = __testables.buildActionSequencePlan(
+    [
+      {
+        id: 'shot_default_001',
+        action: '两人拔刀交锋，迅速进入缠斗',
+        scene: '回廊',
+        durationSec: 2.4,
+        characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+      },
+      {
+        id: 'shot_default_002',
+        action: '格挡后反手回击，刀锋擦出火花',
+        scene: '回廊',
+        durationSec: 2.4,
+        characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+      },
+    ],
+    {
+      motionPlan: [
+        { shotId: 'shot_default_001', shotType: 'fight_wide' },
+        { shotId: 'shot_default_002', shotType: 'fight_wide' },
+      ],
+      performancePlan: [
+        { shotId: 'shot_default_001', performanceTemplate: 'fight_exchange_medium' },
+        { shotId: 'shot_default_002', performanceTemplate: 'fight_exchange_medium' },
+      ],
+    }
+  );
+
+  assert.equal(plan[0].preferredProvider, 'seedance');
+});
+
 test('buildActionSequencePlan fills entryConstraint exitConstraint durationTargetSec and fallbackStrategy by sequence type', () => {
   const plan = __testables.buildActionSequencePlan(
     [

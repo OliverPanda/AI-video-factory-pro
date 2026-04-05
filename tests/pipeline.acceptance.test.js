@@ -151,7 +151,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           environmentContinuityTargets: ['lighting'],
           mustPreserveElements: ['subject_identity'],
           bridgeGenerationMode: 'image_to_video_bridge',
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackStrategy: 'direct_cut',
         },
       ],
@@ -167,7 +167,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           durationTargetSec: 1.6,
           providerCapabilityRequirement: 'image_to_video',
           firstLastFrameMode: 'disabled',
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackProviders: ['direct_cut'],
           qaRules: { mustProbeWithFfprobe: true },
         },
@@ -177,8 +177,8 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           {
             bridgeId: 'bridge_shot_001_shot_002',
             status: 'completed',
-            provider: 'runway',
-            model: 'gen4_turbo',
+            provider: 'seedance',
+            model: 'doubao-seedance-2-0-260128',
             videoPath: path.join(dirs.video, 'bridge_shot_001_shot_002.mp4'),
             targetDurationSec: 1.6,
             actualDurationSec: 1.6,
@@ -214,7 +214,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           entryConstraint: '接住上一镜的动作惯性',
           exitConstraint: '落到下一轮攻防节拍',
           generationMode: 'bridge_assisted',
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackStrategy: 'fallback_to_shot_and_bridge',
         },
       ],
@@ -229,7 +229,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
               type: 'qa_passed_video',
               shotId: 'shot_001',
               path: path.join(dirs.video, 'shot_001.mp4'),
-              provider: 'runway',
+              provider: 'seedance',
               qaDecision: 'pass',
             },
           ],
@@ -240,7 +240,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           entryFrameHint: '接住上一镜的动作惯性',
           exitFrameHint: '落到下一轮攻防节拍',
           audioBeatHints: [],
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackProviders: ['bridge_clip', 'image'],
           qaRules: ['reference_tier:video'],
         },
@@ -250,8 +250,8 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           {
             sequenceId: 'seq_001',
             status: 'completed',
-            provider: 'runway',
-            model: 'gen4_turbo',
+            provider: 'seedance',
+            model: 'doubao-seedance-2-0-260128',
             videoPath: path.join(dirs.video, 'seq_001.mp4'),
             coveredShotIds: ['shot_001', 'shot_002'],
             targetDurationSec: 4,
@@ -333,7 +333,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     const deliverySummary = fs.readFileSync(path.join(path.dirname(outputPath), 'delivery-summary.md'), 'utf-8');
     assert.match(deliverySummary, /planned_sequence_count: 1/);
     assert.match(deliverySummary, /generated_sequence_count: 1/);
-    assert.match(deliverySummary, /sequence_provider_breakdown: \{\"runway\":1\}/);
+    assert.match(deliverySummary, /sequence_provider_breakdown: \{\"seedance\":1\}/);
     assert.match(deliverySummary, /sequence_fallback_count: 0/);
 
     const artifactContext = createRunArtifactContext({

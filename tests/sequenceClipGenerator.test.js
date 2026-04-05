@@ -16,7 +16,7 @@ function withTempRoot(fn) {
     });
 }
 
-test('generateSequenceClips submits polls downloads and writes the minimum sequenceClipResults structure', async (t) => {
+test('generateSequenceClips submits polls downloads and writes the minimum sequenceClipResults structure for seedance', async (t) => {
   await withTempRoot(async (tempRoot) => {
     const artifactContext = {
       outputsDir: path.join(tempRoot, '1-outputs'),
@@ -34,8 +34,8 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
         calls.push(['submit', sequencePackage.sequenceId]);
         return {
           taskId: 'task_seq_001',
-          provider: 'runway',
-          model: 'gen4_turbo',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
         };
       },
       async poll(taskId) {
@@ -58,7 +58,7 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
           sequenceId: 'seq_001',
           shotIds: ['shot_001', 'shot_002'],
           durationTargetSec: 6.4,
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackProviders: ['bridge'],
           referenceImages: [{ path: '/tmp/shot_001.png' }],
           referenceVideos: [],
@@ -87,8 +87,8 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
     assert.deepEqual(run.results[0], {
       sequenceId: 'seq_001',
       status: 'completed',
-      provider: 'runway',
-      model: 'gen4_turbo',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
       videoPath: path.join(tempRoot, 'video', 'seq_001.mp4'),
       coveredShotIds: ['shot_001', 'shot_002'],
       targetDurationSec: 6.4,
@@ -177,6 +177,70 @@ test('generateSequenceClips lets providerClient handle a non-runway provider on 
   });
 });
 
+test('generateSequenceClips keeps explicit runway compatibility when requested', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const artifactContext = {
+      outputsDir: path.join(tempRoot, '1-outputs'),
+      metricsDir: path.join(tempRoot, '2-metrics'),
+      errorsDir: path.join(tempRoot, '3-errors'),
+      manifestPath: path.join(tempRoot, 'manifest.json'),
+    };
+    fs.mkdirSync(artifactContext.outputsDir, { recursive: true });
+    fs.mkdirSync(artifactContext.metricsDir, { recursive: true });
+    fs.mkdirSync(artifactContext.errorsDir, { recursive: true });
+
+    const providerClient = {
+      async submit(sequencePackage) {
+        assert.equal(sequencePackage.preferredProvider, 'runway');
+        return {
+          taskId: 'task_runway_001',
+          provider: 'runway',
+          model: 'gen4_turbo',
+        };
+      },
+      async poll() {
+        return {
+          status: 'COMPLETED',
+          outputUrl: 'https://example.com/runway-sequence.mp4',
+        };
+      },
+      async download(_outputUrl, outputPath) {
+        fs.writeFileSync(outputPath, Buffer.from('00000018667479706d703432', 'hex'));
+      },
+    };
+
+    const run = await generateSequenceClips(
+      [
+        {
+          sequenceId: 'seq_runway',
+          shotIds: ['shot_301', 'shot_302'],
+          durationTargetSec: 5.2,
+          preferredProvider: 'runway',
+          fallbackProviders: ['bridge'],
+          referenceImages: [{ path: '/tmp/shot_301.png' }],
+          referenceVideos: [],
+          bridgeReferences: [],
+          visualGoal: '显式兼容 runway',
+          cameraSpec: 'tracking',
+          continuitySpec: 'keep_motion_flow',
+          entryFrameHint: 'entry',
+          exitFrameHint: 'exit',
+          audioBeatHints: [],
+          qaRules: [],
+        },
+      ],
+      path.join(tempRoot, 'video'),
+      {
+        artifactContext,
+        providerClient,
+      }
+    );
+
+    assert.equal(run.results[0].status, 'completed');
+    assert.equal(run.results[0].provider, 'runway');
+  });
+});
+
 test('classifySequenceProviderError categorizes auth rate-limit timeout invalid-request and generation failures', () => {
   assert.equal(
     __testables.classifySequenceProviderError({ message: 'unauthorized', response: { status: 401, data: {} } }).category,
@@ -198,6 +262,17 @@ test('classifySequenceProviderError categorizes auth rate-limit timeout invalid-
     __testables.classifySequenceProviderError({ message: 'server boom', response: { status: 500, data: {} } }).category,
     'provider_generation_failed'
   );
+});
+
+test('resolveSequenceWorkflow defaults to seedance when sequence package does not declare provider', () => {
+  const workflow = __testables.resolveSequenceWorkflow(
+    {
+      sequenceId: 'seq_default_provider',
+    },
+    {}
+  );
+
+  assert.equal(workflow.kind, 'seedance');
 });
 
 test('generateSequenceClips surfaces providerClient polling timeout as provider_timeout', async () => {
@@ -282,8 +357,8 @@ test('generateSequenceClips does not mark empty or pseudo downloads as successfu
       async submit() {
         return {
           taskId: 'task_bad_001',
-          provider: 'runway',
-          model: 'gen4_turbo',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
         };
       },
       async poll() {
@@ -303,7 +378,7 @@ test('generateSequenceClips does not mark empty or pseudo downloads as successfu
           sequenceId: 'seq_bad',
           shotIds: ['shot_010', 'shot_011'],
           durationTargetSec: 4.8,
-          preferredProvider: 'runway',
+          preferredProvider: 'seedance',
           fallbackProviders: ['bridge'],
           referenceImages: [{ path: '/tmp/shot_010.png' }],
           referenceVideos: [],
@@ -326,6 +401,7 @@ test('generateSequenceClips does not mark empty or pseudo downloads as successfu
 
     assert.equal(run.results[0].status, 'failed');
     assert.equal(run.results[0].failureCategory, 'provider_generation_failed');
+    assert.equal(run.results[0].provider, 'seedance');
     assert.equal(run.results[0].videoPath, null);
     assert.equal(fs.existsSync(run.results[0].videoPath || ''), false);
     assert.equal(fs.existsSync(path.join(artifactContext.errorsDir, 'seq_bad-sequence-error.json')), true);

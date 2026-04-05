@@ -3,6 +3,7 @@ import path from 'node:path';
 import { setTimeout as sleepTimeout } from 'node:timers/promises';
 
 import { createRunwayVideoClip } from '../apis/runwayVideoApi.js';
+import { createSeedanceVideoClip } from '../apis/seedanceVideoApi.js';
 import { createSequenceClipResult } from '../utils/actionSequenceProtocol.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
@@ -39,7 +40,7 @@ function classifySequenceProviderError(error) {
     };
   }
 
-  if (!process.env.RUNWAY_API_KEY && !error?.response && String(error?.code || '').includes('RUNWAY_AUTH_MISSING')) {
+  if (!error?.response && String(error?.code || '').includes('_AUTH_MISSING')) {
     return {
       message: error?.message || 'Sequence clip auth missing',
       code: 'SEQUENCE_AUTH_MISSING',
@@ -225,6 +226,10 @@ function normalizeSequenceStatus(status) {
   return String(status || '').trim().toUpperCase();
 }
 
+function getPreferredSequenceProvider(sequencePackage = {}) {
+  return sequencePackage.preferredProvider || 'seedance';
+}
+
 function resolveSequenceWorkflow(sequencePackage, options) {
   if (options.providerClient) {
     return {
@@ -240,7 +245,14 @@ function resolveSequenceWorkflow(sequencePackage, options) {
     };
   }
 
-  if ((sequencePackage.preferredProvider || 'runway') === 'runway') {
+  if (getPreferredSequenceProvider(sequencePackage) === 'seedance') {
+    return {
+      kind: 'seedance',
+      run: (outputPath) => runSeedanceWorkflow(sequencePackage, outputPath, options),
+    };
+  }
+
+  if (getPreferredSequenceProvider(sequencePackage) === 'runway') {
     return {
       kind: 'runway',
       run: (outputPath) => runRunwayWorkflow(sequencePackage, outputPath, options),
@@ -254,7 +266,7 @@ async function runProviderClientWorkflow(sequencePackage, outputPath, options) {
   const providerClient = options.providerClient;
   const submitResult = await providerClient.submit(sequencePackage, outputPath, options);
   const taskId = submitResult?.taskId || submitResult?.id || null;
-  const provider = submitResult?.provider || sequencePackage.preferredProvider || 'runway';
+  const provider = submitResult?.provider || getPreferredSequenceProvider(sequencePackage);
   const model = submitResult?.model || null;
   const pollIntervalMs = options.pollIntervalMs || 5000;
   const overallTimeoutMs = options.overallTimeoutMs || 300000;
@@ -332,11 +344,32 @@ async function runGenerateSequenceClipWorkflow(sequencePackage, outputPath, opti
     };
   }
   return {
-    provider: run?.provider || sequencePackage.preferredProvider || 'runway',
+    provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
     model: run?.model || null,
     taskId: run?.taskId || null,
     outputUrl: run?.outputUrl || null,
     videoPath,
+    actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
+  };
+}
+
+async function runSeedanceWorkflow(sequencePackage, outputPath, options) {
+  const run = await createSeedanceVideoClip(sequencePackage, outputPath, options);
+  if (!isLikelyMp4File(run?.videoPath || outputPath)) {
+    throw {
+      message: 'Sequence clip download is empty or invalid',
+      code: 'SEQUENCE_INVALID_DOWNLOAD',
+      category: 'provider_generation_failed',
+      status: null,
+      details: { outputPath, sequenceId: sequencePackage.sequenceId },
+    };
+  }
+  return {
+    provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
+    model: run?.model || null,
+    taskId: run?.taskId || null,
+    outputUrl: run?.outputUrl || null,
+    videoPath: run?.videoPath || outputPath,
     actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
   };
 }
@@ -353,7 +386,7 @@ async function runRunwayWorkflow(sequencePackage, outputPath, options) {
     };
   }
   return {
-    provider: run?.provider || sequencePackage.preferredProvider || 'runway',
+    provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
     model: run?.model || null,
     taskId: run?.taskId || null,
     outputUrl: run?.outputUrl || null,
@@ -367,7 +400,7 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
   const results = [];
 
   for (const sequencePackage of actionSequencePackages) {
-    const preferredProvider = sequencePackage.preferredProvider || 'runway';
+    const preferredProvider = getPreferredSequenceProvider(sequencePackage);
     const workflow = resolveSequenceWorkflow(sequencePackage, options);
 
     if (!workflow) {
@@ -411,7 +444,7 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
         createSequenceClipResult({
           sequenceId: sequencePackage.sequenceId,
           status: 'failed',
-          provider: 'runway',
+          provider: preferredProvider,
           model: null,
           videoPath: null,
           coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],

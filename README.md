@@ -57,6 +57,7 @@ project
   - `Motion Planner`
   - `Performance Planner`
   - `Video Router`
+  - `Seedance Video Agent`
   - `Runway Video Agent`
   - `Motion Enhancer`
   - `Shot QA Agent`
@@ -70,6 +71,9 @@ project
   - `Action Sequence Router`
   - `Sequence Clip Generator`
   - `Sequence QA Agent`
+
+连续动作段子链当前也默认跟随 `Seedance` 主视频 provider；只有在 plan/package 显式声明时才继续走 `Runway` 兼容路径。
+
 - 音频与口型子链：
   - `Dialogue Normalizer`
   - `TTS Agent`
@@ -93,8 +97,10 @@ flowchart TD
     J --> K[Video Router]
     F --> K
     E --> K
-    K --> L[Runway Video Agent]
-    L --> M[Motion Enhancer]
+    K --> L1[Seedance Video Agent]
+    K --> L2[Runway Video Agent]
+    L1 --> M[Motion Enhancer]
+    L2 --> M
     M --> N[Shot QA Agent]
     N --> O[Bridge Shot Planner]
     O --> P[Bridge Shot Router]

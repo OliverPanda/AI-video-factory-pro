@@ -257,7 +257,7 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     entryFrameHint: planEntry.entryConstraint || '',
     exitFrameHint: planEntry.exitConstraint || '',
     audioBeatHints: buildAudioBeatHints(sequenceShotIds, options.performancePlan),
-    preferredProvider: referenceTier === 'skip' ? 'skip' : planEntry.preferredProvider || 'runway',
+    preferredProvider: referenceTier === 'skip' ? 'skip' : planEntry.preferredProvider || 'seedance',
     fallbackProviders: buildFallbackProviders(referenceTier),
     qaRules: buildQaRules(referenceTier),
   });

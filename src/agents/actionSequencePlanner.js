@@ -386,7 +386,7 @@ function buildSequencePlanEntry(sequenceType, shots, options = {}, motionPlanMap
     entryConstraint: buildEntryConstraint(sequenceType),
     exitConstraint: buildExitConstraint(sequenceType),
     generationMode: buildGenerationMode(shots, options),
-    preferredProvider: options.preferredProvider || 'runway',
+    preferredProvider: options.preferredProvider || 'seedance',
     fallbackStrategy: buildFallbackStrategy(sequenceType),
   });
 }
