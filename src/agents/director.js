@@ -1489,6 +1489,7 @@ export function createDirector(overrides = {}) {
               shots,
               videoResults,
               bridgeClipResults,
+              actionSequencePackages,
               artifactContext: artifactContext.agents.sequenceQaAgent,
             })
           );

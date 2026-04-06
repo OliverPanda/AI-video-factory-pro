@@ -126,10 +126,13 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
 
     assert.equal(report.entries[0].engineCheck, 'fail');
     assert.equal(report.entries[0].finalDecision, 'fail');
+    assert.equal(report.entries[0].qaFailureCategory, 'provider_output_invalid');
     assert.equal(report.entries[1].engineCheck, 'fail');
     assert.equal(report.entries[1].finalDecision, 'fail');
+    assert.equal(report.entries[1].qaFailureCategory, 'provider_output_invalid');
     assert.equal(report.entries[2].durationCheck, 'fail');
     assert.equal(report.entries[2].finalDecision, 'fail');
+    assert.equal(report.entries[2].qaFailureCategory, 'duration_mismatch');
   });
 });
 
@@ -188,12 +191,15 @@ test('runSequenceQa fails sequence clips whose coveredShotIds are too short dupl
 
     assert.equal(report.entries[0].engineCheck, 'fail');
     assert.equal(report.entries[0].finalDecision, 'fail');
+    assert.equal(report.entries[0].qaFailureCategory, 'coverage_invalid');
     assert.match(report.entries[0].notes, /invalid_coverage_range/);
     assert.equal(report.entries[1].engineCheck, 'fail');
     assert.equal(report.entries[1].finalDecision, 'fail');
+    assert.equal(report.entries[1].qaFailureCategory, 'coverage_invalid');
     assert.match(report.entries[1].notes, /invalid_coverage_range/);
     assert.equal(report.entries[2].engineCheck, 'fail');
     assert.equal(report.entries[2].finalDecision, 'fail');
+    assert.equal(report.entries[2].qaFailureCategory, 'coverage_invalid');
     assert.match(report.entries[2].notes, /invalid_coverage_range/);
   });
 });
@@ -236,6 +242,7 @@ test('runSequenceQa falls back when coveredShotIds are not contiguous in source 
     assert.equal(report.entries[0].continuityCheck, 'fail');
     assert.equal(report.entries[0].finalDecision, 'fallback_to_shot_path');
     assert.equal(report.entries[0].fallbackAction, 'fallback_to_shot_path');
+    assert.equal(report.entries[0].qaFailureCategory, 'continuity_mismatch');
     assert.match(report.entries[0].notes, /non_contiguous_coverage/);
   });
 });
@@ -322,10 +329,13 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
 
     assert.equal(report.entries[0].finalDecision, 'fail');
     assert.equal(report.entries[0].fallbackAction, 'none');
+    assert.equal(report.entries[0].qaFailureCategory, 'entry_exit_mismatch');
     assert.equal(report.entries[1].finalDecision, 'fallback_to_shot_path');
     assert.equal(report.entries[1].fallbackAction, 'fallback_to_shot_path');
+    assert.equal(report.entries[1].qaFailureCategory, 'continuity_mismatch');
     assert.equal(report.entries[2].finalDecision, 'manual_review');
     assert.equal(report.entries[2].fallbackAction, 'manual_review');
+    assert.equal(report.entries[2].qaFailureCategory, 'manual_review_needed');
     assert.equal(report.fallbackCount, 1);
     assert.equal(report.manualReviewCount, 1);
     assert.equal(report.warnings.some((warning) => warning.includes('seq_continuity')), true);
@@ -368,6 +378,7 @@ test('runSequenceQa classifies continuity evaluator failures separately from ffp
     assert.equal(entry.continuityCheck, 'error');
     assert.equal(entry.finalDecision, 'fail');
     assert.equal(entry.fallbackAction, 'none');
+    assert.equal(entry.qaFailureCategory, 'quality_evaluator_error');
     assert.equal(entry.notes.includes('continuity_evaluator_failed'), true);
     assert.equal(entry.notes.includes('ffprobe_failed'), false);
   });
@@ -405,6 +416,14 @@ test('runSequenceQa writes report metrics manifest and qa summary artifacts', as
     ],
     {
       artifactContext,
+      actionSequencePackages: [
+        {
+          sequenceId: 'seq_artifact',
+          referenceStrategy: 'video_first',
+          sequenceContextSummary: 'sequence type: fight_exchange_sequence | shot coverage: shot_030 -> shot_031',
+          providerRequestHints: { referenceTier: 'video', referenceCount: 2 },
+        },
+      ],
       probeVideo: async () => ({ durationSec: 4 }),
       evaluateSequenceContinuity: async () => ({
         entryExitCheck: 'pass',
@@ -415,15 +434,26 @@ test('runSequenceQa writes report metrics manifest and qa summary artifacts', as
 
   assert.equal(report.passedCount, 1);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.json')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-qa-context.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'fallback-sequence-paths.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.md')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'manual-review-sequences.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'sequence-qa-metrics.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'qa-summary.md')), true);
+  const context = JSON.parse(fs.readFileSync(path.join(artifactContext.outputsDir, 'sequence-qa-context.json'), 'utf-8'));
+  assert.equal(context[0].referenceStrategy, 'video_first');
+  assert.equal(context[0].referenceTier, 'video');
+  assert.equal(context[0].finalDecision, 'pass');
+  assert.equal(context[0].qaFailureCategory, 'passed');
+  const markdown = fs.readFileSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.md'), 'utf-8');
+  assert.match(markdown, /video_first/);
+  assert.match(markdown, /fight_exchange_sequence/);
+  assert.match(markdown, /passed/);
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed');
   assert.deepEqual(manifest.outputFiles, [
     'sequence-qa-report.json',
+    'sequence-qa-context.json',
     'fallback-sequence-paths.json',
     'manual-review-sequences.json',
     'sequence-qa-metrics.json',

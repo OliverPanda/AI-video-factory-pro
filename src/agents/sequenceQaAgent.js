@@ -52,6 +52,60 @@ function defaultEvaluateSequenceContinuity() {
   };
 }
 
+function classifyQaFailureCategory({ finalDecision, decisionReason, engineCheck, durationCheck, entryExitCheck, continuityCheck }) {
+  if (finalDecision === 'pass') {
+    return 'passed';
+  }
+
+  if (finalDecision === 'manual_review') {
+    return 'manual_review_needed';
+  }
+
+  if (decisionReason === 'invalid_coverage_range') {
+    return 'coverage_invalid';
+  }
+
+  if (
+    decisionReason === 'missing_or_empty_video_file' ||
+    decisionReason === 'ffprobe_failed'
+  ) {
+    return 'provider_output_invalid';
+  }
+
+  if (
+    decisionReason === 'sequence_unavailable' ||
+    String(decisionReason || '').startsWith('provider_')
+  ) {
+    return 'provider_unavailable';
+  }
+
+  if (decisionReason === 'continuity_evaluator_failed') {
+    return 'quality_evaluator_error';
+  }
+
+  if (decisionReason === 'duration_out_of_range' || durationCheck === 'fail') {
+    return 'duration_mismatch';
+  }
+
+  if (decisionReason === 'entry_exit_check_failed' || entryExitCheck === 'fail') {
+    return 'entry_exit_mismatch';
+  }
+
+  if (
+    decisionReason === 'continuity_check_failed' ||
+    decisionReason === 'non_contiguous_coverage' ||
+    continuityCheck === 'fail'
+  ) {
+    return 'continuity_mismatch';
+  }
+
+  if (engineCheck !== 'pass') {
+    return 'provider_output_invalid';
+  }
+
+  return 'unknown';
+}
+
 function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck) {
   if (engineCheck !== 'pass' || durationCheck !== 'pass') {
     return {
@@ -147,6 +201,15 @@ function createEvaluationEntry({
   decisionReason,
   referenceContext,
 }) {
+  const qaFailureCategory = classifyQaFailureCategory({
+    finalDecision,
+    decisionReason,
+    engineCheck,
+    durationCheck,
+    entryExitCheck,
+    continuityCheck,
+  });
+
   return {
     sequenceId,
     coveredShotIds,
@@ -156,6 +219,7 @@ function createEvaluationEntry({
     entryExitCheck,
     finalDecision,
     fallbackAction,
+    qaFailureCategory,
     notes: formatNotes({
       engineCheck,
       durationCheck,
@@ -371,15 +435,40 @@ function buildReport(entries = []) {
   };
 }
 
-function writeArtifacts(report, artifactContext) {
+function buildSequenceQaContext(report, actionSequencePackages = []) {
+  const packageMap = new Map(
+    normalizeArray(actionSequencePackages).map((entry) => [entry?.sequenceId, entry])
+  );
+
+  return report.entries.map((entry) => {
+    const sequencePackage = packageMap.get(entry.sequenceId) || {};
+    return {
+      sequenceId: entry.sequenceId,
+      finalDecision: entry.finalDecision,
+      fallbackAction: entry.fallbackAction,
+      qaFailureCategory: entry.qaFailureCategory || null,
+      coveredShotIds: normalizeArray(entry.coveredShotIds),
+      referenceStrategy: sequencePackage.referenceStrategy || null,
+      referenceTier: sequencePackage.providerRequestHints?.referenceTier || null,
+      referenceCount: sequencePackage.providerRequestHints?.referenceCount ?? null,
+      generationMode: sequencePackage.providerRequestHints?.generationMode || null,
+      sequenceContextSummary: sequencePackage.sequenceContextSummary || null,
+      notes: entry.notes || null,
+    };
+  });
+}
+
+function writeArtifacts(report, artifactContext, options = {}) {
   if (!artifactContext) {
     return;
   }
 
   const fallbackEntries = report.entries.filter((entry) => entry.finalDecision === 'fallback_to_shot_path');
   const manualReviewEntries = report.entries.filter((entry) => entry.finalDecision === 'manual_review');
+  const contextEntries = buildSequenceQaContext(report, options.actionSequencePackages);
 
   saveJSON(path.join(artifactContext.outputsDir, 'sequence-qa-report.json'), report);
+  saveJSON(path.join(artifactContext.outputsDir, 'sequence-qa-context.json'), contextEntries);
   saveJSON(path.join(artifactContext.outputsDir, 'fallback-sequence-paths.json'), fallbackEntries);
   saveJSON(path.join(artifactContext.outputsDir, 'manual-review-sequences.json'), manualReviewEntries);
   saveJSON(path.join(artifactContext.metricsDir, 'sequence-qa-metrics.json'), {
@@ -387,16 +476,22 @@ function writeArtifacts(report, artifactContext) {
     fallbackCount: report.fallbackCount,
     manualReviewCount: report.manualReviewCount,
     failCount: report.entries.filter((entry) => entry.finalDecision === 'fail').length,
+    failureCategoryBreakdown: report.entries.reduce((acc, entry) => {
+      const key = entry.qaFailureCategory || 'unknown';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {}),
   });
   writeTextFile(
     path.join(artifactContext.outputsDir, 'sequence-qa-report.md'),
     [
-      '| Sequence ID | Engine | Continuity | Duration | Entry/Exit | Decision | Fallback | Notes |',
-      '| --- | --- | --- | --- | --- | --- | --- | --- |',
-      ...report.entries.map(
-        (entry) =>
-          `| ${entry.sequenceId} | ${entry.engineCheck} | ${entry.continuityCheck} | ${entry.durationCheck} | ${entry.entryExitCheck} | ${entry.finalDecision} | ${entry.fallbackAction} | ${entry.notes || ''} |`
-      ),
+      '| Sequence ID | Engine | Continuity | Duration | Entry/Exit | Decision | Category | Fallback | Reference Strategy | Reference Tier | Notes |',
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+      ...report.entries.map((entry) => {
+        const contextEntry = contextEntries.find((item) => item.sequenceId === entry.sequenceId) || {};
+        const notes = [contextEntry.sequenceContextSummary, entry.notes || ''].filter(Boolean).join(' || ');
+        return `| ${entry.sequenceId} | ${entry.engineCheck} | ${entry.continuityCheck} | ${entry.durationCheck} | ${entry.entryExitCheck} | ${entry.finalDecision} | ${entry.qaFailureCategory || ''} | ${entry.fallbackAction} | ${contextEntry.referenceStrategy || ''} | ${contextEntry.referenceTier || ''} | ${notes} |`;
+      }),
       '',
     ].join('\n')
   );
@@ -408,6 +503,7 @@ function writeArtifacts(report, artifactContext) {
     failCount: report.entries.filter((entry) => entry.finalDecision === 'fail').length,
     outputFiles: [
       'sequence-qa-report.json',
+      'sequence-qa-context.json',
       'fallback-sequence-paths.json',
       'manual-review-sequences.json',
       'sequence-qa-metrics.json',
@@ -467,12 +563,16 @@ function writeArtifacts(report, artifactContext) {
 export async function runSequenceQa(sequenceClipResults = [], options = {}) {
   const entries = await evaluateSequenceClips(sequenceClipResults, options);
   const report = buildReport(entries);
-  writeArtifacts(report, options.artifactContext);
+  writeArtifacts(report, options.artifactContext, {
+    actionSequencePackages: options.actionSequencePackages,
+  });
   return report;
 }
 
 export const __testables = {
   buildReport,
+  buildSequenceQaContext,
+  classifyQaFailureCategory,
   determineFinalDecision,
   evaluateSequenceClips,
   hasValidCoverageRange,

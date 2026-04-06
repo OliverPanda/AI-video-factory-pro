@@ -59,6 +59,7 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
           shotIds: ['shot_001', 'shot_002'],
           durationTargetSec: 6.4,
           preferredProvider: 'seedance',
+          referenceStrategy: 'image_first',
           fallbackProviders: ['bridge'],
           referenceImages: [{ path: '/tmp/shot_001.png' }],
           referenceVideos: [],
@@ -66,6 +67,8 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
           visualGoal: '连续动作保持节奏',
           cameraSpec: 'handheld_follow',
           continuitySpec: 'keep_direction_and_subject',
+          sequenceContextSummary: 'sequence type: fight_exchange_sequence | shot coverage: shot_001 -> shot_002',
+          providerRequestHints: { referenceTier: 'image', referenceCount: 1 },
           entryFrameHint: 'enter_from_left',
           exitFrameHint: 'exit_to_right',
           audioBeatHints: ['beat_1'],
@@ -97,13 +100,19 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
       error: null,
     });
     assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-clip-results.json')), true);
+    assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'sequence-generation-context.json')), true);
     assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'sequence-clip-generation-report.json')), true);
     assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'qa-summary.md')), true);
     assert.equal(fs.existsSync(artifactContext.manifestPath), true);
+    const context = JSON.parse(fs.readFileSync(path.join(artifactContext.outputsDir, 'sequence-generation-context.json'), 'utf-8'));
+    assert.equal(context[0].referenceStrategy, 'image_first');
+    assert.equal(context[0].referenceTier, 'image');
+    assert.match(context[0].sequenceContextSummary, /fight_exchange_sequence/);
     const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
     assert.equal(manifest.status, 'completed');
     assert.deepEqual(manifest.outputFiles, [
       'sequence-clip-results.json',
+      'sequence-generation-context.json',
       'sequence-clip-generation-report.json',
       'sequence-clip-report.md',
     ]);

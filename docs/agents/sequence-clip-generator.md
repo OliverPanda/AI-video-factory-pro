@@ -23,8 +23,18 @@
 ## 落盘
 
 - `09m-sequence-clip-generator/1-outputs/sequence-clip-results.json`
+- `09m-sequence-clip-generator/1-outputs/sequence-generation-context.json`
+- `09m-sequence-clip-generator/1-outputs/sequence-clip-report.md`
 - `09m-sequence-clip-generator/2-metrics/sequence-clip-generation-report.json`
 - `09m-sequence-clip-generator/3-errors/*.json`
+
+`sequence-generation-context.json` 会额外记录：
+
+- `referenceStrategy`
+- `referenceTier`
+- `referenceCount`
+- `generationMode`
+- `sequenceContextSummary`
 
 ## 当前 MVP 边界
 

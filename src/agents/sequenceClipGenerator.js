@@ -162,21 +162,46 @@ function buildSequenceClipReport(results = []) {
   };
 }
 
+function buildSequenceGenerationContext(results = [], sequencePackages = []) {
+  const packageMap = new Map(
+    (Array.isArray(sequencePackages) ? sequencePackages : []).map((entry) => [entry?.sequenceId, entry])
+  );
+
+  return results.map((result) => {
+    const sequencePackage = packageMap.get(result.sequenceId) || {};
+    return {
+      sequenceId: result.sequenceId,
+      provider: result.provider || null,
+      status: result.status,
+      coveredShotIds: Array.isArray(result.coveredShotIds) ? result.coveredShotIds : [],
+      referenceStrategy: sequencePackage.referenceStrategy || null,
+      referenceTier: sequencePackage.providerRequestHints?.referenceTier || null,
+      referenceCount: sequencePackage.providerRequestHints?.referenceCount ?? null,
+      generationMode: sequencePackage.providerRequestHints?.generationMode || null,
+      sequenceContextSummary: sequencePackage.sequenceContextSummary || null,
+    };
+  });
+}
+
 function writeArtifacts(results, report, artifactContext) {
   if (!artifactContext) {
     return;
   }
 
+  const contextEntries = buildSequenceGenerationContext(results, artifactContext.sequencePackages);
+
   saveJSON(path.join(artifactContext.outputsDir, 'sequence-clip-results.json'), results);
+  saveJSON(path.join(artifactContext.outputsDir, 'sequence-generation-context.json'), contextEntries);
   saveJSON(path.join(artifactContext.metricsDir, 'sequence-clip-generation-report.json'), report);
   writeTextFile(
     path.join(artifactContext.outputsDir, 'sequence-clip-report.md'),
     [
-      '| Sequence ID | Provider | Status | Failure Category | Output |',
-      '| --- | --- | --- | --- | --- |',
-      ...results.map((result) =>
-        `| ${result.sequenceId} | ${result.provider || ''} | ${result.status} | ${result.failureCategory || ''} | ${result.videoPath || ''} |`
-      ),
+      '| Sequence ID | Provider | Status | Reference Strategy | Reference Tier | Failure Category | Output |',
+      '| --- | --- | --- | --- | --- | --- | --- |',
+      ...results.map((result) => {
+        const contextEntry = contextEntries.find((entry) => entry.sequenceId === result.sequenceId) || {};
+        return `| ${result.sequenceId} | ${result.provider || ''} | ${result.status} | ${contextEntry.referenceStrategy || ''} | ${contextEntry.referenceTier || ''} | ${result.failureCategory || ''} | ${result.videoPath || ''} |`;
+      }),
       '',
     ].join('\n')
   );
@@ -191,7 +216,7 @@ function writeArtifacts(results, report, artifactContext) {
     skippedCount: report.skippedCount,
     providerBreakdown: report.providerBreakdown,
     modelBreakdown: report.modelBreakdown,
-    outputFiles: ['sequence-clip-results.json', 'sequence-clip-generation-report.json', 'sequence-clip-report.md'],
+    outputFiles: ['sequence-clip-results.json', 'sequence-generation-context.json', 'sequence-clip-generation-report.json', 'sequence-clip-report.md'],
   });
   writeAgentQaSummary(
     {
@@ -458,7 +483,10 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
   }
 
   const report = buildSequenceClipReport(results);
-  writeArtifacts(results, report, options.artifactContext);
+  writeArtifacts(results, report, {
+    ...options.artifactContext,
+    sequencePackages: actionSequencePackages,
+  });
 
   return {
     results,
@@ -469,6 +497,7 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
 
 export const __testables = {
   buildOutputPath,
+  buildSequenceGenerationContext,
   buildSequenceClipReport,
   classifySequenceProviderError,
   isLikelyMp4File,

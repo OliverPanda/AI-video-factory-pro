@@ -23,8 +23,33 @@
 ## 落盘
 
 - `09n-sequence-qa/1-outputs/sequence-qa-report.json`
+- `09n-sequence-qa/1-outputs/sequence-qa-context.json`
+- `09n-sequence-qa/1-outputs/sequence-qa-report.md`
 - `09n-sequence-qa/2-metrics/sequence-qa-metrics.json`
 - `09n-sequence-qa/2-metrics/qa-summary.json`
+
+`sequence-qa-context.json` 会把验收结论和生成上下文并排写盘，方便回放排查：
+
+- `referenceStrategy`
+- `referenceTier`
+- `referenceCount`
+- `generationMode`
+- `sequenceContextSummary`
+- `finalDecision`
+- `fallbackAction`
+- `qaFailureCategory`
+
+其中 `qaFailureCategory` 当前会归类到这几种高价值原因：
+
+- `passed`
+- `coverage_invalid`
+- `provider_output_invalid`
+- `provider_unavailable`
+- `duration_mismatch`
+- `entry_exit_mismatch`
+- `continuity_mismatch`
+- `quality_evaluator_error`
+- `manual_review_needed`
 
 ## 当前 MVP 边界
 
