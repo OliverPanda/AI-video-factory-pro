@@ -346,11 +346,20 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
     assert.equal(report.entries[2].recommendedAction, 'manual_review_and_select_best_variant');
     assert.equal(report.fallbackCount, 1);
     assert.equal(report.manualReviewCount, 1);
+    assert.equal(report.topFailureCategory, 'entry_exit_mismatch');
+    assert.equal(report.topRecommendedAction, 'tighten_entry_exit_constraints');
+    assert.equal(report.actionBreakdown.tighten_entry_exit_constraints, 1);
+    assert.equal(report.actionBreakdown.fallback_to_shots_or_add_bridge_context, 1);
+    assert.equal(report.actionBreakdown.manual_review_and_select_best_variant, 1);
+    assert.deepEqual(report.fallbackSequenceIds, ['seq_continuity']);
+    assert.deepEqual(report.manualReviewSequenceIds, ['seq_manual_review']);
     assert.equal(report.warnings.some((warning) => warning.includes('seq_continuity')), true);
 
     const qaSummary = fs.readFileSync(path.join(artifactContext.outputsDir, 'qa-summary.md'), 'utf-8');
     assert.equal(qaSummary.includes('回退到 shot path'), true);
     assert.equal(qaSummary.includes('人工复核'), true);
+    assert.equal(qaSummary.includes('主要失败类型'), true);
+    assert.equal(qaSummary.includes('entry_exit_mismatch'), true);
   });
 });
 
@@ -460,6 +469,12 @@ test('runSequenceQa writes report metrics manifest and qa summary artifacts', as
   assert.match(markdown, /fight_exchange_sequence/);
   assert.match(markdown, /passed/);
   assert.match(markdown, /keep_sequence_in_main_timeline/);
+  const metrics = JSON.parse(fs.readFileSync(path.join(artifactContext.metricsDir, 'sequence-qa-metrics.json'), 'utf-8'));
+  assert.equal(metrics.topFailureCategory, 'passed');
+  assert.equal(metrics.topRecommendedAction, 'keep_sequence_in_main_timeline');
+  assert.equal(metrics.actionBreakdown.keep_sequence_in_main_timeline, 1);
+  assert.deepEqual(metrics.fallbackSequenceIds, []);
+  assert.deepEqual(metrics.manualReviewSequenceIds, []);
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed');
   assert.deepEqual(manifest.outputFiles, [

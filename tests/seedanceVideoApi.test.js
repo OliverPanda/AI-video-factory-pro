@@ -50,7 +50,26 @@ test('buildSeedanceVideoRequest maps shot package into official create-task payl
     assert.match(request.content[0].text, /sequence type: fight_exchange_sequence/i);
     assert.match(request.content[0].text, /reference tier: image/i);
     assert.match(request.content[0].text, /audio beat hints: beat_1/i);
+    assert.match(request.content[0].text, /continuous attack-and-defense exchange/i);
   });
+});
+
+test('buildPromptText keeps specialized sequence templates and preserves generic context fields', () => {
+  const chasePrompt = __testables.buildPromptText({
+    visualGoal: '角色高速追逐',
+    sequenceContextSummary:
+      'sequence type: chase_run_sequence | shot coverage: shot_100 -> shot_101 | template: sustain forward chase momentum and keep acceleration coherent',
+    cameraSpec: { moveType: 'follow_run', framing: 'wide' },
+    providerRequestHints: {
+      referenceTier: 'video',
+      audioBeatHints: ['beat_1'],
+    },
+  });
+
+  assert.match(chasePrompt, /sustain forward chase momentum/i);
+  assert.match(chasePrompt, /camera motion: follow_run/i);
+  assert.match(chasePrompt, /reference tier: video/i);
+  assert.match(chasePrompt, /audio beat hints: beat_1/i);
 });
 
 test('classifySeedanceError categorizes auth rate-limit invalid-request timeout and server errors', () => {

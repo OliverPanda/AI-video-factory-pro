@@ -59,12 +59,43 @@ function writeTextFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
-function buildVideoMetrics(plan, outputPath) {
+function buildSequenceCoverageSummary(plan, shotIds = []) {
+  const appliedSequenceIds = Array.from(
+    new Set(
+      plan
+        .filter((item) => item?.visualType === 'sequence_clip' && item?.sequenceId)
+        .map((item) => item.sequenceId)
+    )
+  );
+  const coveredShotIds = Array.from(
+    new Set(
+      plan.flatMap((item) =>
+        item?.visualType === 'sequence_clip' && Array.isArray(item.coveredShotIds)
+          ? item.coveredShotIds
+          : []
+      )
+    )
+  );
+  const coveredShotIdSet = new Set(coveredShotIds);
+  const fallbackShotIds = (Array.isArray(shotIds) ? shotIds : []).filter((shotId) => !coveredShotIdSet.has(shotId));
+
+  return {
+    sequence_coverage_shot_count: coveredShotIds.length,
+    sequence_coverage_sequence_count: appliedSequenceIds.length,
+    applied_sequence_ids: appliedSequenceIds,
+    covered_shot_ids: coveredShotIds,
+    fallback_shot_ids: fallbackShotIds,
+  };
+}
+
+function buildVideoMetrics(plan, outputPath, options = {}) {
+  const sequenceCoverageSummary = buildSequenceCoverageSummary(plan, options.shotIds || []);
   return {
     composed_shot_count: plan.length,
     subtitle_count: plan.filter((item) => item.dialogue).length,
     total_duration_sec: Number(plan.reduce((sum, item) => sum + item.duration, 0).toFixed(3)),
     output_path: outputPath,
+    ...sequenceCoverageSummary,
   };
 }
 
@@ -106,6 +137,7 @@ function buildDeliveryReport(plan, options = {}) {
   const downgradedShotCount = Number.isFinite(options.lipsyncReport?.downgradedCount)
     ? options.lipsyncReport.downgradedCount
     : 0;
+  const sequenceCoverageSummary = buildSequenceCoverageSummary(plan, options.shotIds || []);
 
   return {
     composedShotCount: plan.length,
@@ -119,6 +151,7 @@ function buildDeliveryReport(plan, options = {}) {
     fallbackShots: Array.isArray(options.lipsyncReport?.fallbackShots)
       ? options.lipsyncReport.fallbackShots
       : [],
+    sequenceCoverageSummary,
     qaSummary: {
       audioSync: blockedReasons.length > 0 ? 'block' : warnings.length > 0 ? 'warn' : 'pass',
       subtitleLayout: blockedReasons.length > 0 ? 'block' : 'pass',
@@ -135,10 +168,11 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
 
   const segmentTempDir = outputPath.replace(/\.mp4$/i, '_segments');
   const segmentIndex = buildVisualSegmentJobs(plan, segmentTempDir);
+  const sequenceCoverageSummary = buildSequenceCoverageSummary(plan, extras.shotIds || []);
 
   saveJSON(path.join(artifactContext.outputsDir, 'compose-plan.json'), plan);
   saveJSON(path.join(artifactContext.outputsDir, 'segment-index.json'), segmentIndex);
-  saveJSON(path.join(artifactContext.metricsDir, 'video-metrics.json'), buildVideoMetrics(plan, outputPath));
+  saveJSON(path.join(artifactContext.metricsDir, 'video-metrics.json'), buildVideoMetrics(plan, outputPath, extras));
 
   if (extras.ffmpegCommand) {
     writeTextFile(path.join(artifactContext.errorsDir, 'ffmpeg-command.txt'), extras.ffmpegCommand);
@@ -164,8 +198,16 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
       summary:
         extras.status === 'failed'
           ? 'FFmpeg 或上游素材导致最终成片未成功产出。'
-          : '最终视频已经输出，主交付物已准备好。',
-      passItems: extras.status === 'failed' ? [] : [`合成镜头数：${plan.length}`, `输出文件：${path.basename(outputPath)}`],
+          : `最终视频已经输出，sequence 覆盖 ${sequenceCoverageSummary.sequence_coverage_shot_count} 个 shot。`,
+      passItems:
+        extras.status === 'failed'
+          ? []
+          : [
+              `合成镜头数：${plan.length}`,
+              `输出文件：${path.basename(outputPath)}`,
+              `命中 sequence：${sequenceCoverageSummary.applied_sequence_ids.join(', ') || '无'}`,
+              `未被 sequence 覆盖的 shot：${sequenceCoverageSummary.fallback_shot_ids.join(', ') || '无'}`,
+            ],
       blockItems: extras.status === 'failed' ? ['final-video.mp4 未成功产出'] : [],
       nextAction:
         extras.status === 'failed'
@@ -177,7 +219,7 @@ function writeComposerArtifacts(plan, outputPath, artifactContext, extras = {}) 
         '2-metrics/video-metrics.json',
         ...(extras.status === 'failed' ? ['3-errors/ffmpeg-command.txt', '3-errors/ffmpeg-stderr.txt'] : []),
       ],
-      metrics: buildVideoMetrics(plan, outputPath),
+      metrics: buildVideoMetrics(plan, outputPath, extras),
     },
     artifactContext
   );
@@ -250,6 +292,7 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
       warnings,
       ttsQaReport: input?.ttsQaReport,
       lipsyncReport: input?.lipsyncReport,
+      shotIds: Array.isArray(input?.shots) ? input.shots.map((shot) => shot?.id).filter(Boolean) : [],
       jobId: options.jobId || input?.jobId || null,
     });
   }
@@ -285,12 +328,14 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
       status: 'failed',
       ffmpegCommand: error.ffmpegCommand || error.command || '',
       ffmpegStderr: error.ffmpegStderr || error.stderr || error.message,
+      shotIds: adaptedInput.shots.map((shot) => shot.id),
     });
     throw error;
   }
 
   writeComposerArtifacts(safePlan, safeOutputPath, options.artifactContext, {
     status: 'completed',
+    shotIds: adaptedInput.shots.map((shot) => shot.id),
   });
 
   logger.info('VideoComposer', `视频合成完成：${safeOutputPath}`);
@@ -303,6 +348,7 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
       warnings,
       ttsQaReport: input?.ttsQaReport,
       lipsyncReport: input?.lipsyncReport,
+      shotIds: adaptedInput.shots.map((shot) => shot.id),
       jobId: options.jobId || input?.jobId || null,
     }
   );
@@ -1121,6 +1167,7 @@ export const __testables = {
   buildArtifactIndex,
   buildDeliveryReport,
   buildCompositionPlan,
+  buildSequenceCoverageSummary,
   buildVideoMetrics,
   buildApprovedSequenceClips,
   insertBridgeClips,

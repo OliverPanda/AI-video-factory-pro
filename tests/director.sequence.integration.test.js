@@ -246,19 +246,24 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
     assert.equal(state.pipelineSummary.generated_sequence_count, 1);
     assert.deepEqual(state.pipelineSummary.sequence_provider_breakdown, { seedance: 1 });
     assert.equal(state.pipelineSummary.sequence_fallback_count, 0);
+    assert.equal(state.pipelineSummary.sequence_coverage_shot_count, 2);
+    assert.equal(state.pipelineSummary.sequence_coverage_sequence_count, 1);
+    assert.deepEqual(state.pipelineSummary.applied_sequence_ids, ['sequence_001_002']);
+    assert.deepEqual(state.pipelineSummary.fallback_sequence_ids, []);
   });
 });
 
 test('runEpisodePipeline falls back to shot clips when sequence QA does not pass', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
+    const stateByFile = new Map();
     const composePlans = [];
 
     const director = createDirector({
       initDirs: () => dirs,
       generateJobId: () => 'job_sequence_fallback',
       loadJSON: () => null,
-      saveJSON: () => {},
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
       loadProject: () => ({ id: 'project_1', name: '寒烬宫变' }),
       loadScript: () => ({ id: 'script_1', title: '寒烬宫变', characters: [{ name: '宁王' }] }),
       loadEpisode: () => ({
@@ -381,6 +386,11 @@ test('runEpisodePipeline falls back to shot clips when sequence QA does not pass
       composePlans[0].map((item) => item.visualType),
       ['generated_video_clip', 'generated_video_clip']
     );
+    const state = stateByFile.get(path.join(dirs.root, 'state.json'));
+    assert.equal(state.pipelineSummary.sequence_coverage_shot_count, 0);
+    assert.equal(state.pipelineSummary.sequence_coverage_sequence_count, 0);
+    assert.deepEqual(state.pipelineSummary.applied_sequence_ids, []);
+    assert.deepEqual(state.pipelineSummary.fallback_sequence_ids, ['sequence_001_002']);
   });
 });
 

@@ -278,6 +278,11 @@ test('buildVideoMetrics summarizes composition outputs', () => {
     subtitle_count: 1,
     total_duration_sec: 5,
     output_path: '/tmp/final-video.mp4',
+    sequence_coverage_shot_count: 0,
+    sequence_coverage_sequence_count: 0,
+    applied_sequence_ids: [],
+    covered_shot_ids: [],
+    fallback_shot_ids: [],
   });
 });
 

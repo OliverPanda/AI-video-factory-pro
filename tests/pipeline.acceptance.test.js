@@ -335,6 +335,10 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.match(deliverySummary, /generated_sequence_count: 1/);
     assert.match(deliverySummary, /sequence_provider_breakdown: \{\"seedance\":1\}/);
     assert.match(deliverySummary, /sequence_fallback_count: 0/);
+    assert.match(deliverySummary, /sequence_coverage_shot_count: 2/);
+    assert.match(deliverySummary, /sequence_coverage_sequence_count: 1/);
+    assert.match(deliverySummary, /applied_sequence_ids: seq_001/);
+    assert.match(deliverySummary, /fallback_sequence_ids: 无/);
 
     const artifactContext = createRunArtifactContext({
       baseTempDir: tempRoot,

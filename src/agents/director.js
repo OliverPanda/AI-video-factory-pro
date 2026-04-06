@@ -284,6 +284,51 @@ function normalizeProjectId(projectId) {
   return projectId ?? null;
 }
 
+function buildSequenceCoverageMetrics(actionSequencePlan = [], sequenceClipResults = [], sequenceQaReport = null) {
+  const planBySequenceId = new Map(
+    (Array.isArray(actionSequencePlan) ? actionSequencePlan : []).map((entry) => [entry.sequenceId, entry])
+  );
+  const clipBySequenceId = new Map(
+    (Array.isArray(sequenceClipResults) ? sequenceClipResults : [])
+      .filter((entry) => entry?.sequenceId && entry?.videoPath)
+      .map((entry) => [entry.sequenceId, entry])
+  );
+  const qaEntries = Array.isArray(sequenceQaReport?.entries) ? sequenceQaReport.entries : [];
+  const approvedSequenceIds = [];
+  const fallbackSequenceIds = new Set();
+  const coveredShotIds = new Set();
+
+  for (const entry of qaEntries) {
+    if (!entry?.sequenceId) {
+      continue;
+    }
+    const clip = clipBySequenceId.get(entry.sequenceId);
+    if (entry.finalDecision === 'pass' && clip?.videoPath) {
+      approvedSequenceIds.push(entry.sequenceId);
+      const shotIds =
+        Array.isArray(entry.coveredShotIds) && entry.coveredShotIds.length > 0
+          ? entry.coveredShotIds
+          : planBySequenceId.get(entry.sequenceId)?.shotIds || [];
+      shotIds.forEach((shotId) => coveredShotIds.add(shotId));
+      continue;
+    }
+    fallbackSequenceIds.add(entry.sequenceId);
+  }
+
+  for (const sequenceId of planBySequenceId.keys()) {
+    if (!approvedSequenceIds.includes(sequenceId) && !qaEntries.some((entry) => entry?.sequenceId === sequenceId)) {
+      fallbackSequenceIds.add(sequenceId);
+    }
+  }
+
+  return {
+    sequence_coverage_shot_count: coveredShotIds.size,
+    sequence_coverage_sequence_count: approvedSequenceIds.length,
+    applied_sequence_ids: approvedSequenceIds,
+    fallback_sequence_ids: [...fallbackSequenceIds],
+  };
+}
+
 function buildPipelineSummaryMetrics({
   motionPlan,
   videoResults,
@@ -316,6 +361,7 @@ function buildPipelineSummaryMetrics({
         return acc;
       }, {})
     : {};
+  const sequenceCoverage = buildSequenceCoverageMetrics(actionSequencePlan, sequenceClipResults, sequenceQaReport);
 
   return {
     planned_video_shot_count: plannedVideoShotCount,
@@ -326,6 +372,7 @@ function buildPipelineSummaryMetrics({
     generated_sequence_count: generatedSequenceCount,
     sequence_provider_breakdown: sequenceProviderBreakdown,
     sequence_fallback_count: sequenceFallbackCount,
+    ...sequenceCoverage,
   };
 }
 
@@ -402,6 +449,10 @@ function createDeliverySummary({
     `- generated_sequence_count: ${pipelineSummary.generated_sequence_count}`,
     `- sequence_provider_breakdown: ${JSON.stringify(pipelineSummary.sequence_provider_breakdown)}`,
     `- sequence_fallback_count: ${pipelineSummary.sequence_fallback_count}`,
+    `- sequence_coverage_shot_count: ${pipelineSummary.sequence_coverage_shot_count}`,
+    `- sequence_coverage_sequence_count: ${pipelineSummary.sequence_coverage_sequence_count}`,
+    `- applied_sequence_ids: ${pipelineSummary.applied_sequence_ids.length > 0 ? pipelineSummary.applied_sequence_ids.join(', ') : '无'}`,
+    `- fallback_sequence_ids: ${pipelineSummary.fallback_sequence_ids.length > 0 ? pipelineSummary.fallback_sequence_ids.join(', ') : '无'}`,
     `- TTS QA：${ttsQaReport?.status || 'not_run'}`,
     `- Lip-sync QA：${lipsyncReport?.status || 'not_run'}`,
     `- 人工抽查建议：${ttsManualReviewShots.length > 0 ? ttsManualReviewShots.join(', ') : '无'}`,

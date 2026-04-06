@@ -44,6 +44,26 @@ function inferRatio(shotPackage, env = process.env) {
   return env.SEEDANCE_VIDEO_RATIO || env.VIDEO_ASPECT_RATIO || SEEDANCE_DEFAULT_RATIO;
 }
 
+function buildSequencePromptHint(shotPackage = {}) {
+  const summary = String(shotPackage?.sequenceContextSummary || '');
+  const inferredSequenceType = summary.match(/sequence type:\s*([a-z_]+)/i)?.[1] || null;
+  const sequenceType =
+    shotPackage?.providerRequestHints?.sequenceType ||
+    shotPackage?.sequenceType ||
+    inferredSequenceType ||
+    null;
+  switch (sequenceType) {
+    case 'fight_exchange_sequence':
+      return 'continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent';
+    case 'chase_run_sequence':
+      return 'sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction';
+    case 'dialogue_move_sequence':
+      return 'sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity';
+    default:
+      return '';
+  }
+}
+
 function buildPromptText(shotPackage) {
   const providerRequestHints = shotPackage?.providerRequestHints;
   const audioBeatHints = Array.isArray(providerRequestHints?.audioBeatHints)
@@ -55,6 +75,7 @@ function buildPromptText(shotPackage) {
   return [
     shotPackage?.visualGoal || '',
     shotPackage?.sequenceContextSummary || '',
+    buildSequencePromptHint(shotPackage),
     shotPackage?.cameraSpec?.moveType ? `camera motion: ${shotPackage.cameraSpec.moveType}` : '',
     shotPackage?.cameraSpec?.framing ? `framing: ${shotPackage.cameraSpec.framing}` : '',
     providerRequestHints?.referenceTier ? `reference tier: ${providerRequestHints.referenceTier}` : '',
@@ -295,6 +316,7 @@ export async function createSeedanceVideoClip(shotPackage, outputPath, options =
 export const __testables = {
   buildPromptText,
   buildSeedanceVideoRequest,
+  buildSequencePromptHint,
   classifySeedanceError,
   createProviderError,
   inferRatio,

@@ -24,6 +24,7 @@ export const ACTION_SEQUENCE_PACKAGE_FIELDS = [
   'referenceVideos',
   'bridgeReferences',
   'referenceStrategy',
+  'skipReason',
   'visualGoal',
   'cameraSpec',
   'continuitySpec',
@@ -144,6 +145,7 @@ export function createActionSequencePackage(input = {}) {
     audioBeatHints: [],
     fallbackProviders: [],
     providerRequestHints: null,
+    skipReason: null,
     qaRules: [],
   });
 }
@@ -219,6 +221,7 @@ export function isActionSequencePackage(value) {
     hasStringFields(value, [
       'sequenceId',
       'referenceStrategy',
+      'skipReason',
       'visualGoal',
       'cameraSpec',
       'continuitySpec',

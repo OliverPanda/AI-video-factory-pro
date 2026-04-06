@@ -131,6 +131,22 @@ function buildRecommendedAction(qaFailureCategory) {
   }
 }
 
+function pickTopKey(breakdown = {}, preferredOrder = []) {
+  const entries = Object.entries(breakdown);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const orderMap = new Map(preferredOrder.map((key, index) => [key, index]));
+  entries.sort((left, right) => {
+    if (right[1] !== left[1]) {
+      return right[1] - left[1];
+    }
+    return (orderMap.get(left[0]) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(right[0]) ?? Number.MAX_SAFE_INTEGER);
+  });
+  return entries[0][0];
+}
+
 function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck) {
   if (engineCheck !== 'pass' || durationCheck !== 'pass') {
     return {
@@ -447,6 +463,40 @@ function buildReport(entries = []) {
   const fallbackEntries = entries.filter((entry) => entry.finalDecision === 'fallback_to_shot_path');
   const manualReviewEntries = entries.filter((entry) => entry.finalDecision === 'manual_review');
   const failEntries = entries.filter((entry) => entry.finalDecision === 'fail');
+  const failureCategoryBreakdown = entries.reduce((acc, entry) => {
+    const key = entry.qaFailureCategory || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const actionBreakdown = entries.reduce((acc, entry) => {
+    const key = entry.recommendedAction || 'inspect_sequence_case_manually';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const topFailureCategory = pickTopKey(failureCategoryBreakdown, [
+    'entry_exit_mismatch',
+    'continuity_mismatch',
+    'duration_mismatch',
+    'provider_output_invalid',
+    'provider_unavailable',
+    'coverage_invalid',
+    'quality_evaluator_error',
+    'manual_review_needed',
+    'passed',
+    'unknown',
+  ]);
+  const topRecommendedAction = pickTopKey(actionBreakdown, [
+    'tighten_entry_exit_constraints',
+    'fallback_to_shots_or_add_bridge_context',
+    'adjust_duration_or_regenerate',
+    'retry_or_regenerate_provider_output',
+    'retry_provider_or_fallback_to_shots',
+    'fix_sequence_coverage_or_route_back_to_shots',
+    'inspect_qa_runtime_and_retry',
+    'manual_review_and_select_best_variant',
+    'keep_sequence_in_main_timeline',
+    'inspect_sequence_case_manually',
+  ]);
 
   return {
     status: failEntries.length > 0 ? 'fail' : fallbackEntries.length > 0 || manualReviewEntries.length > 0 ? 'warn' : 'pass',
@@ -454,6 +504,12 @@ function buildReport(entries = []) {
     passedCount: passedEntries.length,
     fallbackCount: fallbackEntries.length,
     manualReviewCount: manualReviewEntries.length,
+    topFailureCategory,
+    topRecommendedAction,
+    actionBreakdown,
+    fallbackSequenceIds: fallbackEntries.map((entry) => entry.sequenceId),
+    manualReviewSequenceIds: manualReviewEntries.map((entry) => entry.sequenceId),
+    failureCategoryBreakdown,
     warnings: entries
       .filter((entry) => entry.finalDecision !== 'pass')
       .map((entry) => `${entry.sequenceId}:${entry.fallbackAction !== 'none' ? entry.fallbackAction : entry.finalDecision}`),
@@ -503,17 +559,22 @@ function writeArtifacts(report, artifactContext, options = {}) {
     fallbackCount: report.fallbackCount,
     manualReviewCount: report.manualReviewCount,
     failCount: report.entries.filter((entry) => entry.finalDecision === 'fail').length,
-    failureCategoryBreakdown: report.entries.reduce((acc, entry) => {
-      const key = entry.qaFailureCategory || 'unknown';
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {}),
+    topFailureCategory: report.topFailureCategory,
+    topRecommendedAction: report.topRecommendedAction,
+    actionBreakdown: report.actionBreakdown,
+    failureCategoryBreakdown: report.failureCategoryBreakdown,
+    fallbackSequenceIds: report.fallbackSequenceIds,
+    manualReviewSequenceIds: report.manualReviewSequenceIds,
   });
   writeTextFile(
     path.join(artifactContext.outputsDir, 'sequence-qa-report.md'),
     [
       '| Sequence ID | Engine | Continuity | Duration | Entry/Exit | Decision | Category | Fallback | Reference Strategy | Reference Tier | Notes |',
       '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+      report.topFailureCategory
+        ? `主要失败类型：${report.topFailureCategory}；优先建议：${report.topRecommendedAction || 'inspect_sequence_case_manually'}`
+        : '',
+      '',
       ...report.entries.map((entry) => {
         const contextEntry = contextEntries.find((item) => item.sequenceId === entry.sequenceId) || {};
         const notes = [contextEntry.sequenceContextSummary, entry.recommendedAction || '', entry.notes || ''].filter(Boolean).join(' || ');
@@ -563,7 +624,12 @@ function writeArtifacts(report, artifactContext, options = {}) {
                 ? '部分 sequence clip 需要人工复核。'
                 : '部分 sequence clip 未通过验收。',
       passItems: [`通过 sequence clip 数：${report.passedCount}`],
-      warnItems: report.warnings,
+      warnItems: [
+        ...(report.topFailureCategory
+          ? [`主要失败类型：${report.topFailureCategory}；优先建议：${report.topRecommendedAction || 'inspect_sequence_case_manually'}`]
+          : []),
+        ...report.warnings,
+      ],
       blockItems: report.blockers,
       nextAction:
         report.status === 'pass'
@@ -581,6 +647,8 @@ function writeArtifacts(report, artifactContext, options = {}) {
         fallbackCount: report.fallbackCount,
         manualReviewCount: report.manualReviewCount,
         failCount: report.entries.filter((entry) => entry.finalDecision === 'fail').length,
+        topFailureCategory: report.topFailureCategory,
+        topRecommendedAction: report.topRecommendedAction,
       },
     },
     artifactContext

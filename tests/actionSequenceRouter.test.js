@@ -60,6 +60,104 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
   assert.equal(packageEntry.providerRequestHints.referenceCount, 1);
   assert.equal(packageEntry.providerRequestHints.hasAudioBeatHints, true);
   assert.equal(packageEntry.providerRequestHints.generationMode, 'standalone_sequence');
+  assert.match(packageEntry.sequenceContextSummary, /continuous attack-and-defense exchange/i);
+  assert.match(packageEntry.sequenceContextSummary, /preserve weapon path/i);
+});
+
+test('buildActionSequencePackages adds specialized sequence template hints by sequence type', () => {
+  const [fightPackage, chasePackage, dialoguePackage, genericPackage] = __testables.buildActionSequencePackages(
+    [
+      {
+        sequenceId: 'seq_fight',
+        shotIds: ['shot_f_1', 'shot_f_2'],
+        sequenceType: 'fight_exchange_sequence',
+        durationTargetSec: 6,
+        sequenceGoal: '连续打斗',
+        cameraFlowIntent: 'push_in_then_follow',
+        motionContinuityTargets: ['weapon_path'],
+        subjectContinuityTargets: ['fighter_a', 'fighter_b'],
+        environmentContinuityTargets: ['courtyard'],
+        mustPreserveElements: ['sword'],
+        entryConstraint: '接住出刀姿态',
+        exitConstraint: '落到下一轮格挡',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+      {
+        sequenceId: 'seq_chase',
+        shotIds: ['shot_c_1', 'shot_c_2'],
+        sequenceType: 'chase_run_sequence',
+        durationTargetSec: 6,
+        sequenceGoal: '连续追逐',
+        cameraFlowIntent: 'long_follow',
+        motionContinuityTargets: ['direction_of_travel'],
+        subjectContinuityTargets: ['runner_a'],
+        environmentContinuityTargets: ['street'],
+        mustPreserveElements: ['subject_identity'],
+        entryConstraint: '接住起跑方向',
+        exitConstraint: '落到下一步位',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+      {
+        sequenceId: 'seq_dialogue',
+        shotIds: ['shot_d_1', 'shot_d_2'],
+        sequenceType: 'dialogue_move_sequence',
+        durationTargetSec: 6,
+        sequenceGoal: '边走边说推进压迫感',
+        cameraFlowIntent: 'steady_push',
+        motionContinuityTargets: ['walking_pace'],
+        subjectContinuityTargets: ['speaker_a'],
+        environmentContinuityTargets: ['corridor'],
+        mustPreserveElements: ['subject_identity'],
+        entryConstraint: '接住对白步伐',
+        exitConstraint: '落到停顿点',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+      {
+        sequenceId: 'seq_generic',
+        shotIds: ['shot_g_1', 'shot_g_2'],
+        sequenceType: 'escape_transition_sequence',
+        durationTargetSec: 6,
+        sequenceGoal: '撤离',
+        cameraFlowIntent: 'continuous_follow',
+        motionContinuityTargets: ['direction_of_travel'],
+        subjectContinuityTargets: ['runner_b'],
+        environmentContinuityTargets: ['hall'],
+        mustPreserveElements: ['subject_identity'],
+        entryConstraint: '接住转身姿态',
+        exitConstraint: '落到逃离出口',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+    ],
+    {
+      imageResults: [
+        { shotId: 'shot_f_1', imagePath: '/tmp/shot_f_1.png', success: true },
+        { shotId: 'shot_f_2', imagePath: '/tmp/shot_f_2.png', success: true },
+        { shotId: 'shot_c_1', imagePath: '/tmp/shot_c_1.png', success: true },
+        { shotId: 'shot_c_2', imagePath: '/tmp/shot_c_2.png', success: true },
+        { shotId: 'shot_d_1', imagePath: '/tmp/shot_d_1.png', success: true },
+        { shotId: 'shot_d_2', imagePath: '/tmp/shot_d_2.png', success: true },
+        { shotId: 'shot_g_1', imagePath: '/tmp/shot_g_1.png', success: true },
+        { shotId: 'shot_g_2', imagePath: '/tmp/shot_g_2.png', success: true },
+      ],
+      videoResults: [],
+      bridgeClipResults: [],
+      performancePlan: [],
+    }
+  );
+
+  assert.match(fightPackage.sequenceContextSummary, /continuous attack-and-defense exchange/i);
+  assert.match(chasePackage.sequenceContextSummary, /sustain forward chase momentum/i);
+  assert.match(dialoguePackage.sequenceContextSummary, /sustain walking dialogue pressure/i);
+  assert.doesNotMatch(genericPackage.sequenceContextSummary, /continuous attack-and-defense exchange/i);
+  assert.doesNotMatch(genericPackage.sequenceContextSummary, /sustain forward chase momentum/i);
 });
 
 test('buildActionSequencePackages prefers QA-passed videoResults over bridgeClipResults and imageResults', () => {
@@ -255,6 +353,7 @@ test('buildActionSequencePackages falls back to imageResults when QA-passed vide
   assert.equal(packageEntry.referenceStrategy, 'image_first');
   assert.equal(packageEntry.providerRequestHints.referenceTier, 'image');
   assert.equal(packageEntry.providerRequestHints.referenceCount, 2);
+  assert.equal(packageEntry.skipReason, null);
 });
 
 test('buildActionSequencePackages defaults provider to seedance when plan entry omits preferredProvider', () => {
@@ -404,6 +503,68 @@ test('buildActionSequencePackages marks insufficient references as skip instead 
   assert.equal(packageEntry.referenceStrategy, 'skip_generation');
   assert.equal(packageEntry.providerRequestHints.referenceTier, 'skip');
   assert.equal(packageEntry.providerRequestHints.referenceCount, 0);
+  assert.equal(packageEntry.skipReason, 'no_valid_reference_material');
+});
+
+test('buildActionSequencePackages classifies skip reasons for missing or insufficient references', () => {
+  const [missingImagePackage] = __testables.buildActionSequencePackages(
+    [
+      {
+        sequenceId: 'seq_missing_image',
+        shotIds: ['shot_missing_img'],
+        sequenceType: 'fight_exchange_sequence',
+        durationTargetSec: 4,
+        sequenceGoal: '连续动作',
+        cameraFlowIntent: 'push_in',
+        motionContinuityTargets: [],
+        subjectContinuityTargets: [],
+        environmentContinuityTargets: [],
+        mustPreserveElements: [],
+        entryConstraint: '',
+        exitConstraint: '',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+    ],
+    {
+      imageResults: [{ shotId: 'other_shot', imagePath: '/tmp/other.png', success: true }],
+      videoResults: [],
+      bridgeClipResults: [],
+      performancePlan: [],
+    }
+  );
+
+  const [insufficientMixPackage] = __testables.buildActionSequencePackages(
+    [
+      {
+        sequenceId: 'seq_insufficient_mix',
+        shotIds: ['shot_mix_a', 'shot_mix_b'],
+        sequenceType: 'chase_run_sequence',
+        durationTargetSec: 5,
+        sequenceGoal: '连续追逐',
+        cameraFlowIntent: 'follow_run',
+        motionContinuityTargets: [],
+        subjectContinuityTargets: [],
+        environmentContinuityTargets: [],
+        mustPreserveElements: [],
+        entryConstraint: '',
+        exitConstraint: '',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+    ],
+    {
+      imageResults: [{ shotId: 'shot_mix_a', imagePath: '/tmp/shot_mix_a.png', success: true }],
+      videoResults: [],
+      bridgeClipResults: [],
+      performancePlan: [],
+    }
+  );
+
+  assert.equal(missingImagePackage.skipReason, 'missing_image_reference');
+  assert.equal(insufficientMixPackage.skipReason, 'insufficient_reference_mix');
 });
 
 test('routeActionSequencePackages writes artifacts, metrics, manifest and qa summary', async (t) => {
@@ -465,6 +626,8 @@ test('routeActionSequencePackages writes artifacts, metrics, manifest and qa sum
   assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'action-sequence-routing-metrics.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'qa-summary.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'qa-summary.md')), true);
+  const metrics = JSON.parse(fs.readFileSync(path.join(artifactContext.metricsDir, 'action-sequence-routing-metrics.json'), 'utf-8'));
+  assert.deepEqual(metrics.skipReasonBreakdown, {});
 
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed');

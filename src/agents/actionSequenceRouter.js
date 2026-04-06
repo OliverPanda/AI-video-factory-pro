@@ -249,6 +249,86 @@ function buildReferenceStrategy(referenceTier) {
   return 'skip_generation';
 }
 
+function countMatchingShotReferences(sequenceShotIds = [], results = [], pathField) {
+  if (!pathField) {
+    return 0;
+  }
+  const buckets = buildShotCandidateBuckets(results);
+  return normalizeArray(sequenceShotIds).reduce((count, shotId) => {
+    const bestCandidate = pickBestCandidate(
+      buckets.get(shotId) || [],
+      pathField === 'videoPath' ? scoreVideoCandidate : scoreImageCandidate
+    );
+    return bestCandidate?.[pathField] ? count + 1 : count;
+  }, 0);
+}
+
+function countMatchingBridgeReferences(planEntry = {}, bridgeClipResults = []) {
+  return buildBridgeReferences(planEntry, bridgeClipResults).length;
+}
+
+function buildSkipReason({
+  sequenceShotIds = [],
+  planEntry = {},
+  referenceTier = 'skip',
+  referenceImages = [],
+  referenceVideos = [],
+  bridgeReferences = [],
+  imageResults = [],
+  videoResults = [],
+  bridgeClipResults = [],
+}) {
+  if (referenceTier === 'video' || referenceTier === 'bridge') {
+    return null;
+  }
+
+  const shotCount = normalizeArray(sequenceShotIds).length;
+  if (referenceTier === 'image') {
+    if (shotCount > 0 && referenceImages.length < shotCount) {
+      return 'insufficient_reference_mix';
+    }
+    return null;
+  }
+
+  const matchedImageCount = countMatchingShotReferences(sequenceShotIds, imageResults, 'imagePath');
+  const matchedVideoCount = countMatchingShotReferences(sequenceShotIds, videoResults, 'videoPath');
+  const matchedBridgeCount = countMatchingBridgeReferences(planEntry, bridgeClipResults);
+
+  if (matchedImageCount > 0 || matchedVideoCount > 0 || matchedBridgeCount > 0) {
+    return 'insufficient_reference_mix';
+  }
+
+  const hasAnyImages = normalizeArray(imageResults).some((entry) => Boolean(entry?.imagePath));
+  if (hasAnyImages) {
+    return 'missing_image_reference';
+  }
+
+  const hasAnyVideos = normalizeArray(videoResults).some((entry) => Boolean(entry?.videoPath));
+  if (hasAnyVideos) {
+    return 'missing_video_reference';
+  }
+
+  const hasAnyBridgeClips = normalizeArray(bridgeClipResults).some((entry) => Boolean(entry?.videoPath));
+  if (hasAnyBridgeClips) {
+    return 'missing_bridge_reference';
+  }
+
+  return 'no_valid_reference_material';
+}
+
+function buildSequenceTemplateHint(planEntry = {}) {
+  switch (planEntry.sequenceType) {
+    case 'fight_exchange_sequence':
+      return 'template: continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent';
+    case 'chase_run_sequence':
+      return 'template: sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction';
+    case 'dialogue_move_sequence':
+      return 'template: sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity';
+    default:
+      return '';
+  }
+}
+
 function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], referenceTier = 'skip', audioBeatHints = []) {
   const summaryParts = [
     `sequence type: ${planEntry.sequenceType || 'unknown_sequence'}`,
@@ -273,6 +353,10 @@ function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], refer
   }
   if (audioBeatHints.length > 0) {
     summaryParts.push(`audio beat hints: ${audioBeatHints.join(', ')}`);
+  }
+  const templateHint = buildSequenceTemplateHint(planEntry);
+  if (templateHint) {
+    summaryParts.push(templateHint);
   }
 
   return summaryParts.join(' | ');
@@ -300,6 +384,17 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
   const referenceImages = buildReferenceImages(sequenceShotIds, options.imageResults);
   const referenceTier = selectReferenceTier(referenceVideos, bridgeReferences, referenceImages);
   const audioBeatHints = buildAudioBeatHints(sequenceShotIds, options.performancePlan);
+  const skipReason = buildSkipReason({
+    sequenceShotIds,
+    planEntry,
+    referenceTier,
+    referenceImages,
+    referenceVideos,
+    bridgeReferences,
+    imageResults: options.imageResults,
+    videoResults: options.videoResults,
+    bridgeClipResults: options.bridgeClipResults,
+  });
   const selectedReferenceCount =
     referenceTier === 'video'
       ? referenceVideos.length
@@ -317,6 +412,7 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     referenceVideos: referenceTier === 'video' ? referenceVideos : [],
     bridgeReferences: referenceTier === 'bridge' ? bridgeReferences : [],
     referenceStrategy: buildReferenceStrategy(referenceTier),
+    skipReason,
     visualGoal: planEntry.sequenceGoal || '',
     cameraSpec: planEntry.cameraFlowIntent || '',
     continuitySpec: buildContinuitySpec(planEntry),
@@ -347,6 +443,13 @@ function buildMetrics(actionSequencePackages = []) {
             ? 'bridge'
             : 'image';
       acc[tier] = (acc[tier] || 0) + 1;
+      return acc;
+    }, {}),
+    skipReasonBreakdown: actionSequencePackages.reduce((acc, entry) => {
+      if (!entry.skipReason) {
+        return acc;
+      }
+      acc[entry.skipReason] = (acc[entry.skipReason] || 0) + 1;
       return acc;
     }, {}),
     skippedCount: actionSequencePackages.filter((entry) => entry.preferredProvider === 'skip').length,
@@ -385,7 +488,7 @@ function writeArtifacts(actionSequencePackages, artifactContext) {
         metrics.skippedCount > 0
           ? actionSequencePackages
               .filter((entry) => entry.preferredProvider === 'skip')
-              .map((entry) => `${entry.sequenceId}:skip`)
+              .map((entry) => `${entry.sequenceId}:skip:${entry.skipReason || 'unknown'}`)
           : [],
       nextAction: '可以继续进入 sequence clip generation。',
       evidenceFiles: ['1-outputs/action-sequence-packages.json', '2-metrics/action-sequence-routing-metrics.json'],
@@ -405,7 +508,10 @@ export const __testables = {
   buildActionSequencePackage,
   buildActionSequencePackages,
   buildAudioBeatHints,
+  buildSkipReason,
   buildBridgeReferences,
+  countMatchingBridgeReferences,
+  countMatchingShotReferences,
   buildContinuitySpec,
   buildFallbackProviders,
   buildProviderRequestHints,
@@ -413,6 +519,7 @@ export const __testables = {
   buildReferenceStrategy,
   buildReferenceVideos,
   buildSequenceContextSummary,
+  buildSequenceTemplateHint,
   hasFullSequenceCoverage,
   isBridgeApprovedResult,
   selectReferenceTier,
