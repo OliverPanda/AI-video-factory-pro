@@ -38,6 +38,7 @@
 - `finalDecision`
 - `fallbackAction`
 - `qaFailureCategory`
+- `recommendedAction`
 
 其中 `qaFailureCategory` 当前会归类到这几种高价值原因：
 
@@ -50,6 +51,15 @@
 - `continuity_mismatch`
 - `quality_evaluator_error`
 - `manual_review_needed`
+
+`recommendedAction` 会基于分类给出下一步建议，例如：
+
+- `keep_sequence_in_main_timeline`
+- `retry_or_regenerate_provider_output`
+- `adjust_duration_or_regenerate`
+- `tighten_entry_exit_constraints`
+- `fallback_to_shots_or_add_bridge_context`
+- `manual_review_and_select_best_variant`
 
 ## 当前 MVP 边界
 

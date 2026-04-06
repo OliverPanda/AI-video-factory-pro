@@ -127,12 +127,15 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
     assert.equal(report.entries[0].engineCheck, 'fail');
     assert.equal(report.entries[0].finalDecision, 'fail');
     assert.equal(report.entries[0].qaFailureCategory, 'provider_output_invalid');
+    assert.equal(report.entries[0].recommendedAction, 'retry_or_regenerate_provider_output');
     assert.equal(report.entries[1].engineCheck, 'fail');
     assert.equal(report.entries[1].finalDecision, 'fail');
     assert.equal(report.entries[1].qaFailureCategory, 'provider_output_invalid');
+    assert.equal(report.entries[1].recommendedAction, 'retry_or_regenerate_provider_output');
     assert.equal(report.entries[2].durationCheck, 'fail');
     assert.equal(report.entries[2].finalDecision, 'fail');
     assert.equal(report.entries[2].qaFailureCategory, 'duration_mismatch');
+    assert.equal(report.entries[2].recommendedAction, 'adjust_duration_or_regenerate');
   });
 });
 
@@ -192,6 +195,7 @@ test('runSequenceQa fails sequence clips whose coveredShotIds are too short dupl
     assert.equal(report.entries[0].engineCheck, 'fail');
     assert.equal(report.entries[0].finalDecision, 'fail');
     assert.equal(report.entries[0].qaFailureCategory, 'coverage_invalid');
+    assert.equal(report.entries[0].recommendedAction, 'fix_sequence_coverage_or_route_back_to_shots');
     assert.match(report.entries[0].notes, /invalid_coverage_range/);
     assert.equal(report.entries[1].engineCheck, 'fail');
     assert.equal(report.entries[1].finalDecision, 'fail');
@@ -243,6 +247,7 @@ test('runSequenceQa falls back when coveredShotIds are not contiguous in source 
     assert.equal(report.entries[0].finalDecision, 'fallback_to_shot_path');
     assert.equal(report.entries[0].fallbackAction, 'fallback_to_shot_path');
     assert.equal(report.entries[0].qaFailureCategory, 'continuity_mismatch');
+    assert.equal(report.entries[0].recommendedAction, 'fallback_to_shots_or_add_bridge_context');
     assert.match(report.entries[0].notes, /non_contiguous_coverage/);
   });
 });
@@ -330,12 +335,15 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
     assert.equal(report.entries[0].finalDecision, 'fail');
     assert.equal(report.entries[0].fallbackAction, 'none');
     assert.equal(report.entries[0].qaFailureCategory, 'entry_exit_mismatch');
+    assert.equal(report.entries[0].recommendedAction, 'tighten_entry_exit_constraints');
     assert.equal(report.entries[1].finalDecision, 'fallback_to_shot_path');
     assert.equal(report.entries[1].fallbackAction, 'fallback_to_shot_path');
     assert.equal(report.entries[1].qaFailureCategory, 'continuity_mismatch');
+    assert.equal(report.entries[1].recommendedAction, 'fallback_to_shots_or_add_bridge_context');
     assert.equal(report.entries[2].finalDecision, 'manual_review');
     assert.equal(report.entries[2].fallbackAction, 'manual_review');
     assert.equal(report.entries[2].qaFailureCategory, 'manual_review_needed');
+    assert.equal(report.entries[2].recommendedAction, 'manual_review_and_select_best_variant');
     assert.equal(report.fallbackCount, 1);
     assert.equal(report.manualReviewCount, 1);
     assert.equal(report.warnings.some((warning) => warning.includes('seq_continuity')), true);
@@ -379,6 +387,7 @@ test('runSequenceQa classifies continuity evaluator failures separately from ffp
     assert.equal(entry.finalDecision, 'fail');
     assert.equal(entry.fallbackAction, 'none');
     assert.equal(entry.qaFailureCategory, 'quality_evaluator_error');
+    assert.equal(entry.recommendedAction, 'inspect_qa_runtime_and_retry');
     assert.equal(entry.notes.includes('continuity_evaluator_failed'), true);
     assert.equal(entry.notes.includes('ffprobe_failed'), false);
   });
@@ -445,10 +454,12 @@ test('runSequenceQa writes report metrics manifest and qa summary artifacts', as
   assert.equal(context[0].referenceTier, 'video');
   assert.equal(context[0].finalDecision, 'pass');
   assert.equal(context[0].qaFailureCategory, 'passed');
+  assert.equal(context[0].recommendedAction, 'keep_sequence_in_main_timeline');
   const markdown = fs.readFileSync(path.join(artifactContext.outputsDir, 'sequence-qa-report.md'), 'utf-8');
   assert.match(markdown, /video_first/);
   assert.match(markdown, /fight_exchange_sequence/);
   assert.match(markdown, /passed/);
+  assert.match(markdown, /keep_sequence_in_main_timeline/);
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed');
   assert.deepEqual(manifest.outputFiles, [

@@ -106,6 +106,31 @@ function classifyQaFailureCategory({ finalDecision, decisionReason, engineCheck,
   return 'unknown';
 }
 
+function buildRecommendedAction(qaFailureCategory) {
+  switch (qaFailureCategory) {
+    case 'passed':
+      return 'keep_sequence_in_main_timeline';
+    case 'coverage_invalid':
+      return 'fix_sequence_coverage_or_route_back_to_shots';
+    case 'provider_output_invalid':
+      return 'retry_or_regenerate_provider_output';
+    case 'provider_unavailable':
+      return 'retry_provider_or_fallback_to_shots';
+    case 'duration_mismatch':
+      return 'adjust_duration_or_regenerate';
+    case 'entry_exit_mismatch':
+      return 'tighten_entry_exit_constraints';
+    case 'continuity_mismatch':
+      return 'fallback_to_shots_or_add_bridge_context';
+    case 'quality_evaluator_error':
+      return 'inspect_qa_runtime_and_retry';
+    case 'manual_review_needed':
+      return 'manual_review_and_select_best_variant';
+    default:
+      return 'inspect_sequence_case_manually';
+  }
+}
+
 function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck) {
   if (engineCheck !== 'pass' || durationCheck !== 'pass') {
     return {
@@ -220,6 +245,7 @@ function createEvaluationEntry({
     finalDecision,
     fallbackAction,
     qaFailureCategory,
+    recommendedAction: buildRecommendedAction(qaFailureCategory),
     notes: formatNotes({
       engineCheck,
       durationCheck,
@@ -447,6 +473,7 @@ function buildSequenceQaContext(report, actionSequencePackages = []) {
       finalDecision: entry.finalDecision,
       fallbackAction: entry.fallbackAction,
       qaFailureCategory: entry.qaFailureCategory || null,
+      recommendedAction: entry.recommendedAction || null,
       coveredShotIds: normalizeArray(entry.coveredShotIds),
       referenceStrategy: sequencePackage.referenceStrategy || null,
       referenceTier: sequencePackage.providerRequestHints?.referenceTier || null,
@@ -489,7 +516,7 @@ function writeArtifacts(report, artifactContext, options = {}) {
       '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
       ...report.entries.map((entry) => {
         const contextEntry = contextEntries.find((item) => item.sequenceId === entry.sequenceId) || {};
-        const notes = [contextEntry.sequenceContextSummary, entry.notes || ''].filter(Boolean).join(' || ');
+        const notes = [contextEntry.sequenceContextSummary, entry.recommendedAction || '', entry.notes || ''].filter(Boolean).join(' || ');
         return `| ${entry.sequenceId} | ${entry.engineCheck} | ${entry.continuityCheck} | ${entry.durationCheck} | ${entry.entryExitCheck} | ${entry.finalDecision} | ${entry.qaFailureCategory || ''} | ${entry.fallbackAction} | ${contextEntry.referenceStrategy || ''} | ${contextEntry.referenceTier || ''} | ${notes} |`;
       }),
       '',
@@ -572,6 +599,7 @@ export async function runSequenceQa(sequenceClipResults = [], options = {}) {
 export const __testables = {
   buildReport,
   buildSequenceQaContext,
+  buildRecommendedAction,
   classifyQaFailureCategory,
   determineFinalDecision,
   evaluateSequenceClips,
