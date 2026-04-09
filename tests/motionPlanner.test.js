@@ -23,7 +23,7 @@ test('buildMotionPlan covers phase1 shot types with deterministic rules', () => 
     ]
   );
   assert.equal(plan[0].cameraSpec.moveType, 'subtle_push_in');
-  assert.equal(plan[2].videoGenerationMode, 'runway_image_to_video');
+  assert.equal(plan[2].videoGenerationMode, 'sora2_image_to_video');
 });
 
 test('planMotion returns motion plan entries with required phase1 fields', async () => {

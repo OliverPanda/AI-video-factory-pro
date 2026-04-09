@@ -115,13 +115,13 @@
 - `manifest.json`
 - `qa-summary.md / qa-summary.json`
 
-## 与 Runway 的关系
+## 与 Fallback Video 的关系
 
-- `Runway Video Agent` 仍保留，作为兼容 provider
+- `Fallback Video Adapter` 仍保留，作为兼容 provider
 - `Seedance Video Agent` 是当前默认的火山方舟 provider 实现
 - `Director` 默认优先走 `Seedance`
 - 如果 `shotPackages` 中存在不同 `preferredProvider`，`Director` 会按真实路由结果分别调用对应 agent
-- `Video Composer` 不感知是 `Runway` 还是 `Seedance`，只消费统一的 `videoResults`
+- `Video Composer` 不感知是 `fallback video` 还是 `Seedance`，只消费统一的 `videoResults`
 
 ## 不负责的内容
 
@@ -133,6 +133,6 @@
 ## 相关文档
 
 - [Video Router Agent](video-router.md)
-- [Runway Video Agent](runway-video-agent.md)
+- [Fallback Video Adapter](fallback-video-adapter.md)
 - [Director](director.md)
 - [Video Composer](video-composer.md)

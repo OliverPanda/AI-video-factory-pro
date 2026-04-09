@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createRunwayVideoClip } from '../apis/runwayVideoApi.js';
+import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
@@ -117,11 +117,11 @@ function capabilitySupported(bridgePackage, supportedCapabilities = []) {
   return supportedCapabilities.includes(bridgePackage.providerCapabilityRequirement);
 }
 
-function toRunwayShotPackage(bridgePackage) {
+function toSora2ShotPackage(bridgePackage) {
   return {
     shotId: bridgePackage.bridgeId,
     durationTargetSec: bridgePackage.durationTargetSec,
-    preferredProvider: 'runway',
+    preferredProvider: 'sora2',
     visualGoal: (Array.isArray(bridgePackage.promptDirectives) ? bridgePackage.promptDirectives : []).join('. '),
     cameraSpec: {
       moveType: bridgePackage.firstLastFrameMode === 'required' ? 'bridge_keyframe_transition' : 'bridge_transition',
@@ -140,11 +140,11 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
     ? options.supportedCapabilities
     : ['image_to_video'];
   const generateBridgeClip = options.generateBridgeClip || ((bridgePackage, outputPath, innerOptions) =>
-    createRunwayVideoClip(toRunwayShotPackage(bridgePackage), outputPath, innerOptions));
+    createFallbackVideoClip(toSora2ShotPackage(bridgePackage), outputPath, innerOptions));
   const results = [];
 
   for (const bridgePackage of bridgeShotPackages) {
-    if (bridgePackage.preferredProvider !== 'runway') {
+    if (bridgePackage.preferredProvider !== 'sora2') {
       results.push({
         bridgeId: bridgePackage.bridgeId,
         status: 'skipped',
@@ -165,7 +165,7 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
       results.push({
         bridgeId: bridgePackage.bridgeId,
         status: 'failed',
-        provider: 'runway',
+        provider: 'sora2',
         model: null,
         videoPath: null,
         targetDurationSec: bridgePackage.durationTargetSec,
@@ -184,7 +184,7 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
       results.push({
         bridgeId: bridgePackage.bridgeId,
         status: 'completed',
-        provider: run?.provider || 'runway',
+        provider: run?.provider || 'sora2',
         model: run?.model || null,
         videoPath: run?.videoPath || outputPath,
         targetDurationSec: bridgePackage.durationTargetSec,
@@ -199,7 +199,7 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
       results.push({
         bridgeId: bridgePackage.bridgeId,
         status: 'failed',
-        provider: 'runway',
+        provider: 'sora2',
         model: null,
         videoPath: null,
         targetDurationSec: bridgePackage.durationTargetSec,
@@ -221,7 +221,7 @@ export const __testables = {
   buildBridgeClipReport,
   buildOutputPath,
   normalizeProviderError,
-  toRunwayShotPackage,
+  toSora2ShotPackage,
 };
 
 export default {

@@ -249,6 +249,15 @@ test('buildCompositionPlan prefers lipsync clips over animation clips', () => {
   ]);
 });
 
+test('isVideoBackedVisualType includes generated video clips so ffmpeg uses transcode path', () => {
+  assert.equal(__testables.isVideoBackedVisualType('generated_video_clip'), true);
+  assert.equal(__testables.isVideoBackedVisualType('animation_clip'), true);
+  assert.equal(__testables.isVideoBackedVisualType('lipsync_clip'), true);
+  assert.equal(__testables.isVideoBackedVisualType('bridge_clip'), true);
+  assert.equal(__testables.isVideoBackedVisualType('sequence_clip'), true);
+  assert.equal(__testables.isVideoBackedVisualType('static_image'), false);
+});
+
 test('buildCompositionPlan falls back to animation clips when generated video and lipsync are unavailable', () => {
   const plan = buildCompositionPlan(
     [{ id: 'shot_2', dialogue: '第二句', duration: 3 }],

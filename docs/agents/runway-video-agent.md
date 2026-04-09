@@ -1,77 +1,20 @@
 # Runway Video Agent
 
-本文档基于 `src/agents/runwayVideoAgent.js`。
+这是历史兼容文档。
 
-## 负责什么
+当前用户侧不再把兼容视频链路称为 `Runway Video Agent`，而统一称为：
 
-`Runway Video Agent` 只负责消费 `shotPackages` 中被路由到 `runway` 的镜头，生成 `rawVideoResults`。它是统一视频 provider 协议下的一个具体实现，与 `Seedance Video Agent` 并存。
+- [Fallback Video Adapter](fallback-video-adapter.md)
 
-## 入口函数
+说明：
 
-- `runRunwayVideo(shotPackages, videoDir, options)`
+- `Runway Video Agent` 代表的是项目早期的兼容视频 provider 叫法
+- 当前用户配置入口已经改为 `VIDEO_PROVIDER=fallback_video`
+- 当前内部实现也不再等同于旧的 Runway 专用 API，而是通用 fallback video adapter
+- 为了保持历史 run、老测试和旧设计文档可追溯，这个文件暂时保留为跳转说明
 
-## 输入
+如果你在看现在的真实运行链路，请改看：
 
-- `shotPackages`
-- `videoDir`
-- 可选 `options`：
-  - `generateVideoClip`
-  - `artifactContext`
-
-## 输出
-
-输出 `{ results, report }`
-
-其中单条 `result` 当前典型字段有：
-
-- `shotId`
-- `preferredProvider`
-- `provider`
-- `model`
-- `status`
-- `videoPath`
-- `outputUrl`
-- `taskId`
-- `providerJobId`
-- `providerRequest`
-- `providerMetadata`
-- `targetDurationSec`
-- `actualDurationSec`
-- `variantIndex`
-- `failureCategory`
-
-## 当前生成规则
-
-- `preferredProvider !== runway` 时直接 `skipped`
-- 只有被 `Video Router` 路由到 `runway` 的镜头才会真实提交任务
-- 成功时返回 `completed`
-- 失败时保留标准化错误字段：
-  - `failureCategory`
-  - `error`
-  - `errorCode`
-  - `errorStatus`
-  - `errorDetails`
-
-## 当前可审计产物
-
-- `09d-runway-video-agent/1-outputs/raw-video-results.json`
-- `09d-runway-video-agent/1-outputs/video-report.md`
-- `09d-runway-video-agent/2-metrics/video-generation-report.json`
-- `09d-runway-video-agent/3-errors/<shotId>-video-error.json`
-- `manifest.json`
-- `qa-summary.md / qa-summary.json`
-
-## 不负责的内容
-
-- 不做增强
-- 不做镜头 QA
-- 不桥接最终 `videoResults`
-- 不决定 compose 使用顺位
-- 不处理 `seedance` 路由镜头
-
-## 相关文档
-
-- [Video Router Agent](video-router.md)
+- [Fallback Video Adapter](fallback-video-adapter.md)
 - [Seedance Video Agent](seedance-video-agent.md)
-- [Motion Enhancer Agent](motion-enhancer.md)
-- [Shot QA Agent](shot-qa-agent.md)
+- [Video Router Agent](video-router.md)

@@ -23,6 +23,8 @@
 
 这样非研发也能先看懂“过没过、风险在哪”，研发再继续看原始证据。
 
+如果你在看视频备选链路，用户侧统一称为 `fallback video`，配置入口是 `VIDEO_PROVIDER=fallback_video`；当前内部实现仍复用 `sora2` runtime branch，以便老 run 和缓存继续可读。
+
 ## 导航
 
 - [接手 SOP](onboarding.md)
@@ -30,6 +32,9 @@
 - [QA 验收 SOP](qa-acceptance.md)
 - [Phase 2 试跑与复盘 SOP](2026-04-04-phase2-pilot-run-and-retro.md)
 - [Phase 2 试跑预复盘样例：寒烬宫变](2026-04-04-phase2-pilot-retro-%E5%AF%92%E7%83%AC%E5%AE%AB%E5%8F%98.md)
+- [Phase 4 Sequence 调优 Checklist](2026-04-06-phase4-sequence-tuning-checklist.md)
+- [项目健康检查（2026-04-07）](2026-04-07-project-health-check.md)
+- [真实样例复盘：仓库暗战（2026-04-07）](2026-04-07-%E4%BB%93%E5%BA%93%E6%9A%97%E6%88%98-trial-retro.md)
 - [TTS 落地方案（2026-04）](2026-04-03-tts-landing-plan.zh-CN.md)
 - [Agent 验收矩阵](agent-matrix.md)
 - [变更检查清单](change-checklist.md)
@@ -44,5 +49,11 @@
   先看 [QA 验收 SOP](qa-acceptance.md) 和 [Agent 验收矩阵](agent-matrix.md)
 - 刚做完 Phase 2，准备跑真实样例并决定要不要进 Phase 3
   先看 [Phase 2 试跑与复盘 SOP](2026-04-04-phase2-pilot-run-and-retro.md)
+- 现在已经接入 Phase 4，准备调 sequence 主链质量
+  先看 [Phase 4 Sequence 调优 Checklist](2026-04-06-phase4-sequence-tuning-checklist.md)
+- 想快速知道“项目现在到底进行到哪了，能不能继续推进”
+  先看 [项目健康检查（2026-04-07）](2026-04-07-project-health-check.md)
+- 想看一轮真实样例到底暴露了什么问题
+  先看 [真实样例复盘：仓库暗战（2026-04-07）](2026-04-07-%E4%BB%93%E5%BA%93%E6%9A%97%E6%88%98-trial-retro.md)
 - 改了某个 agent，准备提测或提交
   先看 [变更检查清单](change-checklist.md)

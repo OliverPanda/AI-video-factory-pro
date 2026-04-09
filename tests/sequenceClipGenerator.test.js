@@ -274,14 +274,38 @@ test('classifySequenceProviderError categorizes auth rate-limit timeout invalid-
 });
 
 test('resolveSequenceWorkflow defaults to seedance when sequence package does not declare provider', () => {
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  delete process.env.VIDEO_PROVIDER;
+
+  try {
+    const workflow = __testables.resolveSequenceWorkflow(
+      {
+        sequenceId: 'seq_default_provider',
+      },
+      {}
+    );
+
+    assert.equal(workflow.kind, 'seedance');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
+});
+
+test('resolveSequenceWorkflow follows fallback_video override when sequence package omits provider', () => {
   const workflow = __testables.resolveSequenceWorkflow(
     {
-      sequenceId: 'seq_default_provider',
+      sequenceId: 'seq_default_fallback_provider',
     },
-    {}
+    {
+      videoProvider: 'fallback_video',
+    }
   );
 
-  assert.equal(workflow.kind, 'seedance');
+  assert.equal(workflow.kind, 'sora2');
 });
 
 test('generateSequenceClips surfaces providerClient polling timeout as provider_timeout', async () => {

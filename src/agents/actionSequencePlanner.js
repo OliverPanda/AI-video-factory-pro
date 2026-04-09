@@ -4,6 +4,14 @@ import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { createActionSequencePlanEntry } from '../utils/actionSequenceProtocol.js';
 
+function resolvePreferredSequenceProvider(options = {}) {
+  const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
+}
+
 function normalizeText(value) {
   return String(value || '').trim();
 }
@@ -89,7 +97,7 @@ function getSceneNames(shots = []) {
 function scoreFightExchange(shot, motionEntry, performanceEntry) {
   const text = normalizeLowerText([shot?.action, shot?.dialogue, motionEntry?.shotType, performanceEntry?.performanceTemplate].join(' '));
   let score = 0;
-  if (/(fight|交锋|缠斗|厮杀|对决|决斗|格挡|回击|出刀|拔刀|挥刀|挥剑|刺|攻防|搏斗|刀锋)/.test(text)) {
+  if (/(fight|交锋|缠斗|厮杀|对决|决斗|格挡|回击|反击|出刀|拔刀|挥刀|挥剑|挥拳|挥棍|抡起|猛攻|强攻|扑上|扑向|逼攻|攻防|搏斗|肉搏|扭打|缠住|制住|压制|扑倒|摔倒|刀锋)/.test(text)) {
     score += 4;
   }
   if (normalizeLowerText(motionEntry?.shotType).includes('fight')) {
@@ -128,7 +136,7 @@ function scoreEscapeTransition(shot, motionEntry, performanceEntry) {
 function scoreImpactFollowthrough(shot, motionEntry, performanceEntry) {
   const text = normalizeLowerText([shot?.action, shot?.dialogue, motionEntry?.shotType, performanceEntry?.performanceTemplate].join(' '));
   let score = 0;
-  if (/(撞击|击中|重击|受击|落地|倒地|爆开|爆炸|余震|震开|反弹|后仰|踉跄|击飞|冲击)/.test(text)) {
+  if (/(撞击|击中|击倒|重击|受击|落地|倒地|砸倒|摔倒|爆开|爆炸|余震|震开|反弹|后仰|踉跄|击飞|冲击)/.test(text)) {
     score += 4;
   }
   if (normalizeLowerText(motionEntry?.shotType).includes('impact')) {
@@ -170,6 +178,25 @@ function inferSequenceType(shot, motionEntry, performanceEntry, contextSignals =
   return score >= 4 ? sequenceType : null;
 }
 
+function isCompatibleSequenceTransition(activeType, nextType) {
+  if (!activeType || !nextType || activeType === nextType) {
+    return true;
+  }
+
+  const pairKey = [activeType, nextType].sort().join('__');
+  return pairKey === 'fight_exchange_sequence__impact_followthrough_sequence';
+}
+
+function mergeSequenceType(activeType, nextType) {
+  if (activeType === nextType) {
+    return activeType;
+  }
+  if (activeType === 'fight_exchange_sequence' || nextType === 'fight_exchange_sequence') {
+    return 'fight_exchange_sequence';
+  }
+  return activeType || nextType;
+}
+
 function getSegmentGroups(shots = [], motionPlanMap, performancePlanMap, contextSignals = new Set()) {
   const groups = [];
   let activeGroup = null;
@@ -187,7 +214,7 @@ function getSegmentGroups(shots = [], motionPlanMap, performancePlanMap, context
       continue;
     }
 
-    if (!activeGroup || activeGroup.sequenceType !== sequenceType) {
+    if (!activeGroup || !isCompatibleSequenceTransition(activeGroup.sequenceType, sequenceType)) {
       if (activeGroup) {
         groups.push(activeGroup);
       }
@@ -198,6 +225,7 @@ function getSegmentGroups(shots = [], motionPlanMap, performancePlanMap, context
       continue;
     }
 
+    activeGroup.sequenceType = mergeSequenceType(activeGroup.sequenceType, sequenceType);
     activeGroup.shots.push(shot);
   }
 
@@ -372,6 +400,7 @@ function buildGenerationMode(shots = [], options = {}) {
 
 function buildSequencePlanEntry(sequenceType, shots, options = {}, motionPlanMap = new Map()) {
   const shotIds = shots.map((shot) => shot.id);
+  const preferredProvider = resolvePreferredSequenceProvider(options);
   return createActionSequencePlanEntry({
     sequenceId: `action_sequence_${shotIds[0]}_${shotIds[shotIds.length - 1]}`,
     shotIds,
@@ -386,7 +415,7 @@ function buildSequencePlanEntry(sequenceType, shots, options = {}, motionPlanMap
     entryConstraint: buildEntryConstraint(sequenceType),
     exitConstraint: buildExitConstraint(sequenceType),
     generationMode: buildGenerationMode(shots, options),
-    preferredProvider: options.preferredProvider || 'seedance',
+    preferredProvider,
     fallbackStrategy: buildFallbackStrategy(sequenceType),
   });
 }
@@ -465,6 +494,7 @@ export const __testables = {
   buildMotionContinuityTargets,
   buildSequenceGoal,
   inferSequenceType,
+  resolvePreferredSequenceProvider,
 };
 
 export default {

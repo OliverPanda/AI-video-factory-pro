@@ -4,6 +4,14 @@ import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { createActionSequencePackage } from '../utils/actionSequenceProtocol.js';
 
+function resolvePreferredSequenceProvider(options = {}) {
+  const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
+}
+
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -319,11 +327,11 @@ function buildSkipReason({
 function buildSequenceTemplateHint(planEntry = {}) {
   switch (planEntry.sequenceType) {
     case 'fight_exchange_sequence':
-      return 'template: continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent';
+      return 'template: continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent, carry the incoming attack pose into the opening beat, and land on a readable defensive handoff for the next shot';
     case 'chase_run_sequence':
-      return 'template: sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction';
+      return 'template: sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction, open on the incoming run line, and exit on a readable forward handoff';
     case 'dialogue_move_sequence':
-      return 'template: sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity';
+      return 'template: sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity, keep the speaking rhythm continuous, and exit on a clean conversational handoff';
     default:
       return '';
   }
@@ -345,11 +353,18 @@ function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], refer
   if (continuityTargets.length > 0) {
     summaryParts.push(`continuity targets: ${continuityTargets.join(', ')}`);
   }
+  const preserveElements = uniqueStrings(planEntry.mustPreserveElements);
+  if (preserveElements.length > 0) {
+    summaryParts.push(`preserve elements: ${preserveElements.join(', ')}`);
+  }
   if (planEntry.entryConstraint) {
-    summaryParts.push(`entry: ${planEntry.entryConstraint}`);
+    summaryParts.push(`entry anchor: ${planEntry.entryConstraint}`);
   }
   if (planEntry.exitConstraint) {
-    summaryParts.push(`exit: ${planEntry.exitConstraint}`);
+    summaryParts.push(`exit anchor: ${planEntry.exitConstraint}`);
+  }
+  if (planEntry.entryConstraint || planEntry.exitConstraint) {
+    summaryParts.push('handoff rule: open by matching the incoming pose/trajectory and exit by handing motion cleanly into the next shot');
   }
   if (audioBeatHints.length > 0) {
     summaryParts.push(`audio beat hints: ${audioBeatHints.join(', ')}`);
@@ -358,11 +373,18 @@ function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], refer
   if (templateHint) {
     summaryParts.push(templateHint);
   }
+  summaryParts.push('hard continuity rule: no abrupt pose reset, no unmotivated screen-direction flip, no identity drift between entry and exit');
 
   return summaryParts.join(' | ');
 }
 
-function buildProviderRequestHints(planEntry = {}, referenceTier = 'skip', referenceCount = 0, audioBeatHints = []) {
+function buildProviderRequestHints(
+  planEntry = {},
+  referenceTier = 'skip',
+  referenceCount = 0,
+  audioBeatHints = [],
+  preferredProvider = 'seedance'
+) {
   return {
     sequenceType: planEntry.sequenceType || null,
     generationMode: planEntry.generationMode || null,
@@ -371,14 +393,31 @@ function buildProviderRequestHints(planEntry = {}, referenceTier = 'skip', refer
     hasAudioBeatHints: audioBeatHints.length > 0,
     audioBeatHints,
     durationTargetSec: Number.isFinite(Number(planEntry.durationTargetSec)) ? Number(planEntry.durationTargetSec) : null,
-    preferredProvider: planEntry.preferredProvider || 'seedance',
+    preferredProvider,
     fallbackStrategy: planEntry.fallbackStrategy || null,
+    entryConstraint: planEntry.entryConstraint || null,
+    exitConstraint: planEntry.exitConstraint || null,
+    continuityTargets: [
+      ...uniqueStrings(planEntry.motionContinuityTargets),
+      ...uniqueStrings(planEntry.subjectContinuityTargets),
+      ...uniqueStrings(planEntry.environmentContinuityTargets),
+    ],
+    preserveElements: uniqueStrings(planEntry.mustPreserveElements),
+    cameraFlowIntent: planEntry.cameraFlowIntent || null,
+    sequenceGoal: planEntry.sequenceGoal || null,
+    hardContinuityRules: [
+      'match incoming pose and trajectory at sequence start',
+      'handoff to the next shot with a readable outgoing pose',
+      'avoid abrupt pose reset or screen-direction flip',
+      'preserve subject identity and core action path',
+    ],
   };
 }
 
 function buildActionSequencePackage(planEntry = {}, options = {}) {
   const sequenceShotIds = normalizeArray(planEntry.shotIds);
   const durationTargetSec = Number(planEntry.durationTargetSec);
+  const preferredProvider = planEntry.preferredProvider || resolvePreferredSequenceProvider(options);
   const referenceVideos = buildReferenceVideos(sequenceShotIds, options.videoResults);
   const bridgeReferences = buildBridgeReferences(planEntry, options.bridgeClipResults);
   const referenceImages = buildReferenceImages(sequenceShotIds, options.imageResults);
@@ -420,9 +459,15 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     entryFrameHint: planEntry.entryConstraint || '',
     exitFrameHint: planEntry.exitConstraint || '',
     audioBeatHints,
-    preferredProvider: referenceTier === 'skip' ? 'skip' : planEntry.preferredProvider || 'seedance',
+    preferredProvider: referenceTier === 'skip' ? 'skip' : preferredProvider,
     fallbackProviders: buildFallbackProviders(referenceTier),
-    providerRequestHints: buildProviderRequestHints(planEntry, referenceTier, selectedReferenceCount, audioBeatHints),
+    providerRequestHints: buildProviderRequestHints(
+      planEntry,
+      referenceTier,
+      selectedReferenceCount,
+      audioBeatHints,
+      preferredProvider
+    ),
     qaRules: buildQaRules(referenceTier),
   });
 }
@@ -525,6 +570,7 @@ export const __testables = {
   selectReferenceTier,
   scoreImageCandidate,
   scoreVideoCandidate,
+  resolvePreferredSequenceProvider,
 };
 
 export default {

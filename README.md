@@ -6,10 +6,10 @@
 
 当前代码已经支持单镜头视频 provider 双路：
 
-- `Runway`
+- `Fallback Video`
 - `Seedance 2.0`（火山方舟视频生成 API）
 
-默认主视频 provider 已切到 `Seedance`，`Runway` 作为兼容与 fallback 路径保留。
+默认主视频 provider 已切到 `Seedance`，`fallback video` 作为兼容与 fallback 路径保留，当前内部仍映射到 `sora2` runtime branch。
 
 ## README 现在看什么
 
@@ -58,7 +58,7 @@ project
   - `Performance Planner`
   - `Video Router`
   - `Seedance Video Agent`
-  - `Runway Video Agent`
+  - `Fallback Video Adapter`
   - `Motion Enhancer`
   - `Shot QA Agent`
 - 高风险 cut 补桥子链：
@@ -72,7 +72,7 @@ project
   - `Sequence Clip Generator`
   - `Sequence QA Agent`
 
-连续动作段子链当前也默认跟随 `Seedance` 主视频 provider；只有在 plan/package 显式声明时才继续走 `Runway` 兼容路径。
+连续动作段子链当前与单镜头视频主链统一跟随 `VIDEO_PROVIDER`；当 `VIDEO_PROVIDER=fallback_video` 时，sequence 也会一起走 `fallback video`，内部仍映射到 `sora2` runtime branch。
 
 - 音频与口型子链：
   - `Dialogue Normalizer`
@@ -90,38 +90,41 @@ flowchart TD
     D --> E[Prompt Engineer]
     E --> F[Image Generator]
     F --> G[Consistency Checker]
-    G --> H[Continuity Checker]
+    G -->|needsRegeneration| B
+    F --> H[Continuity Checker]
     C --> I[Motion Planner]
     H --> I
     I --> J[Performance Planner]
     J --> K[Video Router]
     F --> K
     E --> K
-    K --> L1[Seedance Video Agent]
-    K --> L2[Runway Video Agent]
+    K --> L{Video Provider}
+    L --> L1[Seedance Video Agent]
+    L --> L2[Fallback Video Adapter]
     L1 --> M[Motion Enhancer]
     L2 --> M
     M --> N[Shot QA Agent]
-    N --> O[Bridge Shot Planner]
-    O --> P[Bridge Shot Router]
-    P --> Q[Bridge Clip Generator]
-    Q --> R[Bridge QA Agent]
-    R --> AS1[Action Sequence Planner]
-    AS1 --> AS2[Action Sequence Router]
-    AS2 --> AS3[Sequence Clip Generator]
-    AS3 --> AS4[Sequence QA Agent]
-    C --> S[Dialogue Normalizer]
-    D --> T[TTS Agent]
-    S --> T
+    N --> BS[Bridge Shot Planner]
+    BS --> BR[Bridge Shot Router]
+    BR --> BG[Bridge Clip Generator]
+    BG --> BQ[Bridge QA Agent]
+    BQ --> ASP[Action Sequence Planner]
+    ASP --> ASR[Action Sequence Router]
+    ASR --> ASG[Sequence Clip Generator]
+    ASG --> ASQ[Sequence QA Agent]
+    C --> DN[Dialogue Normalizer]
+    DN --> T[TTS Agent]
+    D --> T
     T --> U[TTS QA Agent]
     F --> V[Lip-sync Agent]
     T --> V
     N --> W[Video Composer]
-    R --> W
-    AS4 --> W
+    BQ --> W
+    ASQ --> W
     U --> W
     V --> W
     F --> W
+    C --> W
     W --> X[output/final-video.mp4]
 ```
 
@@ -149,10 +152,10 @@ Phase 4 的最小增量位置固定为：
 
 关于视频模型路线：
 
-- 当前实现：`Runway Video Agent` + `Seedance Video Agent`
+- 当前实现：`Fallback Video Adapter` + `Seedance Video Agent`
 - 当前默认：`Seedance`
-- 可切换兼容：`VIDEO_PROVIDER=runway`
-- 当前口径：`Seedance` 走主视频路径，`Runway` 保留兼容与回退能力
+- 可切换兼容：`VIDEO_PROVIDER=fallback_video`
+- 当前口径：`Seedance` 走主视频路径，`fallback video` 承担原先兼容与回退位置，用户侧通过 `VIDEO_PROVIDER=fallback_video` 选择；内部当前仍映射到 `sora2` runtime branch，可接 `laozhang` 或兼容 OpenAI 视频格式的其他供应商
 
 ## 快速开始
 
@@ -180,7 +183,7 @@ cp .env.example .env
 
 如果要启用动态镜头主路径，还需要：
 
-- `RUNWAY_API_KEY`
+- `LAOZHANG_API_KEY`
 
 跑默认 `Seedance 2.0` 主路径时，还需要：
 
@@ -189,7 +192,8 @@ cp .env.example .env
 说明：
 
 - `ARK_API_KEY / SEEDANCE_API_KEY` 对应当前默认的火山方舟 `Seedance` provider
-- `RUNWAY_API_KEY` 对应兼容 provider
+- `VIDEO_FALLBACK_API_KEY + VIDEO_FALLBACK_*` 对应当前兼容视频 provider；若 `VIDEO_FALLBACK_BASE_URL` 指向 `laozhang`，也可继续复用 `LAOZHANG_API_KEY`
+- `VIDEO_FALLBACK_SEQUENCE_*` 只作用于连续动作段 sequence 子链，不影响普通单镜头视频请求
 - 推荐配置项见 [`.env.example`](.env.example)
 
 推荐默认值见 [`.env.example`](.env.example)。
@@ -242,13 +246,31 @@ $env:ARK_API_KEY="你的火山方舟Key"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
-切回 Runway 兼容 provider：
+切到通用备选视频 provider：
 
 ```bash
-$env:VIDEO_PROVIDER="runway"
-$env:RUNWAY_API_KEY="你的RunwayKey"
+$env:VIDEO_PROVIDER="fallback_video"
+$env:VIDEO_FALLBACK_API_KEY="你的视频Key"
+$env:VIDEO_FALLBACK_BASE_URL="https://api.laozhang.ai/v1"
+$env:VIDEO_FALLBACK_MODEL="veo-3.0-fast-generate-001"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
+
+如果是 sequence 真实样本调优，推荐再补这两个可选项：
+
+```bash
+$env:VIDEO_FALLBACK_SEQUENCE_MODEL_CANDIDATES="grok-video-3"
+$env:VIDEO_FALLBACK_SEQUENCE_RETRY_ATTEMPTS="2"
+```
+
+说明：
+
+- `VIDEO_FALLBACK_SEQUENCE_MODEL_CANDIDATES`
+  只给 sequence 子链追加候选模型，按逗号分隔；主模型仍以 `VIDEO_FALLBACK_MODEL` 为首选
+- `VIDEO_FALLBACK_SEQUENCE_RETRY_ATTEMPTS`
+  只控制 sequence 子链对同一请求的有限重试次数，默认 `2`
+- `VIDEO_FALLBACK_SEQUENCE_SECONDS`
+  可选；只在你想强制 sequence 固定请求秒数时填写。不填时，sequence 默认按自身 `durationTargetSec` 申请，不继承 `VIDEO_FALLBACK_SECONDS=4`
 
 统一断点续跑：
 
@@ -257,6 +279,22 @@ node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --d
 node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --style=realistic
 node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic
 ```
+
+按指定历史 run 严格绑定续跑：
+
+```bash
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --dry-run --style=realistic
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --style=realistic
+```
+
+`--run-id` 当前不是“尽量参考这次 run”，而是“严格绑定这次 run”：
+
+- 前置状态以该 run 的 `state.snapshot.json` 为准
+- 从 `video` 及后续步骤恢复时，参考图必须来自该 run
+- 缺图、缺前置状态、或图片路径越界时会直接失败，不再静默回退到别的 run 或当前最新缓存
+- `--dry-run` 会额外打印恢复模式、绑定 `run-id` 和复用参考图数，先看一眼再正式执行更稳
+
+如果你是在做真实样本复盘，想验证 `run_id1` 的图生视频，就一定带上 `--run-id=run_id1`，否则默认仍是“继续当前最新可恢复状态”。
 
 项目模式下交互选择 `project / script / episode`：
 
@@ -297,7 +335,13 @@ Phase 4 action sequence 收口验收：
 node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.js tests/sequenceClipGenerator.test.js tests/sequenceQaAgent.test.js tests/videoComposer.sequence.test.js tests/director.sequence.integration.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
 ```
 
-Seedance 替换 Runway 的后续实现计划：
+Phase 4 可解释性与覆盖摘要回归：
+
+```bash
+node --test tests/actionSequenceRouter.test.js tests/seedanceVideoApi.test.js tests/sequenceQaAgent.test.js tests/director.sequence.integration.test.js tests/pipeline.acceptance.test.js
+```
+
+Seedance 替换旧兼容视频路径的后续实现计划：
 
 - [docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md](docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md)
 
@@ -341,6 +385,9 @@ output/
 - [Phase 2 实施计划](docs/superpowers/plans/2026-04-04-dynamic-shortdrama-phase2-implementation.md)
 - [Phase 3 Bridge Shot 设计文档](docs/superpowers/specs/2026-04-05-dynamic-shortdrama-phase3-bridge-shot-design.md)
 - [Phase 3 Bridge Shot 实施计划](docs/superpowers/plans/2026-04-05-dynamic-shortdrama-phase3-bridge-shot-implementation.md)
+- [Phase 4 Action Sequence 设计文档](docs/superpowers/specs/2026-04-05-dynamic-shortdrama-phase4-action-sequence-design.md)
+- [Phase 4 Action Sequence 实施计划](docs/superpowers/plans/2026-04-05-dynamic-shortdrama-phase4-action-sequence-implementation.md)
+- [Phase 4 收口后高价值任务计划](docs/superpowers/plans/2026-04-06-dynamic-shortdrama-phase4-high-value-followups-implementation.md)
 
 ### SOP
 
@@ -382,7 +429,7 @@ motionPlan
 
 也就是说：
 
-- 配了 `RUNWAY_API_KEY` 且视频镜头通过 `Shot QA v2` 时，成片会优先使用增强后的真实视频镜头
+- 配了 `VIDEO_FALLBACK_API_KEY` 且 `VIDEO_PROVIDER=fallback_video` 时，视频镜头通过 `Shot QA v2` 后会优先使用增强后的真实视频镜头
 - `videoComposer` 不直接理解 `rawVideoResults / enhancedVideoResults`，而是消费 `Director` 桥接后的 `videoResults + bridgeClips`
 - 没有视频结果或 QA 不通过时，系统会显式回退到旧的静图/口型/动画路径
 
@@ -391,7 +438,7 @@ motionPlan
 - `09a-motion-planner`
 - `09b-performance-planner`
 - `09c-video-router`
-- `09d-runway-video-agent`
+- `09d-sora2-video-agent`
 - `09e-motion-enhancer`
 - `09f-shot-qa`
 - `10-video-composer`
@@ -420,3 +467,18 @@ continuityFlaggedTransitions
 - 只对高风险 cut 点触发，不会给所有镜头默认插桥
 - 只有 `bridgeQaReport.entries[].finalDecision === "pass"` 的 bridge clip 才会进入 compose timeline
 - `fallback_to_direct_cut / fallback_to_transition_stub / manual_review` 都不会破坏主链成片
+
+当前 sequence 子链新增了 4 个最常用排查口：
+
+- `09l-action-sequence-router/2-metrics/action-sequence-routing-metrics.json`
+  看 `skipReasonBreakdown`，判断是缺图、缺视频、缺 bridge，还是素材混合不足
+- `09n-sequence-qa/2-metrics/sequence-qa-metrics.json`
+  看 `topFailureCategory / topRecommendedAction / fallbackSequenceIds / manualReviewSequenceIds`
+- `10-video-composer/2-metrics/video-metrics.json`
+  看 `sequence_coverage_shot_count / applied_sequence_ids / fallback_shot_ids`
+- 最终 `delivery-summary.md`
+  看整轮 `sequence_coverage_sequence_count / applied_sequence_ids / fallback_sequence_ids`
+
+如果你要拿真实样本做调优，建议直接配合：
+
+- [Sequence 调优 Checklist](docs/sop/2026-04-06-phase4-sequence-tuning-checklist.md)

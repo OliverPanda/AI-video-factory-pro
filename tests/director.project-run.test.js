@@ -1189,10 +1189,10 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           enhancementHints: shot.id === 'shot_1' ? ['timing_normalizer'] : [],
           qaRules: { mustProbeWithFfprobe: true },
         })),
-      runRunwayVideo: async () => ({
+      runSora2Video: async () => ({
         results: [
-          { shotId: 'shot_1', provider: 'runway', model: 'gen4_turbo', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
-          { shotId: 'shot_2', provider: 'runway', model: 'gen4_turbo', status: 'completed', videoPath: '/tmp/shot_2.mp4', targetDurationSec: 3 },
+          { shotId: 'shot_1', provider: 'sora2', model: 'veo-3.0-fast-generate-001', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
+          { shotId: 'shot_2', provider: 'sora2', model: 'veo-3.0-fast-generate-001', status: 'completed', videoPath: '/tmp/shot_2.mp4', targetDurationSec: 3 },
         ],
         report: { status: 'pass', warnings: [], blockers: [] },
       }),
@@ -1268,7 +1268,7 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
         videoPath: '/tmp/shot_1-enhanced.mp4',
         durationSec: 4,
         status: 'completed',
-        provider: 'runway',
+        provider: 'sora2',
       },
     ]);
   });

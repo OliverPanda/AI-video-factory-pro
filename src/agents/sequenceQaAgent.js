@@ -35,12 +35,21 @@ async function probeVideo(videoPath) {
   return probeVideoMetadata(videoPath);
 }
 
-function isDurationAcceptable(targetDurationSec, actualDurationSec) {
+function resolveMinDuration(targetDurationSec, coveredShotIds = []) {
+  const normalizedShotIds = normalizeArray(coveredShotIds).filter(Boolean);
+  if (targetDurationSec >= 10 && normalizedShotIds.length >= 3) {
+    return Math.max(0.5, targetDurationSec * (2 / 3));
+  }
+
+  return Math.max(0.5, targetDurationSec * 0.7);
+}
+
+function isDurationAcceptable(targetDurationSec, actualDurationSec, coveredShotIds = []) {
   if (!Number.isFinite(targetDurationSec) || !Number.isFinite(actualDurationSec) || targetDurationSec <= 0) {
     return false;
   }
 
-  const minDuration = Math.max(0.5, targetDurationSec * 0.7);
+  const minDuration = resolveMinDuration(targetDurationSec, coveredShotIds);
   const maxDuration = Math.max(targetDurationSec * 1.5, targetDurationSec + 2);
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
 }
@@ -50,6 +59,15 @@ function defaultEvaluateSequenceContinuity() {
     entryExitCheck: 'pass',
     continuityCheck: 'pass',
   };
+}
+
+function isSoftEntryExitReason(reason) {
+  return [
+    'soft_entry_exit_mismatch',
+    'weak_entry_anchor',
+    'weak_exit_anchor',
+    'entry_exit_needs_manual_review',
+  ].includes(String(reason || '').trim());
 }
 
 function classifyQaFailureCategory({ finalDecision, decisionReason, engineCheck, durationCheck, entryExitCheck, continuityCheck }) {
@@ -147,7 +165,7 @@ function pickTopKey(breakdown = {}, preferredOrder = []) {
   return entries[0][0];
 }
 
-function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck) {
+function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, continuityCheck, options = {}) {
   if (engineCheck !== 'pass' || durationCheck !== 'pass') {
     return {
       finalDecision: 'fail',
@@ -157,6 +175,13 @@ function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, cont
   }
 
   if (entryExitCheck === 'fail') {
+    if (continuityCheck === 'pass' && isSoftEntryExitReason(options.entryExitDecisionReason)) {
+      return {
+        finalDecision: 'manual_review',
+        fallbackAction: 'manual_review',
+        decisionReason: options.entryExitDecisionReason || 'sequence_needs_manual_review',
+      };
+    }
     return {
       finalDecision: 'fail',
       fallbackAction: 'none',
@@ -357,7 +382,7 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
 
     try {
       const probeResult = await probe(result.videoPath);
-      const durationCheck = isDurationAcceptable(result.targetDurationSec, probeResult.durationSec) ? 'pass' : 'fail';
+      const durationCheck = isDurationAcceptable(result.targetDurationSec, probeResult.durationSec, coveredShotIds) ? 'pass' : 'fail';
       if (durationCheck !== 'pass') {
         const engineCheck = 'pass';
         const entryExitCheck = 'unknown';
@@ -418,7 +443,11 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
         engineCheck,
         durationCheck,
         continuityEvaluation.entryExitCheck,
-        continuityEvaluation.continuityCheck
+        continuityEvaluation.continuityCheck,
+        {
+          entryExitDecisionReason: continuityEvaluation.entryExitDecisionReason,
+          continuityDecisionReason: continuityEvaluation.continuityDecisionReason,
+        }
       );
 
       entries.push(
@@ -430,7 +459,10 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
           durationCheck,
           entryExitCheck: continuityEvaluation.entryExitCheck,
           ...decision,
-          decisionReason: continuityEvaluation.continuityDecisionReason || decision.decisionReason,
+          decisionReason:
+            continuityEvaluation.entryExitDecisionReason ||
+            continuityEvaluation.continuityDecisionReason ||
+            decision.decisionReason,
           referenceContext,
         })
       );
@@ -672,8 +704,10 @@ export const __testables = {
   determineFinalDecision,
   evaluateSequenceClips,
   hasValidCoverageRange,
+  isSoftEntryExitReason,
   isContiguousInShotOrder,
   isDurationAcceptable,
+  resolveMinDuration,
   probeVideo,
 };
 

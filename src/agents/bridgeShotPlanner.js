@@ -205,7 +205,7 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
         environmentContinuityTargets: buildEnvironmentTargets(bridgeType, previousShot, currentShot),
         mustPreserveElements: buildMustPreserveElements(previousShot, currentShot),
         bridgeGenerationMode: buildBridgeGenerationMode(bridgeType, continuityRisk),
-        preferredProvider: 'runway',
+        preferredProvider: 'sora2',
         fallbackStrategy: 'direct_cut',
       })
     );

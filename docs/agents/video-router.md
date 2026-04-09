@@ -48,7 +48,8 @@
 
 - 有参考图时优先当前 `VIDEO_PROVIDER`，默认 `seedance`
 - 没有参考图时直接路由到 `static_image`
-- 当前主 provider 可为 `runway` 或 `seedance`
+- 当前主 provider 用户侧可为 `fallback_video` 或 `seedance`
+- `fallback_video` 当前内部仍映射到 `sora2` runtime branch，以保持兼容
 - `providerRequestHints` 会把时长、画幅、动势级别、镜头类型等 provider 请求提示一起写入，供下游具体视频 agent 适配各自 API
 - `performancePlan` 会补充：
   - `performanceTemplate`
@@ -75,6 +76,6 @@
 ## 相关文档
 
 - [Motion Planner Agent](motion-planner.md)
-- [Runway Video Agent](runway-video-agent.md)
+- [Fallback Video Adapter](fallback-video-adapter.md)
 - [Seedance Video Agent](seedance-video-agent.md)
 - [Agent 输入输出关系图](agent-io-map.md)

@@ -439,36 +439,91 @@ test('buildActionSequencePlan does not default every shot into a sequence', () =
 });
 
 test('buildActionSequencePlan defaults preferredProvider to seedance for generated sequence entries', () => {
-  const plan = __testables.buildActionSequencePlan(
-    [
-      {
-        id: 'shot_default_001',
-        action: '两人拔刀交锋，迅速进入缠斗',
-        scene: '回廊',
-        durationSec: 2.4,
-        characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
-      },
-      {
-        id: 'shot_default_002',
-        action: '格挡后反手回击，刀锋擦出火花',
-        scene: '回廊',
-        durationSec: 2.4,
-        characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
-      },
-    ],
-    {
-      motionPlan: [
-        { shotId: 'shot_default_001', shotType: 'fight_wide' },
-        { shotId: 'shot_default_002', shotType: 'fight_wide' },
-      ],
-      performancePlan: [
-        { shotId: 'shot_default_001', performanceTemplate: 'fight_exchange_medium' },
-        { shotId: 'shot_default_002', performanceTemplate: 'fight_exchange_medium' },
-      ],
-    }
-  );
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  delete process.env.VIDEO_PROVIDER;
 
-  assert.equal(plan[0].preferredProvider, 'seedance');
+  try {
+    const plan = __testables.buildActionSequencePlan(
+      [
+        {
+          id: 'shot_default_001',
+          action: '两人拔刀交锋，迅速进入缠斗',
+          scene: '回廊',
+          durationSec: 2.4,
+          characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+        },
+        {
+          id: 'shot_default_002',
+          action: '格挡后反手回击，刀锋擦出火花',
+          scene: '回廊',
+          durationSec: 2.4,
+          characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+        },
+      ],
+      {
+        motionPlan: [
+          { shotId: 'shot_default_001', shotType: 'fight_wide' },
+          { shotId: 'shot_default_002', shotType: 'fight_wide' },
+        ],
+        performancePlan: [
+          { shotId: 'shot_default_001', performanceTemplate: 'fight_exchange_medium' },
+          { shotId: 'shot_default_002', performanceTemplate: 'fight_exchange_medium' },
+        ],
+      }
+    );
+
+    assert.equal(plan[0].preferredProvider, 'seedance');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
+});
+
+test('buildActionSequencePlan follows fallback_video env override and normalizes to sora2', () => {
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  process.env.VIDEO_PROVIDER = 'fallback_video';
+
+  try {
+    const plan = __testables.buildActionSequencePlan(
+      [
+        {
+          id: 'shot_env_001',
+          action: '两人贴身缠斗后迅速换位',
+          scene: '回廊',
+          durationSec: 2.4,
+          characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+        },
+        {
+          id: 'shot_env_002',
+          action: '转身追击并接上下一拍动作',
+          scene: '回廊',
+          durationSec: 2.4,
+          characters: [{ episodeCharacterId: 'char_a' }, { episodeCharacterId: 'char_b' }],
+        },
+      ],
+      {
+        motionPlan: [
+          { shotId: 'shot_env_001', shotType: 'fight_wide' },
+          { shotId: 'shot_env_002', shotType: 'fight_wide' },
+        ],
+        performancePlan: [
+          { shotId: 'shot_env_001', performanceTemplate: 'fight_exchange_medium' },
+          { shotId: 'shot_env_002', performanceTemplate: 'fight_exchange_medium' },
+        ],
+      }
+    );
+
+    assert.equal(plan[0].preferredProvider, 'sora2');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
 });
 
 test('buildActionSequencePlan fills entryConstraint exitConstraint durationTargetSec and fallbackStrategy by sequence type', () => {
@@ -657,6 +712,62 @@ test('buildActionSequencePlan uses continuity and bridge context as a conservati
   assert.equal(withContext[0].sequenceType, 'fight_exchange_sequence');
   assert.equal(withContext[0].generationMode, 'bridge_assisted');
   assert.equal(withContext[0].fallbackStrategy, 'fallback_to_shot_and_bridge');
+});
+
+test('buildActionSequencePlan merges mixed fight beats into one action sequence for warehouse-style combat continuity', () => {
+  const shots = [
+    {
+      id: 'shot_002',
+      action: '男人猛攻上前，抡起木棍直砸过去',
+      scene: '仓库',
+      durationSec: 2.1,
+      characters: [{ episodeCharacterId: 'char_attacker' }, { episodeCharacterId: 'char_guard' }],
+    },
+    {
+      id: 'shot_003',
+      action: '保安被侧身撞开后又被击倒，踉跄着撞向货架',
+      scene: '仓库',
+      durationSec: 2.0,
+      characters: [{ episodeCharacterId: 'char_attacker' }, { episodeCharacterId: 'char_guard' }],
+    },
+    {
+      id: 'shot_004',
+      action: '对方咬牙反击，转身挥拳砸回去',
+      scene: '仓库',
+      durationSec: 2.0,
+      characters: [{ episodeCharacterId: 'char_attacker' }, { episodeCharacterId: 'char_guard' }],
+    },
+    {
+      id: 'shot_005',
+      action: '两人扭打着缠住对方，最终一起摔倒在地',
+      scene: '仓库',
+      durationSec: 2.2,
+      characters: [{ episodeCharacterId: 'char_attacker' }, { episodeCharacterId: 'char_guard' }],
+    },
+  ];
+
+  const motionPlan = [
+    { shotId: 'shot_002', shotType: 'dialogue_medium', durationTargetSec: 2.1 },
+    { shotId: 'shot_003', shotType: 'dialogue_closeup', durationTargetSec: 2.0 },
+    { shotId: 'shot_004', shotType: 'emotion_push_in', durationTargetSec: 2.0 },
+    { shotId: 'shot_005', shotType: 'ambient_transition', durationTargetSec: 2.2 },
+  ];
+
+  const performancePlan = [
+    { shotId: 'shot_002', performanceTemplate: 'dialogue_medium_tension' },
+    { shotId: 'shot_003', performanceTemplate: 'dialogue_closeup_react' },
+    { shotId: 'shot_004', performanceTemplate: 'emotion_push_in' },
+    { shotId: 'shot_005', performanceTemplate: 'ambient_transition_motion' },
+  ];
+
+  const plan = __testables.buildActionSequencePlan(shots, {
+    motionPlan,
+    performancePlan,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].sequenceType, 'fight_exchange_sequence');
+  assert.deepEqual(plan[0].shotIds, ['shot_002', 'shot_003', 'shot_004', 'shot_005']);
 });
 
 test('buildActionSequencePlan keeps generationMode local to the matched sequence context', () => {

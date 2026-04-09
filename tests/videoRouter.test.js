@@ -122,7 +122,8 @@ test('resolvePreferredVideoProvider defaults to seedance and allows explicit ove
   try {
     assert.equal(__testables.resolvePreferredVideoProvider({}), 'seedance');
     assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'seedance' }), 'seedance');
-    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'runway' }), 'runway');
+    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'runway' }), 'sora2');
+    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'fallback_video' }), 'sora2');
   } finally {
     if (previousVideoProvider == null) {
       delete process.env.VIDEO_PROVIDER;

@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleepTimeout } from 'node:timers/promises';
 
-import { createRunwayVideoClip } from '../apis/runwayVideoApi.js';
 import { createSeedanceVideoClip } from '../apis/seedanceVideoApi.js';
+import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { createSequenceClipResult } from '../utils/actionSequenceProtocol.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { probeVideoDurationSec } from '../utils/mediaProbe.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
 function writeTextFile(filePath, content) {
@@ -132,6 +133,24 @@ function isLikelyMp4File(filePath) {
   }
 }
 
+async function resolveActualDurationSec(videoPath, fallbackDurationSec = null, options = {}) {
+  const probeDuration =
+    options.probeVideoDurationSec ||
+    options.probeDurationSec ||
+    probeVideoDurationSec;
+
+  try {
+    const durationSec = await probeDuration(videoPath);
+    if (Number.isFinite(durationSec) && durationSec > 0) {
+      return durationSec;
+    }
+  } catch {
+    // Keep provider-reported duration as a fallback when probing is unavailable.
+  }
+
+  return Number.isFinite(fallbackDurationSec) ? fallbackDurationSec : null;
+}
+
 function buildSequenceClipReport(results = []) {
   const generated = results.filter((item) => item.status === 'completed');
   const failed = results.filter((item) => item.status === 'failed');
@@ -251,8 +270,20 @@ function normalizeSequenceStatus(status) {
   return String(status || '').trim().toUpperCase();
 }
 
-function getPreferredSequenceProvider(sequencePackage = {}) {
-  return sequencePackage.preferredProvider || 'seedance';
+function resolveDefaultSequenceProvider(options = {}) {
+  const rawProvider = options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
+}
+
+function getPreferredSequenceProvider(sequencePackage = {}, options = {}) {
+  const rawProvider = sequencePackage.preferredProvider || resolveDefaultSequenceProvider(options);
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
 }
 
 function resolveSequenceWorkflow(sequencePackage, options) {
@@ -270,17 +301,17 @@ function resolveSequenceWorkflow(sequencePackage, options) {
     };
   }
 
-  if (getPreferredSequenceProvider(sequencePackage) === 'seedance') {
+  if (getPreferredSequenceProvider(sequencePackage, options) === 'seedance') {
     return {
       kind: 'seedance',
       run: (outputPath) => runSeedanceWorkflow(sequencePackage, outputPath, options),
     };
   }
 
-  if (getPreferredSequenceProvider(sequencePackage) === 'runway') {
+  if (getPreferredSequenceProvider(sequencePackage, options) === 'sora2') {
     return {
-      kind: 'runway',
-      run: (outputPath) => runRunwayWorkflow(sequencePackage, outputPath, options),
+      kind: 'sora2',
+      run: (outputPath) => runSora2Workflow(sequencePackage, outputPath, options),
     };
   }
 
@@ -291,7 +322,7 @@ async function runProviderClientWorkflow(sequencePackage, outputPath, options) {
   const providerClient = options.providerClient;
   const submitResult = await providerClient.submit(sequencePackage, outputPath, options);
   const taskId = submitResult?.taskId || submitResult?.id || null;
-  const provider = submitResult?.provider || getPreferredSequenceProvider(sequencePackage);
+  const provider = submitResult?.provider || getPreferredSequenceProvider(sequencePackage, options);
   const model = submitResult?.model || null;
   const pollIntervalMs = options.pollIntervalMs || 5000;
   const overallTimeoutMs = options.overallTimeoutMs || 300000;
@@ -347,12 +378,19 @@ async function runProviderClientWorkflow(sequencePackage, outputPath, options) {
     };
   }
 
+  const actualDurationSec = await resolveActualDurationSec(
+    outputPath,
+    submitResult?.actualDurationSec ?? pollResult?.actualDurationSec ?? null,
+    options
+  );
+
   return {
     provider,
     model,
     taskId,
     outputUrl: pollResult?.outputUrl || pollResult?.url || submitResult?.outputUrl || submitResult?.url || null,
     videoPath: outputPath,
+    actualDurationSec,
   };
 }
 
@@ -368,13 +406,14 @@ async function runGenerateSequenceClipWorkflow(sequencePackage, outputPath, opti
       details: { outputPath, sequenceId: sequencePackage.sequenceId },
     };
   }
+  const actualDurationSec = await resolveActualDurationSec(videoPath, run?.actualDurationSec ?? null, options);
   return {
     provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
     model: run?.model || null,
     taskId: run?.taskId || null,
     outputUrl: run?.outputUrl || null,
     videoPath,
-    actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
+    actualDurationSec,
   };
 }
 
@@ -389,18 +428,19 @@ async function runSeedanceWorkflow(sequencePackage, outputPath, options) {
       details: { outputPath, sequenceId: sequencePackage.sequenceId },
     };
   }
+  const actualDurationSec = await resolveActualDurationSec(run?.videoPath || outputPath, run?.actualDurationSec ?? null, options);
   return {
     provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
     model: run?.model || null,
     taskId: run?.taskId || null,
     outputUrl: run?.outputUrl || null,
     videoPath: run?.videoPath || outputPath,
-    actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
+    actualDurationSec,
   };
 }
 
-async function runRunwayWorkflow(sequencePackage, outputPath, options) {
-  const run = await createRunwayVideoClip(sequencePackage, outputPath, options);
+async function runSora2Workflow(sequencePackage, outputPath, options) {
+  const run = await createFallbackVideoClip(sequencePackage, outputPath, options);
   if (!isLikelyMp4File(run?.videoPath || outputPath)) {
     throw {
       message: 'Sequence clip download is empty or invalid',
@@ -410,13 +450,14 @@ async function runRunwayWorkflow(sequencePackage, outputPath, options) {
       details: { outputPath, sequenceId: sequencePackage.sequenceId },
     };
   }
+  const actualDurationSec = await resolveActualDurationSec(run?.videoPath || outputPath, run?.actualDurationSec ?? null, options);
   return {
     provider: run?.provider || getPreferredSequenceProvider(sequencePackage),
     model: run?.model || null,
     taskId: run?.taskId || null,
     outputUrl: run?.outputUrl || null,
     videoPath: run?.videoPath || outputPath,
-    actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
+    actualDurationSec,
   };
 }
 
@@ -425,7 +466,7 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
   const results = [];
 
   for (const sequencePackage of actionSequencePackages) {
-    const preferredProvider = getPreferredSequenceProvider(sequencePackage);
+    const preferredProvider = getPreferredSequenceProvider(sequencePackage, options);
     const workflow = resolveSequenceWorkflow(sequencePackage, options);
 
     if (!workflow) {
@@ -500,8 +541,11 @@ export const __testables = {
   buildSequenceGenerationContext,
   buildSequenceClipReport,
   classifySequenceProviderError,
+  getPreferredSequenceProvider,
   isLikelyMp4File,
   normalizeSequenceProviderError,
+  resolveActualDurationSec,
+  resolveDefaultSequenceProvider,
   resolveSequenceWorkflow,
 };
 

@@ -89,7 +89,7 @@ Phase 2 MVP 目前采用轻量规则增强，不引入重型视觉模型。
 ## 与上下游的关系
 
 - 上游：
-  - `Runway Video Agent` 输出 `rawVideoResults`
+  - `Fallback Video Adapter` 输出 `rawVideoResults`
 - 下游：
   - `Shot QA Agent` 消费 `enhancedVideoResults`
 - 注意：

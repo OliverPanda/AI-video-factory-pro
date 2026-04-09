@@ -40,7 +40,7 @@ Director 还会在 run 根目录再聚合：
   - `Performance Planner`
   - `Video Router`
   - `Seedance Video Agent`
-  - `Runway Video Agent`
+  - `Fallback Video Adapter`
   - `Motion Enhancer`
   - `Shot QA Agent`
 - 高风险 cut 补桥子链：
@@ -80,7 +80,7 @@ Director 还会在 run 根目录再聚合：
 | 13 | Performance Planner | 表演模板、生成层级、动作节拍规划 | `src/agents/performancePlanner.js` | [performance-planner.md](performance-planner.md) |
 | 14 | Video Router | 组装 `shotPackages` 并决定 provider 路由 | `src/agents/videoRouter.js` | [video-router.md](video-router.md) |
 | 15 | Seedance Video Agent | 调用火山方舟 `Seedance 2.0` 生成 `rawVideoResults` | `src/agents/seedanceVideoAgent.js` | [seedance-video-agent.md](seedance-video-agent.md) |
-| 16 | Runway Video Agent | 作为兼容 provider 生成 `rawVideoResults` | `src/agents/runwayVideoAgent.js` | [runway-video-agent.md](runway-video-agent.md) |
+| 16 | Fallback Video Adapter | 作为兼容 provider 生成 `rawVideoResults`，用户侧通过 `VIDEO_PROVIDER=fallback_video` 选择，当前内部仍映射到 `sora2` runtime branch | `src/agents/sora2VideoAgent.js` | [fallback-video-adapter.md](fallback-video-adapter.md) |
 | 17 | Motion Enhancer | 增强或透传原始视频结果 | `src/agents/motionEnhancer.js` | [motion-enhancer.md](motion-enhancer.md) |
 | 18 | Shot QA Agent | 动态镜头工程验收与 motion 验收 | `src/agents/shotQaAgent.js` | [shot-qa-agent.md](shot-qa-agent.md) |
 | 19 | Bridge Shot Planner | 只为高风险 cut 规划桥接镜头 | `src/agents/bridgeShotPlanner.js` | [bridge-shot-planner.md](bridge-shot-planner.md) |
@@ -100,11 +100,33 @@ Director 还会在 run 根目录再聚合：
 3. `Character Registry -> Prompt Engineer -> Image Generator` 完成角色建档、prompt 生成和首轮出图。
 4. `Consistency Checker` 检查角色外观一致性，必要时由 `Director` 触发重生成。
 5. `Continuity Checker` 标记高风险 cut，为后续 `Motion Planner` 和 bridge 子链提供输入。
-6. `Motion Planner -> Performance Planner -> Video Router -> Seedance / Runway Video Agent -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
+6. `Motion Planner -> Performance Planner -> Video Router -> Seedance / Fallback Video Adapter -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。
 7. `Dialogue Normalizer -> TTS Agent -> TTS QA Agent -> Lip-sync Agent` 形成音频与表演链。
 8. `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent` 只在高风险 cut 上按需触发。
-9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发，默认沿用当前 `Seedance` 主视频 provider，显式 `Runway` 仍兼容。
+9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发，默认沿用当前 `Seedance` 主视频 provider，显式 `fallback video` 仍兼容，内部仍映射到 `sora2` runtime branch。
 10. `Video Composer` 消费 `sequenceClips + videoResults + bridgeClips + lipsyncResults + animationClips + imageResults` 完成合成。
+
+## Phase 4 新增的排查入口
+
+如果你现在重点在调 `action sequence` 主链，建议固定按下面顺序看：
+
+1. `09l-action-sequence-router/2-metrics/action-sequence-routing-metrics.json`
+   先判断有没有大量 `skip_generation`，以及 `skipReasonBreakdown` 主要卡在哪类素材缺口
+2. `09n-sequence-qa/2-metrics/sequence-qa-metrics.json`
+   先看 `topFailureCategory` 和 `topRecommendedAction`，判断这轮应优先补 prompt、补参考、还是直接回退
+3. `10-video-composer/2-metrics/video-metrics.json`
+   看 `sequence_coverage_shot_count / applied_sequence_ids / fallback_shot_ids`
+4. 分集 `delivery-summary.md`
+   看 run 级 `sequence_coverage_sequence_count / applied_sequence_ids / fallback_sequence_ids`
+
+当前口径可以简单理解成：
+
+- `Action Sequence Router`
+  负责解释“为什么没发 sequence 请求”
+- `Sequence QA Agent`
+  负责解释“为什么 sequence 没过”
+- `Video Composer`
+  负责解释“哪些 sequence 最终真的进了成片”
 
 ## 最常用文档
 

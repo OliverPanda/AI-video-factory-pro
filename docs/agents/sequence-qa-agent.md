@@ -19,6 +19,11 @@
 - `passedCount`
 - `fallbackCount`
 - `manualReviewCount`
+- `topFailureCategory`
+- `topRecommendedAction`
+- `actionBreakdown`
+- `fallbackSequenceIds`
+- `manualReviewSequenceIds`
 
 ## 落盘
 
@@ -40,6 +45,15 @@
 - `qaFailureCategory`
 - `recommendedAction`
 
+`sequence-qa-metrics.json` 现在还会额外聚合整轮摘要，重点字段包括：
+
+- `failureCategoryBreakdown`
+- `topFailureCategory`
+- `topRecommendedAction`
+- `actionBreakdown`
+- `fallbackSequenceIds`
+- `manualReviewSequenceIds`
+
 其中 `qaFailureCategory` 当前会归类到这几种高价值原因：
 
 - `passed`
@@ -60,6 +74,27 @@
 - `tighten_entry_exit_constraints`
 - `fallback_to_shots_or_add_bridge_context`
 - `manual_review_and_select_best_variant`
+
+## 现在怎么读这份 QA
+
+建议固定按这个顺序读：
+
+1. `sequence-qa-metrics.json`
+   先看整轮最主要失败类型和推荐动作
+2. `sequence-qa-report.md`
+   再看人类可读总结和单条 sequence 结论
+3. `sequence-qa-context.json`
+   最后再回到具体 sequence 的上下文、参考层级和 prompt 摘要
+
+如果你只想快速判断“下一步最值得改哪”，优先看：
+
+- `topFailureCategory`
+- `topRecommendedAction`
+
+如果你只想快速判断“哪些 sequence 没进主路径”，优先看：
+
+- `fallbackSequenceIds`
+- `manualReviewSequenceIds`
 
 ## 当前 MVP 边界
 

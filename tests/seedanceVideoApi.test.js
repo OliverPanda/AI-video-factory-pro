@@ -32,6 +32,13 @@ test('buildSeedanceVideoRequest maps shot package into official create-task payl
           referenceTier: 'image',
           hasAudioBeatHints: true,
           audioBeatHints: ['beat_1'],
+          sequenceGoal: '让动作衔接更连贯',
+          entryConstraint: '接住上一镜的起手姿态',
+          exitConstraint: '落到下一镜的收势',
+          continuityTargets: ['weapon_path', 'char_a', 'lighting'],
+          preserveElements: ['subject_identity'],
+          cameraFlowIntent: 'push_in_then_follow',
+          hardContinuityRules: ['avoid abrupt pose reset'],
         },
       },
       {
@@ -51,6 +58,8 @@ test('buildSeedanceVideoRequest maps shot package into official create-task payl
     assert.match(request.content[0].text, /reference tier: image/i);
     assert.match(request.content[0].text, /audio beat hints: beat_1/i);
     assert.match(request.content[0].text, /continuous attack-and-defense exchange/i);
+    assert.match(request.content[0].text, /entry anchor:/i);
+    assert.match(request.content[0].text, /hard continuity rules:/i);
   });
 });
 
@@ -63,13 +72,25 @@ test('buildPromptText keeps specialized sequence templates and preserves generic
     providerRequestHints: {
       referenceTier: 'video',
       audioBeatHints: ['beat_1'],
+      entryConstraint: '接住前一镜的奔跑方向',
+      exitConstraint: '落到下一镜的前冲落点',
+      continuityTargets: ['direction_of_travel', 'runner_a', 'street'],
+      preserveElements: ['subject_identity'],
+      cameraFlowIntent: 'long_follow',
+      hardContinuityRules: ['avoid abrupt pose reset'],
     },
   });
 
   assert.match(chasePrompt, /sustain forward chase momentum/i);
+  assert.match(chasePrompt, /entry anchor: 接住前一镜的奔跑方向/i);
+  assert.match(chasePrompt, /exit anchor: 落到下一镜的前冲落点/i);
+  assert.match(chasePrompt, /continuity locks: direction_of_travel, runner_a, street/i);
+  assert.match(chasePrompt, /preserve elements: subject_identity/i);
   assert.match(chasePrompt, /camera motion: follow_run/i);
+  assert.match(chasePrompt, /camera flow intent: long_follow/i);
   assert.match(chasePrompt, /reference tier: video/i);
   assert.match(chasePrompt, /audio beat hints: beat_1/i);
+  assert.match(chasePrompt, /hard continuity rules: avoid abrupt pose reset/i);
 });
 
 test('classifySeedanceError categorizes auth rate-limit invalid-request timeout and server errors', () => {

@@ -83,10 +83,10 @@ test('runEpisodePipeline integrates the bridge subchain in order and persists br
         { shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 },
         { shotId: 'shot_002', preferredProvider: 'runway', durationTargetSec: 2 },
       ],
-      runRunwayVideo: async () => ({
+      runSora2Video: async () => ({
         results: [
-          { shotId: 'shot_001', status: 'completed', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 },
-          { shotId: 'shot_002', status: 'completed', videoPath: '/tmp/shot_002.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_001', status: 'completed', provider: 'sora2', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_002', status: 'completed', provider: 'sora2', videoPath: '/tmp/shot_002.mp4', targetDurationSec: 2 },
         ],
       }),
       runMotionEnhancer: async (results) =>

@@ -23,6 +23,8 @@ export const AGENT_ARTIFACT_LAYOUT = {
   performancePlanner: '09b-performance-planner',
   videoRouter: '09c-video-router',
   runwayVideoAgent: '09d-runway-video-agent',
+  sora2VideoAgent: '09d-sora2-video-agent',
+  fallbackVideoAgent: '09d-sora2-video-agent',
   seedanceVideoAgent: '09d-seedance-video-agent',
   motionEnhancer: '09e-motion-enhancer',
   shotQaAgent: '09f-shot-qa',
@@ -73,6 +75,8 @@ export function createRunArtifactContext(input) {
   const runsDir = ensureDir(path.join(episodeDir, 'runs'));
   const runDir = ensureDir(path.join(runsDir, buildRunDirName(input?.runJobId, input?.startedAt)));
 
+  const sora2VideoAgent = createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sora2VideoAgent);
+
   return {
     projectDir,
     scriptDir,
@@ -97,6 +101,8 @@ export function createRunArtifactContext(input) {
       performancePlanner: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.performancePlanner),
       videoRouter: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoRouter),
       runwayVideoAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.runwayVideoAgent),
+      sora2VideoAgent,
+      fallbackVideoAgent: sora2VideoAgent,
       seedanceVideoAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.seedanceVideoAgent),
       motionEnhancer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.motionEnhancer),
       shotQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.shotQaAgent),

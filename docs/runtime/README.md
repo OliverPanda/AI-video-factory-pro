@@ -24,7 +24,8 @@ flowchart TD
     D --> E[Prompt Engineer]
     E --> F[Image Generator]
     F --> G[Consistency Checker]
-    G --> H[Continuity Checker]
+    G -->|needsRegeneration| B
+    F --> H[Continuity Checker]
     C --> I[Motion Planner]
     H --> I
     I --> J[Performance Planner]
@@ -32,31 +33,42 @@ flowchart TD
     F --> K
     E --> K
     K --> L{Video Provider}
-    L --> L1[Runway Video Agent]
-    L --> L2[Seedance Video Agent]
+    L --> L1[Seedance Video Agent]
+    L --> L2[Fallback Video Adapter]
     L1 --> M[Motion Enhancer]
     L2 --> M
     M --> N[Shot QA Agent]
-    N --> O[Bridge Shot Planner]
-    O --> P[Bridge Shot Router]
-    P --> Q[Bridge Clip Generator]
-    Q --> R[Bridge QA Agent]
-    C --> S[Dialogue Normalizer]
-    D --> T[TTS Agent]
-    S --> T
+    N --> BS[Bridge Shot Planner]
+    BS --> BR[Bridge Shot Router]
+    BR --> BG[Bridge Clip Generator]
+    BG --> BQ[Bridge QA Agent]
+    BQ --> ASP[Action Sequence Planner]
+    ASP --> ASR[Action Sequence Router]
+    ASR --> ASG[Sequence Clip Generator]
+    ASG --> ASQ[Sequence QA Agent]
+    C --> DN[Dialogue Normalizer]
+    DN --> T[TTS Agent]
+    D --> T
     T --> U[TTS QA Agent]
     F --> V[Lip-sync Agent]
     T --> V
     N --> W[Video Composer]
-    R --> W
+    BQ --> W
+    ASQ --> W
     U --> W
     V --> W
     F --> W
+    C --> W
     W --> X[output/final-video.mp4]
     B --> Y[temp/<jobId>/state.json]
     B --> Z[temp/projects/.../run-jobs]
     B --> AA[temp/projects/.../runs/<runId>]
 ```
+
+说明：
+
+- `Fallback Video Adapter` 是用户侧的通用备选视频入口
+- 当前它仍由内部 `sora2` runtime branch 承接，以保证既有 run 和缓存链路继续可读
 
 ## 目录与数据流关系
 

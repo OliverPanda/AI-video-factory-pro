@@ -75,6 +75,6 @@
 
 ## 相关文档
 
-- [Runway Video Agent](runway-video-agent.md)
+- [Fallback Video Adapter](fallback-video-adapter.md)
 - [Motion Enhancer Agent](motion-enhancer.md)
 - [Video Composer](video-composer.md)

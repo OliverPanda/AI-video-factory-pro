@@ -24,7 +24,7 @@ flowchart TD
     F --> K
     E --> K
     K --> L{Video Provider}
-    L --> L1[Runway Video Agent]
+    L --> L1[Fallback Video Adapter]
     L --> L2[Seedance Video Agent]
     L1 --> M[Motion Enhancer]
     L2 --> M
@@ -67,7 +67,7 @@ flowchart LR
 
     subgraph Asset[资产层]
         IG[Image Generator]
-        RV[Runway / Seedance Video Agent]
+        RV[Fallback Video / Seedance Video Agent]
         ME[Motion Enhancer]
         TTS[TTS Agent]
         LS[Lip-sync Agent]
@@ -127,7 +127,7 @@ flowchart LR
 
 资产生成层
 - Image Generator
-- Runway Video Agent
+- Fallback Video Adapter
 - Seedance Video Agent
 - Motion Enhancer
 - TTS Agent
@@ -160,8 +160,8 @@ flowchart LR
 | Dialogue Normalizer | `shots + pronunciationLexicon` | `normalizedShots` | `07-tts-agent/` | TTS Agent、Director |
 | Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
 | Performance Planner | `scriptData + shotPlan + motionPlan + continuity context` | `performancePlan` | `09b-performance-planner/` | Video Router、Director |
-| Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages + videoRoutingDecisions` | `09c-video-router/` | Runway Video Agent、Seedance Video Agent、Director |
-| Runway Video Agent | `shotPackages(preferredProvider=runway)` | `rawVideoResults` | `09d-runway-video-agent/` | Motion Enhancer、Director |
+| Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages + videoRoutingDecisions` | `09c-video-router/` | Fallback Video Adapter、Seedance Video Agent、Director |
+| Fallback Video Adapter | `shotPackages(preferredProvider=sora2 或 fallback_video 别名)` | `rawVideoResults` | `09d-sora2-video-agent/` | Motion Enhancer、Director |
 | Seedance Video Agent | `shotPackages(preferredProvider=seedance)` | `rawVideoResults` | `09d-seedance-video-agent/` | Motion Enhancer、Director |
 | Motion Enhancer | `rawVideoResults + shotPackages + performancePlan` | `enhancedVideoResults` | `09e-motion-enhancer/` | Shot QA、Director |
 | Shot QA Agent | `enhancedVideoResults` | `shotQaReportV2 + final video bridge decision` | `09f-shot-qa/` | Director、Video Composer |
@@ -533,7 +533,7 @@ Director 会在 run 根目录再汇总一层：
 - `09c-video-router/1-outputs/qa-summary.md`
 - `09c-video-router/2-metrics/qa-summary.json`
 
-### 14. Runway Video Agent
+### 14. Fallback Video Adapter
 
 输入：
 
@@ -546,11 +546,11 @@ Director 会在 run 根目录再汇总一层：
 
 关键落盘：
 
-- `09d-runway-video-agent/1-outputs/raw-video-results.json`
-- `09d-runway-video-agent/2-metrics/video-generation-metrics.json`
-- `09d-runway-video-agent/1-outputs/qa-summary.md`
-- `09d-runway-video-agent/2-metrics/qa-summary.json`
-- `09d-runway-video-agent/3-errors/<shotId>-*.json`
+- `09d-sora2-video-agent/1-outputs/raw-video-results.json`
+- `09d-sora2-video-agent/2-metrics/video-generation-metrics.json`
+- `09d-sora2-video-agent/1-outputs/qa-summary.md`
+- `09d-sora2-video-agent/2-metrics/qa-summary.json`
+- `09d-sora2-video-agent/3-errors/<shotId>-*.json`
 
 ### 15. Seedance Video Agent
 

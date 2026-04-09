@@ -36,7 +36,7 @@
    - `Motion Planner`
    - `Performance Planner`
    - `Video Router`
-   - `Seedance Video Agent` 或 `Runway Video Agent`
+   - `Seedance Video Agent` 或 `Fallback Video Adapter`
    - `Motion Enhancer`
    - `Shot QA Agent`
 7. 执行 bridge shot 子链：
@@ -66,7 +66,8 @@
 同时它现在也负责视频 provider 选择：
 
 - 默认 `Seedance Video Agent`
-- `VIDEO_PROVIDER=runway` 时切到 `Runway Video Agent`
+- `VIDEO_PROVIDER=fallback_video` 时切到用户侧的 `Fallback Video Adapter`
+- 当前内部仍映射到 `sora2` runtime branch，以保持历史 run、缓存和 QA 总览兼容
 - 如果 `shotPackages` 中同时存在不同 provider，`Director` 会按真实路由结果分别调用并合并结果
 
 ## 关键输入
@@ -128,7 +129,7 @@
 - `Shot QA Agent` 判定镜头 `fallback_to_image`
 - `Bridge QA Agent` 判定 `fallback_to_direct_cut`
 - `Bridge QA Agent` 判定 `fallback_to_transition_stub`
-- `Runway Video Agent` 生成失败但静图回退仍可用
+- `Fallback Video Adapter` 生成失败但静图回退仍可用
 - `Seedance Video Agent` 生成失败但静图回退仍可用
 
 ## 关键落盘

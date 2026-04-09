@@ -15,6 +15,7 @@
 2. `temp/` 放证据，`output/` 放交付
    正式输出目录是根级 `output/`，不是 `temp/output`
 3. 当前 `--skip-consistency` 会同时跳过 `consistency` 和 `continuity`
+4. 视频备选链路的用户配置名是 `VIDEO_PROVIDER=fallback_video`，当前内部仍映射到 `sora2` runtime branch
 
 ## 如何定位一次运行
 
@@ -131,6 +132,25 @@
 - `08b-lipsync-agent/1-outputs/lipsync-report.md`
 - `08b-lipsync-agent/3-errors/<shotId>-lipsync-error.json`
 
+### action sequence 经常 skip、过不了 QA，或看起来没有真正进成片
+
+先看：
+
+- `09l-action-sequence-router/2-metrics/action-sequence-routing-metrics.json`
+- `09n-sequence-qa/2-metrics/sequence-qa-metrics.json`
+- `09n-sequence-qa/1-outputs/sequence-qa-report.md`
+- `10-video-composer/2-metrics/video-metrics.json`
+- 最终 `delivery-summary.md`
+
+优先判断 3 个问题：
+
+1. 是不是根本没发 sequence 请求
+   看 `skipReasonBreakdown`
+2. 是不是发了请求但主要死在同一类 QA 问题
+   看 `topFailureCategory / topRecommendedAction`
+3. 是不是 sequence 其实过了，但最终覆盖率依然很低
+   看 `sequence_coverage_shot_count / applied_sequence_ids / fallback_shot_ids`
+
 ### Prompt 看起来不对
 
 先看：
@@ -161,6 +181,10 @@
   先看 `08b-lipsync-agent/manifest.json`
 - `Video Composer`
   先看 `09-video-composer/1-outputs/compose-plan.json`
+- `Action Sequence Router`
+  先看 `09l-action-sequence-router/2-metrics/action-sequence-routing-metrics.json`
+- `Sequence QA Agent`
+  先看 `09n-sequence-qa/2-metrics/sequence-qa-metrics.json`
 
 ## 缓存与重跑
 
@@ -194,6 +218,22 @@
 - 想复盘问题，先保留现有 `temp/` 证据
 - 想验证修复是否生效，再考虑清掉会干扰结果的缓存层
 
+### `resume-from-step --run-id` 的严格绑定语义
+
+当你显式传 `--run-id=<runJobId>` 时，系统应把这次恢复视为“基于该 run 的快照继续跑”，而不是“随便从当前最新缓存里继续”。
+
+这意味着：
+
+- 前置状态优先取该 run 的 `state.snapshot.json`
+- 从 `video` 及后续步骤续跑时，参考图必须来自该 run
+- 如果该 run 缺图、缺前置状态、或图片路径不属于该 run，对应命令应直接失败
+
+排查时如果你怀疑“我明明指定了 run_id1，但结果像是用了 run_id2 的图”，优先检查：
+
+- `run-jobs/<runJobId>.json`
+- 对应 `artifactRunDir/state.snapshot.json`
+- live `state.json` 里的 `resumeContext.sourceRunId`
+
 ## 运行前预检
 
 运行前最少确认：
@@ -203,6 +243,7 @@
 - `.env` 中 provider 配置齐全
 - 输出目录磁盘空间足够
 - `temp/` 和 `output/` 可写
+- 如果要排查备选视频链路，也要确认 `VIDEO_FALLBACK_API_KEY`、`VIDEO_FALLBACK_BASE_URL`、`VIDEO_FALLBACK_MODEL` 配置完整，用户侧统一称为 `fallback video`
 
 ## 证据保全
 

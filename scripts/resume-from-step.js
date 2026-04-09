@@ -566,6 +566,90 @@ function getStateSnapshotPath(runJob) {
   return fs.existsSync(snapshotPath) ? snapshotPath : null;
 }
 
+function getResumeMode(parsed, context) {
+  if (parsed?.runId) {
+    if (!context?.snapshotPath) {
+      throw new Error(`指定 run-id=${parsed.runId} 时未找到可恢复的 state.snapshot.json`);
+    }
+    return 'strict_run_binding';
+  }
+  return 'latest_recoverable';
+}
+
+function getStepIndex(step) {
+  return STEP_SEQUENCE.indexOf(step);
+}
+
+function requiresStrictImageBinding(step) {
+  return getStepIndex(step) >= getStepIndex('video');
+}
+
+function getStrictBindingImageRoots(context, baseTempDir = process.env.TEMP_DIR || './temp') {
+  const roots = [];
+  if (context?.jobId) {
+    roots.push(path.join(getJobDir(context.jobId, baseTempDir), 'images'));
+  }
+  const artifactRunDir = getArtifactRunDir(context?.runJob);
+  if (artifactRunDir) {
+    roots.push(artifactRunDir);
+  }
+  return Array.from(new Set(roots.map((item) => path.resolve(item))));
+}
+
+function validateStrictBindingPrerequisites(step, state, context, baseTempDir = process.env.TEMP_DIR || './temp') {
+  const missingPrerequisites = collectMissingPrerequisites(step, state);
+  if (missingPrerequisites.length > 0) {
+    throw new Error(
+      `指定 run-id=${context?.runJob?.id || context?.jobId} 的快照缺少前置缓存：${missingPrerequisites.join(', ')}`
+    );
+  }
+
+  if (!requiresStrictImageBinding(step)) {
+    return {
+      imageReuseCount: 0,
+      imageRoots: [],
+    };
+  }
+
+  const imageResults = Array.isArray(state?.imageResults) ? state.imageResults : [];
+  if (imageResults.length === 0) {
+    throw new Error(`指定 run-id=${context?.runJob?.id || context?.jobId} 缺少参考图，无法从 ${step} 继续恢复。`);
+  }
+
+  const allowedRoots = getStrictBindingImageRoots(context, baseTempDir);
+  for (const item of imageResults) {
+    const shotId = item?.shotId || 'unknown_shot';
+    const imagePath = item?.imagePath;
+    if (!imagePath) {
+      throw new Error(`指定 run-id=${context?.runJob?.id || context?.jobId} 的参考图不完整：${shotId} 缺少 imagePath。`);
+    }
+    if (!fs.existsSync(imagePath)) {
+      throw new Error(`指定 run-id=${context?.runJob?.id || context?.jobId} 的参考图不存在：${shotId} -> ${imagePath}`);
+    }
+    if (!isPathWithinAllowedRoots(imagePath, allowedRoots)) {
+      throw new Error(
+        `指定 run-id=${context?.runJob?.id || context?.jobId} 的参考图来源越界：${shotId} -> ${imagePath}`
+      );
+    }
+  }
+
+  return {
+    imageReuseCount: imageResults.length,
+    imageRoots: allowedRoots,
+  };
+}
+
+function buildResumeContextMetadata(parsed, context, resumeMode) {
+  return {
+    mode: resumeMode,
+    sourceRunId: context?.runJob?.id || null,
+    sourceSnapshotPath: context?.snapshotPath || null,
+    requestedStep: parsed?.step || null,
+    strictRunBinding: resumeMode === 'strict_run_binding',
+    resumedAt: new Date().toISOString(),
+  };
+}
+
 function hasRecoverableState(runJob, baseTempDir = process.env.TEMP_DIR || './temp') {
   const liveStatePath = path.join(getJobDir(runJob.jobId, baseTempDir), 'state.json');
   return fs.existsSync(liveStatePath) || Boolean(getStateSnapshotPath(runJob));
@@ -846,9 +930,16 @@ async function executeResumeRun(parsed, context) {
   ]);
 }
 
-function describeResumePlan(parsed, context, stateKeysToDelete, filesToRemove) {
+function describeResumePlan(
+  parsed,
+  context,
+  stateKeysToDelete,
+  filesToRemove,
+  options = {}
+) {
   const lines = [
     `模式：${context.mode}`,
+    `恢复模式：${options.resumeMode || 'latest_recoverable'}`,
     `step：${parsed.step}`,
     `jobId：${context.jobId}`,
     `state：${context.statePath}`,
@@ -860,6 +951,12 @@ function describeResumePlan(parsed, context, stateKeysToDelete, filesToRemove) {
   }
   if (context.snapshotPath) {
     lines.push(`历史快照：${context.snapshotPath}`);
+  }
+  if (options.sourceRunId) {
+    lines.push(`绑定 run-id：${options.sourceRunId}`);
+  }
+  if (typeof options.imageReuseCount === 'number') {
+    lines.push(`复用参考图数：${options.imageReuseCount}`);
   }
 
   lines.push(`删除 state 字段：${stateKeysToDelete.join(', ') || '无'}`);
@@ -883,10 +980,11 @@ export async function resumeFromStep(args, overrides = {}) {
   const baseTempDir = overrides.baseTempDir || process.env.TEMP_DIR || './temp';
   const parsed = await resolveInteractiveProjectSelection(initialParsed, baseTempDir);
   const context = resolveResumeContext(parsed, baseTempDir);
+  const resumeMode = getResumeMode(parsed, context);
   let state = null;
   let stateSource = 'live-state';
 
-  if (parsed.runId && context.snapshotPath) {
+  if (resumeMode === 'strict_run_binding') {
     state = loadJSON(context.snapshotPath);
     stateSource = 'run-snapshot';
   } else {
@@ -915,10 +1013,18 @@ export async function resumeFromStep(args, overrides = {}) {
     baseTempDir
   );
   const missingPrerequisites = collectMissingPrerequisites(parsed.step, state);
+  const strictBindingCheck =
+    resumeMode === 'strict_run_binding'
+      ? validateStrictBindingPrerequisites(parsed.step, state, context, baseTempDir)
+      : { imageReuseCount: 0, imageRoots: [] };
 
-  const planSummary = describeResumePlan(parsed, context, stateKeysToDelete, filesToRemove);
+  const planSummary = describeResumePlan(parsed, context, stateKeysToDelete, filesToRemove, {
+    resumeMode,
+    sourceRunId: context?.runJob?.id || null,
+    imageReuseCount: strictBindingCheck.imageReuseCount,
+  });
   logger.info('Resume', `准备续跑：\n${planSummary}\nstate 来源：${stateSource}`);
-  if (missingPrerequisites.length > 0) {
+  if (resumeMode !== 'strict_run_binding' && missingPrerequisites.length > 0) {
     logger.warn(
       'Resume',
       `当前 state 缺少前置缓存：${missingPrerequisites.join(', ')}。这次实际会从更早步骤重新开始。`
@@ -932,6 +1038,9 @@ export async function resumeFromStep(args, overrides = {}) {
       planSummary,
       stateKeysToDelete,
       filesToRemove,
+      resumeMode,
+      stateSource,
+      imageReuseCount: strictBindingCheck.imageReuseCount,
       missingPrerequisites,
       executed: false,
     };
@@ -942,6 +1051,7 @@ export async function resumeFromStep(args, overrides = {}) {
   for (const key of stateKeysToDelete) {
     delete nextState[key];
   }
+  nextState.resumeContext = buildResumeContextMetadata(parsed, context, resumeMode);
   saveJSON(context.statePath, nextState);
 
   const removedPaths = [];
@@ -959,6 +1069,9 @@ export async function resumeFromStep(args, overrides = {}) {
       backupPath,
       stateKeysToDelete,
       removedPaths,
+      resumeMode,
+      stateSource,
+      imageReuseCount: strictBindingCheck.imageReuseCount,
       missingPrerequisites,
       executed: false,
     };
@@ -973,6 +1086,9 @@ export async function resumeFromStep(args, overrides = {}) {
     backupPath,
     stateKeysToDelete,
     removedPaths,
+    resumeMode,
+    stateSource,
+    imageReuseCount: strictBindingCheck.imageReuseCount,
     missingPrerequisites,
     executed: true,
   };
@@ -998,8 +1114,13 @@ export const __testables = {
   resolveResumeContext,
   buildRunArgs,
   collectMissingPrerequisites,
+  getResumeMode,
+  getStrictBindingImageRoots,
+  validateStrictBindingPrerequisites,
+  buildResumeContextMetadata,
   listProjectChoices,
   listScriptChoices,
   listEpisodeChoices,
   executeResumeRun,
+  resumeFromStep,
 };

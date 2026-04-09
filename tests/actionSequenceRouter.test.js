@@ -62,6 +62,13 @@ test('buildActionSequencePackages assembles a complete actionSequencePackage', (
   assert.equal(packageEntry.providerRequestHints.generationMode, 'standalone_sequence');
   assert.match(packageEntry.sequenceContextSummary, /continuous attack-and-defense exchange/i);
   assert.match(packageEntry.sequenceContextSummary, /preserve weapon path/i);
+  assert.match(packageEntry.sequenceContextSummary, /entry anchor: 接住上一镜的挥臂姿态/i);
+  assert.match(packageEntry.sequenceContextSummary, /exit anchor: 落到下一轮攻防节拍/i);
+  assert.match(packageEntry.sequenceContextSummary, /hard continuity rule:/i);
+  assert.deepEqual(packageEntry.providerRequestHints.continuityTargets, ['hand_position', 'weapon_path', 'char_a', 'lighting']);
+  assert.deepEqual(packageEntry.providerRequestHints.preserveElements, ['subject_identity']);
+  assert.equal(packageEntry.providerRequestHints.entryConstraint, '接住上一镜的挥臂姿态');
+  assert.equal(packageEntry.providerRequestHints.exitConstraint, '落到下一轮攻防节拍');
 });
 
 test('buildActionSequencePackages adds specialized sequence template hints by sequence type', () => {
@@ -357,36 +364,92 @@ test('buildActionSequencePackages falls back to imageResults when QA-passed vide
 });
 
 test('buildActionSequencePackages defaults provider to seedance when plan entry omits preferredProvider', () => {
-  const [packageEntry] = __testables.buildActionSequencePackages(
-    [
-      {
-        sequenceId: 'seq_default_provider',
-        shotIds: ['shot_032', 'shot_033'],
-        durationTargetSec: 6,
-        sequenceGoal: '保持连续动作节奏',
-        cameraFlowIntent: 'continuous_follow',
-        motionContinuityTargets: ['direction_of_travel'],
-        subjectContinuityTargets: ['char_c'],
-        environmentContinuityTargets: ['lighting'],
-        mustPreserveElements: ['subject_identity'],
-        entryConstraint: '接住上一镜的动作惯性',
-        exitConstraint: '落到下一镜的动作落点',
-        generationMode: 'standalone_sequence',
-        fallbackStrategy: 'fallback_to_shot_and_bridge',
-      },
-    ],
-    {
-      imageResults: [
-        { shotId: 'shot_032', imagePath: '/tmp/shot_032.png', success: true },
-        { shotId: 'shot_033', imagePath: '/tmp/shot_033.png', success: true },
-      ],
-      videoResults: [],
-      bridgeClipResults: [],
-      performancePlan: [],
-    }
-  );
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  delete process.env.VIDEO_PROVIDER;
 
-  assert.equal(packageEntry.preferredProvider, 'seedance');
+  try {
+    const [packageEntry] = __testables.buildActionSequencePackages(
+      [
+        {
+          sequenceId: 'seq_default_provider',
+          shotIds: ['shot_032', 'shot_033'],
+          durationTargetSec: 6,
+          sequenceGoal: '保持连续动作节奏',
+          cameraFlowIntent: 'continuous_follow',
+          motionContinuityTargets: ['direction_of_travel'],
+          subjectContinuityTargets: ['char_c'],
+          environmentContinuityTargets: ['lighting'],
+          mustPreserveElements: ['subject_identity'],
+          entryConstraint: '接住上一镜的动作惯性',
+          exitConstraint: '落到下一镜的动作落点',
+          generationMode: 'standalone_sequence',
+          fallbackStrategy: 'fallback_to_shot_and_bridge',
+        },
+      ],
+      {
+        imageResults: [
+          { shotId: 'shot_032', imagePath: '/tmp/shot_032.png', success: true },
+          { shotId: 'shot_033', imagePath: '/tmp/shot_033.png', success: true },
+        ],
+        videoResults: [],
+        bridgeClipResults: [],
+        performancePlan: [],
+      }
+    );
+
+    assert.equal(packageEntry.preferredProvider, 'seedance');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
+});
+
+test('buildActionSequencePackages follows fallback_video env override and normalizes to sora2', () => {
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  process.env.VIDEO_PROVIDER = 'fallback_video';
+
+  try {
+    const [packageEntry] = __testables.buildActionSequencePackages(
+      [
+        {
+          sequenceId: 'seq_env_provider',
+          shotIds: ['shot_132', 'shot_133'],
+          durationTargetSec: 6,
+          sequenceGoal: '保持连续动作节奏',
+          cameraFlowIntent: 'continuous_follow',
+          motionContinuityTargets: ['direction_of_travel'],
+          subjectContinuityTargets: ['char_c'],
+          environmentContinuityTargets: ['lighting'],
+          mustPreserveElements: ['subject_identity'],
+          entryConstraint: '接住上一镜的动作惯性',
+          exitConstraint: '落到下一镜的动作落点',
+          generationMode: 'standalone_sequence',
+          fallbackStrategy: 'fallback_to_shot_and_bridge',
+        },
+      ],
+      {
+        imageResults: [
+          { shotId: 'shot_132', imagePath: '/tmp/shot_132.png', success: true },
+          { shotId: 'shot_133', imagePath: '/tmp/shot_133.png', success: true },
+        ],
+        videoResults: [],
+        bridgeClipResults: [],
+        performancePlan: [],
+      }
+    );
+
+    assert.equal(packageEntry.preferredProvider, 'sora2');
+    assert.equal(packageEntry.providerRequestHints.preferredProvider, 'sora2');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
 });
 
 test('buildActionSequencePackages picks the best duplicate video and image candidate by explicit priority', () => {

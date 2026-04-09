@@ -94,11 +94,11 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           variantCount: 1,
           enhancementHints: [],
         })),
-      runRunwayVideo: async (shotPackages) => ({
+      runSora2Video: async (shotPackages) => ({
         results: shotPackages.map((shotPackage) => ({
           shotId: shotPackage.shotId,
-          provider: 'runway',
-          model: 'gen4_turbo',
+          provider: 'sora2',
+          model: 'veo-3.0-fast-generate-001',
           status: 'completed',
           videoPath: path.join(dirs.root, `${shotPackage.shotId}.mp4`),
           targetDurationSec: shotPackage.durationTargetSec,

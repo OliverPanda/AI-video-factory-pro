@@ -147,6 +147,7 @@ Phase 4 补充规则：
 - `sequenceClips` 一旦覆盖一段 `coveredShotIds`，这些 shot 不会再各自重复写入
 - `bridgeClips` 只会插在当前时间线上真实相邻的两个锚点之间，不会再盲插错误目标
 - 如果 `sequenceQaReport` 为 `manual_review / fail / fallback`，composer 会自然退回 `videoResults + bridgeClips` 路径
+- 当前 composer 还会把最终命中结果写入 `video-metrics.json`，用于回答“这轮到底有多少 shot 真被 sequence 覆盖了”
 
 Phase 2 口径补充：
 
@@ -199,6 +200,36 @@ Phase 2 口径补充：
 新增的是：
 
 - 这些文件会再被汇总为返回值里的 `ArtifactIndex`
+- `video-metrics.json` 会额外输出：
+  - `sequence_coverage_shot_count`
+  - `sequence_coverage_sequence_count`
+  - `applied_sequence_ids`
+  - `covered_shot_ids`
+  - `fallback_shot_ids`
+
+## Phase 4 覆盖摘要怎么看
+
+如果你要确认 sequence 主路径有没有真正落到成片，优先看：
+
+1. `10-video-composer/2-metrics/video-metrics.json`
+2. `10-video-composer/1-outputs/qa-summary.md`
+3. 分集目录下的 `delivery-summary.md`
+
+这 3 层回答的问题分别是：
+
+- `video-metrics.json`
+  回答“最终时间线里有多少 shot 被 sequence 覆盖”
+- `qa-summary.md`
+  回答“命中的 sequence 是哪些，还有哪些 shot 最终走了旧路径”
+- `delivery-summary.md`
+  回答“整轮 run 维度的 sequence 覆盖率和 fallback 情况”
+
+当前判断规则可以小白化成一句话：
+
+- `applied_sequence_ids` 不为空
+  说明至少有 sequence 真进了成片
+- `fallback_shot_ids` 很多
+  说明虽然 sequence 子链跑了，但最终大部分镜头还是靠旧路径交付
 
 ## 不负责的内容
 

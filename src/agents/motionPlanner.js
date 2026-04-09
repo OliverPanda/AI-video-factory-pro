@@ -80,9 +80,9 @@ function buildCameraSpec(shotType) {
 
 function buildVideoGenerationMode(shotType) {
   if (shotType === 'insert_impact') {
-    return 'runway_image_to_video';
+    return 'sora2_image_to_video';
   }
-  return 'runway_image_to_video';
+  return 'sora2_image_to_video';
 }
 
 function buildVisualGoal(shot) {

@@ -20,15 +20,15 @@ test('generateBridgeClips produces the minimum bridgeClipResults structure for s
         durationTargetSec: 1.8,
         providerCapabilityRequirement: 'image_to_video',
         firstLastFrameMode: 'disabled',
-        preferredProvider: 'runway',
+        preferredProvider: 'sora2',
         fallbackProviders: ['direct_cut'],
       },
     ],
     '/tmp/bridge-video',
     {
       generateBridgeClip: async (_bridgePackage, outputPath) => ({
-        provider: 'runway',
-        model: 'gen4_turbo',
+        provider: 'sora2',
+        model: 'sora_video2',
         videoPath: outputPath,
         taskId: 'task_bridge_standard',
         actualDurationSec: 1.8,
@@ -39,8 +39,8 @@ test('generateBridgeClips produces the minimum bridgeClipResults structure for s
   assert.deepEqual(run.results[0], {
     bridgeId: 'bridge_standard',
     status: 'completed',
-    provider: 'runway',
-    model: 'gen4_turbo',
+    provider: 'sora2',
+    model: 'sora_video2',
     videoPath: path.join('/tmp/bridge-video', 'bridge_standard.mp4'),
     targetDurationSec: 1.8,
     actualDurationSec: 1.8,
@@ -65,7 +65,7 @@ test('generateBridgeClips returns an explainable failure when constrained capabi
         durationTargetSec: 2.6,
         providerCapabilityRequirement: 'first_last_keyframe',
         firstLastFrameMode: 'required',
-        preferredProvider: 'runway',
+        preferredProvider: 'sora2',
         fallbackProviders: ['direct_cut'],
       },
     ],
@@ -132,7 +132,7 @@ test('generateBridgeClips writes bridge clip artifacts and report', async (t) =>
         durationTargetSec: 1.8,
         providerCapabilityRequirement: 'image_to_video',
         firstLastFrameMode: 'disabled',
-        preferredProvider: 'runway',
+        preferredProvider: 'sora2',
         fallbackProviders: ['direct_cut'],
       },
     ],
@@ -140,8 +140,8 @@ test('generateBridgeClips writes bridge clip artifacts and report', async (t) =>
     {
       artifactContext,
       generateBridgeClip: async (_bridgePackage, outputPath) => ({
-        provider: 'runway',
-        model: 'gen4_turbo',
+        provider: 'sora2',
+        model: 'sora_video2',
         videoPath: outputPath,
         actualDurationSec: 1.8,
       }),
@@ -157,13 +157,13 @@ test('generateBridgeClips writes bridge clip artifacts and report', async (t) =>
 
 test('buildBridgeClipReport summarizes completed failed and skipped bridge clips', () => {
   const report = __testables.buildBridgeClipReport([
-    { bridgeId: 'a', status: 'completed', provider: 'runway', model: 'gen4_turbo' },
-    { bridgeId: 'b', status: 'failed', provider: 'runway', model: 'gen4_turbo', failureCategory: 'provider_timeout' },
+    { bridgeId: 'a', status: 'completed', provider: 'sora2', model: 'sora_video2' },
+    { bridgeId: 'b', status: 'failed', provider: 'sora2', model: 'sora_video2', failureCategory: 'provider_timeout' },
     { bridgeId: 'c', status: 'skipped', provider: 'fallback_direct_cut', model: null },
   ]);
 
   assert.equal(report.generatedCount, 1);
   assert.equal(report.failedCount, 1);
   assert.equal(report.skippedCount, 1);
-  assert.deepEqual(report.providerBreakdown, { runway: 2, fallback_direct_cut: 1 });
+  assert.deepEqual(report.providerBreakdown, { sora2: 2, fallback_direct_cut: 1 });
 });

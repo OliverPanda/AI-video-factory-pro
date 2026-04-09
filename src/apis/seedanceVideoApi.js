@@ -54,14 +54,20 @@ function buildSequencePromptHint(shotPackage = {}) {
     null;
   switch (sequenceType) {
     case 'fight_exchange_sequence':
-      return 'continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent';
+      return 'continuous attack-and-defense exchange, preserve weapon path, keep body momentum coherent, match the incoming attack pose at the opening, and end on a readable defensive handoff';
     case 'chase_run_sequence':
-      return 'sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction';
+      return 'sustain forward chase momentum, keep acceleration coherent, avoid broken travel direction, open on the incoming run line, and exit with a stable forward handoff';
     case 'dialogue_move_sequence':
-      return 'sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity';
+      return 'sustain walking dialogue pressure, keep conversational pacing stable, maintain blocking continuity, keep the dialogue rhythm connected, and exit on a clean conversational handoff';
     default:
       return '';
   }
+}
+
+function normalizeStringArray(values) {
+  return Array.isArray(values)
+    ? values.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
 }
 
 function buildPromptText(shotPackage) {
@@ -71,15 +77,25 @@ function buildPromptText(shotPackage) {
     : Array.isArray(shotPackage?.audioBeatHints)
       ? shotPackage.audioBeatHints
       : [];
+  const continuityTargets = normalizeStringArray(providerRequestHints?.continuityTargets);
+  const preserveElements = normalizeStringArray(providerRequestHints?.preserveElements);
+  const hardContinuityRules = normalizeStringArray(providerRequestHints?.hardContinuityRules);
 
   return [
     shotPackage?.visualGoal || '',
+    providerRequestHints?.sequenceGoal ? `sequence goal: ${providerRequestHints.sequenceGoal}` : '',
     shotPackage?.sequenceContextSummary || '',
     buildSequencePromptHint(shotPackage),
+    providerRequestHints?.entryConstraint ? `entry anchor: ${providerRequestHints.entryConstraint}` : shotPackage?.entryFrameHint ? `entry anchor: ${shotPackage.entryFrameHint}` : '',
+    providerRequestHints?.exitConstraint ? `exit anchor: ${providerRequestHints.exitConstraint}` : shotPackage?.exitFrameHint ? `exit anchor: ${shotPackage.exitFrameHint}` : '',
+    continuityTargets.length > 0 ? `continuity locks: ${continuityTargets.join(', ')}` : shotPackage?.continuitySpec ? `continuity locks: ${shotPackage.continuitySpec}` : '',
+    preserveElements.length > 0 ? `preserve elements: ${preserveElements.join(', ')}` : '',
     shotPackage?.cameraSpec?.moveType ? `camera motion: ${shotPackage.cameraSpec.moveType}` : '',
     shotPackage?.cameraSpec?.framing ? `framing: ${shotPackage.cameraSpec.framing}` : '',
+    providerRequestHints?.cameraFlowIntent ? `camera flow intent: ${providerRequestHints.cameraFlowIntent}` : '',
     providerRequestHints?.referenceTier ? `reference tier: ${providerRequestHints.referenceTier}` : '',
     audioBeatHints.length > 0 ? `audio beat hints: ${audioBeatHints.join(', ')}` : '',
+    hardContinuityRules.length > 0 ? `hard continuity rules: ${hardContinuityRules.join('; ')}` : '',
   ]
     .filter(Boolean)
     .join('. ');

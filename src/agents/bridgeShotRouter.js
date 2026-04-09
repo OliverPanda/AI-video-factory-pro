@@ -28,7 +28,7 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
 
   if (planEntry.bridgeGenerationMode === 'first_last_keyframe') {
     return {
-      preferredProvider: planEntry.preferredProvider || 'runway',
+      preferredProvider: planEntry.preferredProvider || 'sora2',
       fallbackProviders: ['direct_cut'],
       providerCapabilityRequirement: 'first_last_keyframe',
       firstLastFrameMode: 'required',
@@ -36,7 +36,7 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
   }
 
   return {
-    preferredProvider: planEntry.preferredProvider || 'runway',
+    preferredProvider: planEntry.preferredProvider || 'sora2',
     fallbackProviders: ['direct_cut'],
     providerCapabilityRequirement: 'image_to_video',
     firstLastFrameMode: 'disabled',

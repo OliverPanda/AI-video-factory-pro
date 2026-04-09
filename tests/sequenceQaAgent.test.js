@@ -139,6 +139,41 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
   });
 });
 
+test('runSequenceQa allows modest duration compression for long multi-shot sequences', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'sequence-compressed.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const report = await runSequenceQa(
+      [
+        {
+          sequenceId: 'seq_compressed',
+          status: 'completed',
+          provider: 'sora2',
+          model: 'veo3.1-fast',
+          videoPath,
+          coveredShotIds: ['shot_101', 'shot_102', 'shot_103'],
+          targetDurationSec: 12,
+          actualDurationSec: 8,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 8 }),
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'pass',
+          continuityCheck: 'pass',
+        }),
+      }
+    );
+
+    assert.equal(report.status, 'pass');
+    assert.equal(report.entries[0].durationCheck, 'pass');
+    assert.equal(report.entries[0].finalDecision, 'pass');
+  });
+});
+
 test('runSequenceQa fails sequence clips whose coveredShotIds are too short duplicated or missing', async () => {
   await withTempRoot(async (tempRoot) => {
     const validVideoPath = path.join(tempRoot, 'invalid-coverage.mp4');
@@ -360,6 +395,44 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
     assert.equal(qaSummary.includes('人工复核'), true);
     assert.equal(qaSummary.includes('主要失败类型'), true);
     assert.equal(qaSummary.includes('entry_exit_mismatch'), true);
+  });
+});
+
+test('runSequenceQa sends soft entry-exit mismatches to manual review instead of hard fail', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'soft-entry-exit.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const [entry] = await __testables.evaluateSequenceClips(
+      [
+        {
+          sequenceId: 'seq_soft_entry_exit',
+          status: 'completed',
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          videoPath,
+          coveredShotIds: ['shot_050', 'shot_051'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+          failureCategory: null,
+          error: null,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 4 }),
+        evaluateSequenceContinuity: async () => ({
+          entryExitCheck: 'fail',
+          continuityCheck: 'pass',
+          entryExitDecisionReason: 'weak_exit_anchor',
+        }),
+      }
+    );
+
+    assert.equal(entry.finalDecision, 'manual_review');
+    assert.equal(entry.fallbackAction, 'manual_review');
+    assert.equal(entry.qaFailureCategory, 'manual_review_needed');
+    assert.equal(entry.recommendedAction, 'manual_review_and_select_best_variant');
+    assert.match(entry.notes, /weak_exit_anchor/);
   });
 });
 

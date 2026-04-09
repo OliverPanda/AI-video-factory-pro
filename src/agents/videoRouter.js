@@ -4,7 +4,11 @@ import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
 function resolvePreferredVideoProvider(options = {}) {
-  return options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  const rawProvider = options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
 }
 
 function buildProviderRequestHints({

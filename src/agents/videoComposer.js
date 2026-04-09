@@ -645,6 +645,16 @@ function normalizeDuration(duration) {
   return Number.isFinite(numericDuration) && numericDuration > 0 ? numericDuration : 0.1;
 }
 
+function isVideoBackedVisualType(visualType) {
+  return (
+    visualType === 'generated_video_clip' ||
+    visualType === 'animation_clip' ||
+    visualType === 'lipsync_clip' ||
+    visualType === 'bridge_clip' ||
+    visualType === 'sequence_clip'
+  );
+}
+
 export function buildCompositionPlan(
   shots,
   imageResults = [],
@@ -948,12 +958,7 @@ function createVisualSegments(plan, outputPath, options = {}) {
 
   const segmentJobs = buildVisualSegmentJobs(plan, tempDir);
   const tasks = segmentJobs.map((job) => {
-    if (
-      job.visualType === 'animation_clip' ||
-      job.visualType === 'lipsync_clip' ||
-      job.visualType === 'bridge_clip' ||
-      job.visualType === 'sequence_clip'
-    ) {
+    if (isVideoBackedVisualType(job.visualType)) {
       return transcodeAnimationClip(job, job.segmentPath).then(() => job.segmentPath);
     }
     return renderStaticImageSegment(job, job.segmentPath).then(() => job.segmentPath);
@@ -1160,6 +1165,7 @@ export const __testables = {
   escapeFilterPath,
   buildSubtitleFilterArg,
   escapeAssText,
+  isVideoBackedVisualType,
   normalizeLegacyShot,
   buildLegacyAssetBundle,
   adaptLegacyComposeInput,

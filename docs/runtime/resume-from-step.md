@@ -34,12 +34,29 @@ node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --d
 - 会删哪些 state 字段
 - 会清哪些文件
 - 当前缓存是否足够从目标步骤继续
+- 如果带了 `--run-id`，还会打印恢复模式、绑定的 `run-id`、snapshot 路径、复用参考图数
 
 ### 正式执行
 
 ```bash
 node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --style=realistic
 ```
+
+### 严格绑定某次历史 run 继续跑
+
+```bash
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --dry-run --style=realistic
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --style=realistic
+```
+
+当你显式传 `--run-id=<runJobId>` 时，这次恢复会进入“严格 run 绑定”模式：
+
+- 前置状态以该 run 的 `state.snapshot.json` 为恢复基线
+- live `state.json` 只是当前 job 的写入目标，不再作为前置输入来源
+- 从 `video` 及后续步骤恢复时，参考图必须来自该 run
+- 缺图、缺前置状态、或路径不属于该 run 时，命令会直接失败
+
+这套语义是为了避免“我想验证 run_id1 的图生视频，实际却混进了 run_id2 的图”这种错配。
 
 ### 只重置，不自动开跑
 
@@ -131,6 +148,13 @@ node scripts/resume-from-step.js --step=audio --project=demo-project --style=rea
 
 项目当前不是按“步骤号”恢复，而是按 `state.json` 里有没有缓存字段决定是否跳过。
 
+这里要分两种情况理解：
+
+- 没传 `--run-id`
+  仍是兼容语义，优先继续当前最新可恢复状态
+- 传了 `--run-id`
+  就进入严格绑定语义，只允许使用该 run 的 snapshot 和可验证产物
+
 例如：
 
 - 从 `lipsync` 继续时，会清掉：
@@ -206,6 +230,20 @@ flowchart TD
     F --> G[重新调用主流程]
 ```
 
+如果显式传了 `--run-id`，实际决策会变成：
+
+```mermaid
+flowchart TD
+    A[指定 --step 与 --run-id] --> B[读取对应 run 的 state.snapshot.json]
+    B --> C[检查前置缓存是否齐全]
+    C -->|不齐全| D[直接失败]
+    C -->|齐全| E[校验 imageResults 是否属于该 run]
+    E -->|不合法| D
+    E -->|合法| F[写回当前 job 的 live state]
+    F --> G[清理目标 step 及后续缓存]
+    G --> H[重新调用主流程]
+```
+
 ## 为什么指定了 `lipsync`，却又从更早步骤开始
 
 如果当前 `state.json` 里已经缺了前置缓存，例如：
@@ -218,6 +256,8 @@ flowchart TD
 
 脚本会主动输出 warning，告诉你缺了哪些前置缓存。
 
+如果你显式带了 `--run-id`，这里就不会再走 warning + 自动降级，而是直接失败。
+
 ## 推荐使用方式
 
 建议总是先跑一次：
@@ -227,3 +267,16 @@ node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --d
 ```
 
 确认计划没问题，再去掉 `--dry-run` 正式执行。
+
+如果你是在做历史 run 复盘，建议改成：
+
+```bash
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --dry-run
+```
+
+然后重点确认 4 件事：
+
+- 恢复模式是不是 `strict_run_binding`
+- 绑定的 `run-id` 对不对
+- snapshot 路径是不是你想要的那次 run
+- 复用参考图数是否符合预期

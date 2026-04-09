@@ -19,8 +19,8 @@ import { runLipsync } from './lipsyncAgent.js';
 import { planMotion } from './motionPlanner.js';
 import { planPerformance } from './performancePlanner.js';
 import { routeVideoShots } from './videoRouter.js';
-import { runRunwayVideo } from './runwayVideoAgent.js';
 import { runSeedanceVideo } from './seedanceVideoAgent.js';
+import { runSora2Video } from './sora2VideoAgent.js';
 import { runMotionEnhancer } from './motionEnhancer.js';
 import { runShotQa } from './shotQaAgent.js';
 import { planBridgeShots } from './bridgeShotPlanner.js';
@@ -188,7 +188,18 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
 }
 
 function getDefaultVideoProvider() {
-  return process.env.VIDEO_PROVIDER || 'seedance';
+  const rawProvider = process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+    return 'sora2';
+  }
+  return rawProvider;
+}
+
+function normalizeRuntimeVideoProvider(provider) {
+  if (provider === 'fallback_video' || provider === 'runway') {
+    return 'sora2';
+  }
+  return provider;
 }
 
 function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
@@ -210,6 +221,26 @@ function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
       status: result.status || 'completed',
       provider: result.provider || result.preferredProvider || getDefaultVideoProvider(),
     }));
+}
+
+function buildShotQaInputs(enhancedVideoResults = [], rawVideoResults = []) {
+  const rawByShotId = new Map((Array.isArray(rawVideoResults) ? rawVideoResults : []).map((entry) => [entry.shotId, entry]));
+  return (Array.isArray(enhancedVideoResults) ? enhancedVideoResults : []).map((entry) => {
+    const raw = rawByShotId.get(entry?.shotId) || {};
+    return {
+      ...entry,
+      shotId: entry?.shotId || raw?.shotId || null,
+      status: entry?.status || raw?.status || 'unknown',
+      videoPath: entry?.enhancedVideoPath || entry?.videoPath || entry?.sourceVideoPath || raw?.videoPath || null,
+      targetDurationSec: entry?.targetDurationSec || raw?.targetDurationSec || null,
+      actualDurationSec: entry?.actualDurationSec || raw?.actualDurationSec || null,
+      performanceTemplate: entry?.performanceTemplate || raw?.performanceTemplate || null,
+      preferredProvider: raw?.preferredProvider || raw?.provider || null,
+      provider: raw?.provider || raw?.preferredProvider || null,
+      failureCategory: entry?.failureCategory || raw?.failureCategory || null,
+      reason: entry?.reason || raw?.reason || null,
+    };
+  });
 }
 
 function buildBridgeClipBridge(bridgeShotPlan = [], bridgeClipResults = [], bridgeQaReport = null) {
@@ -555,6 +586,8 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     performancePlanner: 'Performance Planner',
     videoRouter: 'Video Router',
     runwayVideoAgent: 'Runway Video Agent',
+    sora2VideoAgent: 'Fallback Video Adapter',
+    fallbackVideoAgent: 'Fallback Video Adapter',
     seedanceVideoAgent: 'Seedance Video Agent',
     motionEnhancer: 'Motion Enhancer',
     shotQaAgent: 'Shot QA Agent',
@@ -583,6 +616,8 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'performancePlanner',
     'videoRouter',
     'runwayVideoAgent',
+    'sora2VideoAgent',
+    'fallbackVideoAgent',
     'seedanceVideoAgent',
     'motionEnhancer',
     'shotQaAgent',
@@ -690,8 +725,8 @@ export function createDirector(overrides = {}) {
     planMotion,
     planPerformance,
     routeVideoShots,
-    runRunwayVideo,
     runSeedanceVideo,
+    runSora2Video,
     runMotionEnhancer,
     runShotQa,
     planBridgeShots,
@@ -1264,12 +1299,16 @@ export function createDirector(overrides = {}) {
               const requestedVideoProvider = getDefaultVideoProvider();
               const requestedProviders = new Set(
                 (Array.isArray(shotPackages) ? shotPackages : [])
-                  .map((item) => item?.preferredProvider)
+                  .map((item) => normalizeRuntimeVideoProvider(item?.preferredProvider))
                   .filter((provider) => provider && provider !== 'static_image')
               );
+              const shouldRunProvider = (provider) =>
+                requestedProviders.size > 0
+                  ? requestedProviders.has(provider)
+                  : requestedVideoProvider === provider;
               const providersToRun = [];
 
-              if (requestedProviders.has('seedance') || requestedVideoProvider === 'seedance') {
+              if (shouldRunProvider('seedance')) {
                 providersToRun.push({
                   provider: 'seedance',
                   runner: deps.runSeedanceVideo,
@@ -1277,11 +1316,11 @@ export function createDirector(overrides = {}) {
                 });
               }
 
-              if (requestedProviders.has('runway') || requestedVideoProvider === 'runway') {
+              if (shouldRunProvider('sora2')) {
                 providersToRun.push({
-                  provider: 'runway',
-                  runner: deps.runRunwayVideo,
-                  artifactContext: artifactContext.agents.runwayVideoAgent,
+                  provider: 'sora2',
+                  runner: deps.runSora2Video,
+                  artifactContext: artifactContext.agents.sora2VideoAgent,
                 });
               }
 
@@ -1332,8 +1371,9 @@ export function createDirector(overrides = {}) {
         let videoResults = Array.isArray(state.videoResults) ? state.videoResults : null;
         if (!shotQaReport || !videoResults) {
           deps.logger.info('Director', '【Step 11/13】镜头级 QA...');
+          const shotQaInputs = buildShotQaInputs(enhancedVideoResults, rawVideoResults);
           shotQaReport = await recordStep('shot_qa', { message: '镜头级 QA' }, () =>
-            deps.runShotQa(enhancedVideoResults, {
+            deps.runShotQa(shotQaInputs, {
               artifactContext: artifactContext.agents.shotQaAgent,
             })
           );
@@ -1980,6 +2020,7 @@ export function createRunPipeline(overrides = {}) {
 export const __testables = {
   collectRunQaOverview,
   initializePhase4SequenceState,
+  buildShotQaInputs,
 };
 
 export const runEpisodePipeline = director.runEpisodePipeline;

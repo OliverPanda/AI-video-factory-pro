@@ -62,6 +62,8 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'performancePlanner',
       'videoRouter',
       'runwayVideoAgent',
+      'sora2VideoAgent',
+      'fallbackVideoAgent',
       'seedanceVideoAgent',
       'motionEnhancer',
       'shotQaAgent',
@@ -137,6 +139,7 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       metricsDir: path.join(ctx.runDir, '01-script-parser', '2-metrics'),
       errorsDir: path.join(ctx.runDir, '01-script-parser', '3-errors'),
     });
+    assert.equal(ctx.agents.fallbackVideoAgent, ctx.agents.sora2VideoAgent);
   });
 });
 
@@ -197,4 +200,57 @@ test('collectRunQaOverview includes bridge and sequence agents in qa counts', ()
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('buildShotQaInputs bridges enhanced video outputs into shot QA consumable fields', () => {
+  const inputs = directorTestables.buildShotQaInputs(
+    [
+      {
+        shotId: 'shot_001',
+        status: 'completed',
+        enhancedVideoPath: '/tmp/shot_001_enhanced.mp4',
+        sourceVideoPath: '/tmp/shot_001_raw.mp4',
+      },
+      {
+        shotId: 'shot_002',
+        status: 'skipped',
+        enhancedVideoPath: null,
+        sourceVideoPath: null,
+      },
+    ],
+    [
+      {
+        shotId: 'shot_001',
+        provider: 'sora2',
+        preferredProvider: 'sora2',
+        targetDurationSec: 4,
+        actualDurationSec: 10,
+      },
+      {
+        shotId: 'shot_002',
+        provider: 'sora2',
+        preferredProvider: 'sora2',
+        targetDurationSec: 6,
+        failureCategory: 'provider_generation_failed',
+      },
+    ]
+  );
+
+  assert.deepEqual(inputs[0], {
+    shotId: 'shot_001',
+    status: 'completed',
+    enhancedVideoPath: '/tmp/shot_001_enhanced.mp4',
+    sourceVideoPath: '/tmp/shot_001_raw.mp4',
+    videoPath: '/tmp/shot_001_enhanced.mp4',
+    targetDurationSec: 4,
+    actualDurationSec: 10,
+    performanceTemplate: null,
+    preferredProvider: 'sora2',
+    provider: 'sora2',
+    failureCategory: null,
+    reason: null,
+  });
+  assert.equal(inputs[1].videoPath, null);
+  assert.equal(inputs[1].targetDurationSec, 6);
+  assert.equal(inputs[1].failureCategory, 'provider_generation_failed');
 });
