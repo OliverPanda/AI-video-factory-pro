@@ -60,6 +60,132 @@ function createAgentContext(runDir, agentDirName) {
   };
 }
 
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function normalizeList(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+}
+
+function normalizeStepList(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === 'string') {
+        return normalizeText(item);
+      }
+      return normalizeText(item?.step || item?.name || item?.agentName || item?.label);
+    })
+    .filter(Boolean);
+}
+
+function normalizeArtifactRef(item) {
+  if (!item) {
+    return null;
+  }
+
+  if (typeof item === 'string') {
+    const pathValue = normalizeText(item);
+    if (!pathValue) return null;
+    return {
+      path: pathValue,
+      label: path.basename(pathValue),
+      kind: 'file',
+    };
+  }
+
+  const pathValue =
+    normalizeText(item.path) ||
+    normalizeText(item.uri) ||
+    normalizeText(item.filePath) ||
+    normalizeText(item.outputPath) ||
+    null;
+  const label =
+    normalizeText(item.label) ||
+    normalizeText(item.name) ||
+    (pathValue ? path.basename(pathValue) : '');
+
+  if (!pathValue && !label) {
+    return null;
+  }
+
+  return {
+    kind: normalizeText(item.kind) || 'file',
+    path: pathValue,
+    label,
+    summary: normalizeText(item.summary) || '',
+  };
+}
+
+export function normalizeHarnessArtifacts(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => normalizeArtifactRef(item))
+    .filter(Boolean);
+}
+
+export function normalizeHarnessAgentSummary(summary = {}) {
+  const nextActions = normalizeList(summary.nextActions || (summary.nextAction ? [summary.nextAction] : []));
+  const artifacts = normalizeHarnessArtifacts(summary.artifacts || summary.evidenceFiles || []);
+  const status = normalizeText(summary.status) || 'pass';
+
+  return {
+    agentKey: normalizeText(summary.agentKey) || null,
+    agentName: normalizeText(summary.agentName) || '',
+    status,
+    headline: normalizeText(summary.headline) || '',
+    summary: normalizeText(summary.summary) || '',
+    passItems: normalizeList(summary.passItems),
+    warnItems: normalizeList(summary.warnItems),
+    blockItems: normalizeList(summary.blockItems),
+    nextActions,
+    nextAction: nextActions[0] || '',
+    evidenceFiles: normalizeList(summary.evidenceFiles),
+    artifacts,
+    inputSnapshot: summary.inputSnapshot ?? null,
+    outputSnapshot: summary.outputSnapshot ?? null,
+    metrics: summary.metrics || {},
+  };
+}
+
+export function normalizeHarnessRunOverview(overview = {}) {
+  return {
+    status: normalizeText(overview.status) || 'pass',
+    releasable: overview.releasable !== false,
+    headline: normalizeText(overview.headline) || '',
+    summary: normalizeText(overview.summary) || '',
+    passCount: Number(overview.passCount || 0),
+    warnCount: Number(overview.warnCount || 0),
+    blockCount: Number(overview.blockCount || 0),
+    agentSummaries: Array.isArray(overview.agentSummaries)
+      ? overview.agentSummaries.map((item) => normalizeHarnessAgentSummary(item))
+      : [],
+    topIssues: normalizeList(overview.topIssues),
+    runDebug: normalizeHarnessRunDebug(overview.runDebug),
+  };
+}
+
+export function normalizeHarnessRunDebug(runDebug = {}) {
+  return {
+    status: normalizeText(runDebug.status) || 'unknown',
+    stopStage: normalizeText(runDebug.stopStage) || '',
+    stopReason: normalizeText(runDebug.stopReason) || '',
+    whereFailed: normalizeText(runDebug.whereFailed) || '',
+    lastError: normalizeText(runDebug.lastError) || '',
+    completedAt: normalizeText(runDebug.completedAt) || '',
+    failedAt: normalizeText(runDebug.failedAt) || '',
+    stoppedBeforeVideoAt: normalizeText(runDebug.stoppedBeforeVideoAt) || '',
+    previewOutputPath: normalizeText(runDebug.previewOutputPath) || '',
+    cachedSteps: normalizeStepList(runDebug.cachedSteps),
+    skippedSteps: normalizeStepList(runDebug.skippedSteps),
+    retriedSteps: normalizeStepList(runDebug.retriedSteps),
+    manualReviewSteps: normalizeStepList(runDebug.manualReviewSteps),
+    failedSteps: normalizeStepList(runDebug.failedSteps),
+    retriedCount: Number(runDebug.retriedCount || 0),
+  };
+}
+
 export function createRunArtifactContext(input) {
   const baseTempDir = input?.baseTempDir || './temp';
   const projectDir = ensureDir(
@@ -176,4 +302,8 @@ export default {
   initializeRunArtifacts,
   adoptAgentArtifacts,
   AGENT_ARTIFACT_LAYOUT,
+  normalizeHarnessAgentSummary,
+  normalizeHarnessRunOverview,
+  normalizeHarnessRunDebug,
+  normalizeHarnessArtifacts,
 };

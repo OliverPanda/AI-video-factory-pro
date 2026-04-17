@@ -783,6 +783,78 @@ function readSeedancePromptMetrics(loadJSONFn, artifactContext) {
   );
 }
 
+function normalizeRunDebugText(value) {
+  return String(value || '').trim();
+}
+
+function buildRunDebugSignals({ runJob = null, stateSnapshot = null, agentSummaries = [] } = {}) {
+  const agentTaskRuns = Array.isArray(runJob?.agentTaskRuns) ? runJob.agentTaskRuns : [];
+  const stepCounts = new Map();
+
+  for (const taskRun of agentTaskRuns) {
+    const step = String(taskRun?.step || '').trim();
+    if (!step) {
+      continue;
+    }
+    stepCounts.set(step, (stepCounts.get(step) || 0) + 1);
+  }
+
+  const cachedSteps = agentTaskRuns.filter((item) => item?.status === 'cached').map((item) => item.step);
+  const skippedSteps = agentTaskRuns.filter((item) => item?.status === 'skipped').map((item) => item.step);
+  const failedSteps = agentTaskRuns.filter((item) => item?.status === 'failed').map((item) => item.step);
+  const manualReviewSteps = agentTaskRuns.filter((item) => item?.status === 'manual_review').map((item) => item.step);
+  const retriedSteps = [...stepCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([step]) => step);
+  const failedAgentSummaries = Array.isArray(agentSummaries)
+    ? agentSummaries.filter((item) => item?.status === 'block').map((item) => item.agentName || item.agentKey || 'unknown')
+    : [];
+  const manualReviewAgentSummaries = Array.isArray(agentSummaries)
+    ? agentSummaries.filter((item) => {
+        if (item?.status !== 'warn') {
+          return false;
+        }
+        const nextActions = Array.isArray(item?.nextActions) ? item.nextActions : [];
+        const warningText = `${item.headline || ''} ${item.summary || ''} ${nextActions.join(' ')}`;
+        return /人工复核|manual review/i.test(warningText) || Number(item?.metrics?.manualReviewCount || 0) > 0;
+      }).map((item) => item.agentName || item.agentKey || 'unknown')
+    : [];
+
+  const stopStage =
+    failedSteps[0] ||
+    failedAgentSummaries[0] ||
+    (stateSnapshot?.stoppedBeforeVideoAt ? 'stop_before_video' : '') ||
+    '';
+  const stopReason =
+    normalizeRunDebugText(stateSnapshot?.lastError) ||
+    normalizeRunDebugText(runJob?.error) ||
+    (stateSnapshot?.stoppedBeforeVideoAt ? 'stopped_before_video' : '') ||
+    (stateSnapshot?.pipelineSummary?.seedance_inference_delivery_gate === 'block_formal_delivery'
+      ? 'seedance_inference_gate'
+      : '') ||
+    '';
+
+  return {
+    status:
+      normalizeRunDebugText(runJob?.status) ||
+      (normalizeRunDebugText(stateSnapshot?.lastError) ? 'failed' : normalizeRunDebugText(stateSnapshot?.completedAt) ? 'completed' : 'running'),
+    stopStage,
+    stopReason,
+    whereFailed: stopStage,
+    lastError: normalizeRunDebugText(stateSnapshot?.lastError) || normalizeRunDebugText(runJob?.error) || '',
+    completedAt: normalizeRunDebugText(stateSnapshot?.completedAt) || normalizeRunDebugText(runJob?.finishedAt) || '',
+    failedAt: normalizeRunDebugText(stateSnapshot?.failedAt) || '',
+    stoppedBeforeVideoAt: normalizeRunDebugText(stateSnapshot?.stoppedBeforeVideoAt) || '',
+    previewOutputPath: normalizeRunDebugText(stateSnapshot?.previewOutputPath) || '',
+    cachedSteps,
+    skippedSteps,
+    retriedSteps,
+    manualReviewSteps: [...new Set([...manualReviewSteps, ...manualReviewAgentSummaries])],
+    failedSteps: [...new Set([...failedSteps, ...failedAgentSummaries])],
+    retriedCount: retriedSteps.length,
+  };
+}
+
 function buildSeedanceInferenceTopIssues(seedancePromptMetrics = null) {
   if (!seedancePromptMetrics) {
     return [];
@@ -851,6 +923,19 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
   if (!artifactContext?.agents) {
     return null;
   }
+
+  const runManifest = readJSONSafe(loadJSONFn, artifactContext.manifestPath, null);
+  const stateSnapshot = artifactContext.runDir
+    ? readJSONSafe(loadJSONFn, path.join(artifactContext.runDir, 'state.snapshot.json'), null)
+    : null;
+  const runJob = runManifest?.runJobId
+    && artifactContext.episodeDir
+    ? readJSONSafe(
+        loadJSONFn,
+        path.join(artifactContext.episodeDir, 'run-jobs', `${runManifest.runJobId}.json`),
+        null
+      )
+    : null;
 
   const agentNameMap = {
     scriptParser: 'Script Parser',
@@ -936,8 +1021,12 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
         passItems: [],
         warnItems: [],
         blockItems: [],
+        nextActions: ['如需详细判断，请继续查看该 agent 的 manifest 和核心产物。'],
         nextAction: '如需详细判断，请继续查看该 agent 的 manifest 和核心产物。',
         evidenceFiles: ['manifest.json'],
+        artifacts: [{ path: 'manifest.json', label: 'manifest.json', kind: 'file' }],
+        inputSnapshot: null,
+        outputSnapshot: null,
         metrics: {},
       };
     })
@@ -985,6 +1074,11 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
   const summaryWithContext = options.summaryAppend
     ? `${summary} ${options.summaryAppend}`.trim()
     : summary;
+  const runDebug = buildRunDebugSignals({
+    runJob,
+    stateSnapshot,
+    agentSummaries,
+  });
 
   return {
     status,
@@ -996,6 +1090,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     blockCount,
     agentSummaries,
     topIssues,
+    runDebug,
   };
 }
 

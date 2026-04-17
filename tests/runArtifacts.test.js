@@ -5,7 +5,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
-import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
+import {
+  createRunArtifactContext,
+  normalizeHarnessAgentSummary,
+  normalizeHarnessRunOverview,
+} from '../src/utils/runArtifacts.js';
+import { writeAgentQaSummary, writeRunQaOverview } from '../src/utils/qaSummary.js';
 import { __testables as directorTestables } from '../src/agents/director.js';
 
 function withTempRoot(fn) {
@@ -204,6 +209,183 @@ test('collectRunQaOverview includes bridge and sequence agents in qa counts', ()
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('normalizeHarnessAgentSummary and normalizeHarnessRunOverview expose harness-friendly fields', () => {
+  const agentSummary = normalizeHarnessAgentSummary({
+    agentKey: 'ttsAgent',
+    agentName: 'TTS Agent',
+    status: 'warn',
+    headline: '有 1 个对白失败',
+    summary: '需要复查',
+    nextAction: '查看错误文件',
+    evidenceFiles: ['0-inputs/voice-resolution.json'],
+    artifacts: [
+      { path: '0-inputs/voice-resolution.json', label: 'voice-resolution.json' },
+    ],
+    metrics: { failureCount: 1 },
+  });
+
+  assert.deepEqual(agentSummary.nextActions, ['查看错误文件']);
+  assert.equal(agentSummary.nextAction, '查看错误文件');
+  assert.equal(agentSummary.artifacts[0].label, 'voice-resolution.json');
+  assert.equal(agentSummary.artifacts[0].path, '0-inputs/voice-resolution.json');
+
+  const runOverview = normalizeHarnessRunOverview({
+    status: 'warn',
+    releasable: true,
+    headline: '有风险但可继续',
+    summary: '需要留意',
+    agentSummaries: [agentSummary],
+    topIssues: ['TTS Agent: 有 1 个对白失败'],
+  });
+
+  assert.equal(runOverview.agentSummaries[0].nextActions[0], '查看错误文件');
+  assert.equal(runOverview.agentSummaries[0].artifacts[0].label, 'voice-resolution.json');
+  assert.equal(runOverview.topIssues[0], 'TTS Agent: 有 1 个对白失败');
+});
+
+test('writeAgentQaSummary and writeRunQaOverview persist normalized observation contracts', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_123',
+      projectName: '咖啡馆相遇',
+      scriptId: 'script_001',
+      scriptTitle: '第一卷',
+      episodeId: 'episode_001',
+      episodeTitle: '试播集',
+      episodeNo: 1,
+      runJobId: 'run_abc',
+      startedAt: '2026-04-01T09:00:00.000Z',
+    });
+
+    const agentPayload = writeAgentQaSummary(
+      {
+        agentKey: 'ttsAgent',
+        agentName: 'TTS Agent',
+        status: 'warn',
+        headline: '有 1 个对白失败',
+        summary: '需要复查',
+        nextAction: '查看错误文件',
+        evidenceFiles: ['0-inputs/voice-resolution.json'],
+        artifacts: [{ path: '0-inputs/voice-resolution.json', label: 'voice-resolution.json' }],
+        metrics: { failureCount: 1 },
+      },
+      ctx.agents.ttsAgent
+    );
+
+    assert.deepEqual(agentPayload.nextActions, ['查看错误文件']);
+    assert.equal(agentPayload.artifacts[0].label, 'voice-resolution.json');
+    assert.equal(
+      fs.existsSync(path.join(ctx.agents.ttsAgent.outputsDir, 'qa-summary.md')),
+      true
+    );
+    assert.equal(
+      fs.existsSync(path.join(ctx.agents.ttsAgent.metricsDir, 'qa-summary.json')),
+      true
+    );
+
+    const overviewPayload = writeRunQaOverview(
+      {
+        status: 'warn',
+        releasable: true,
+        headline: '有风险但可继续',
+        summary: '需要留意',
+        agentSummaries: [agentPayload],
+        topIssues: ['TTS Agent: 有 1 个对白失败'],
+      },
+      ctx
+    );
+
+    assert.equal(overviewPayload.agentSummaries[0].nextActions[0], '查看错误文件');
+    assert.equal(overviewPayload.agentSummaries[0].artifacts[0].label, 'voice-resolution.json');
+    assert.equal(fs.existsSync(path.join(ctx.runDir, 'qa-overview.json')), true);
+    assert.equal(fs.existsSync(path.join(ctx.runDir, 'qa-overview.md')), true);
+  });
+});
+
+test('collectRunQaOverview surfaces run debug signals from state snapshot and run job history', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_123',
+      projectName: '咖啡馆相遇',
+      scriptId: 'script_001',
+      scriptTitle: '第一卷',
+      episodeId: 'episode_001',
+      episodeTitle: '试播集',
+      episodeNo: 1,
+      runJobId: 'run_abc',
+      startedAt: '2026-04-01T09:00:00.000Z',
+    });
+
+    const runManifest = {
+      runJobId: 'run_abc',
+    };
+    fs.writeFileSync(path.join(ctx.runDir, 'manifest.json'), JSON.stringify(runManifest, null, 2));
+    fs.mkdirSync(path.join(ctx.episodeDir, 'run-jobs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(ctx.episodeDir, 'run-jobs', 'run_abc.json'),
+      JSON.stringify(
+        {
+          id: 'run_abc',
+          projectId: 'project_123',
+          scriptId: 'script_001',
+          episodeId: 'episode_001',
+          jobId: 'job_abc',
+          status: 'failed',
+          agentTaskRuns: [
+            { id: 'run_abc_generate_character_ref_sheets', step: 'generate_character_ref_sheets', agent: 'director', status: 'failed', detail: '生成角色三视图参考纸', error: '角色三视图生成失败' },
+            { id: 'run_abc_route_video_shots', step: 'route_video_shots', agent: 'director', status: 'cached', detail: '使用缓存的视频路由结果', error: null },
+            { id: 'run_abc_preflight_qa', step: 'preflight_qa', agent: 'director', status: 'skipped', detail: '已停止在视频生成前', error: null },
+            { id: 'run_abc_sequence_qa', step: 'sequence_qa', agent: 'director', status: 'manual_review', detail: 'sequence 需要人工复核', error: null },
+          ],
+        },
+        null,
+        2
+      )
+    );
+    fs.writeFileSync(
+      path.join(ctx.runDir, 'state.snapshot.json'),
+      JSON.stringify(
+        {
+          lastError: '角色三视图生成失败',
+          failedAt: '2026-04-01T09:20:00.000Z',
+          stoppedBeforeVideoAt: '2026-04-01T09:10:00.000Z',
+          previewOutputPath: '/tmp/preview/final-video.mp4',
+          completedAt: '',
+          pipelineSummary: {
+            seedance_inference_delivery_gate: 'block_formal_delivery',
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const overview = directorTestables.collectRunQaOverview(
+      () => null,
+      ctx,
+      { releasable: false }
+    );
+
+    assert.equal(overview.status, 'block');
+    assert.deepEqual(overview.runDebug.cachedSteps, ['route_video_shots']);
+    assert.deepEqual(overview.runDebug.skippedSteps, ['preflight_qa']);
+    assert.deepEqual(overview.runDebug.failedSteps, ['generate_character_ref_sheets']);
+    assert.deepEqual(overview.runDebug.manualReviewSteps, ['sequence_qa']);
+    assert.equal(overview.runDebug.whereFailed, 'generate_character_ref_sheets');
+    assert.equal(overview.runDebug.stopReason, '角色三视图生成失败');
+    assert.equal(overview.runDebug.previewOutputPath, '/tmp/preview/final-video.mp4');
+
+    const written = writeRunQaOverview(overview, ctx);
+    assert.deepEqual(written.runDebug.cachedSteps, ['route_video_shots']);
+    const markdown = fs.readFileSync(path.join(ctx.runDir, 'qa-overview.md'), 'utf-8');
+    assert.match(markdown, /Run Debug Signals/);
+    assert.match(markdown, /卡点步骤: generate_character_ref_sheets/);
+    assert.match(markdown, /缓存步骤: route_video_shots/);
+  });
 });
 
 test('buildShotQaInputs bridges enhanced video outputs into shot QA consumable fields', () => {

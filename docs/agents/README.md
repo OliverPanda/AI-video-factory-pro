@@ -30,6 +30,14 @@ Director 还会在 run 根目录再聚合：
 - `qa-overview.md`
 - `qa-overview.json`
 
+`qa-overview.md` 现在还会额外写一段 `Run Debug Signals`，直接告诉你：
+
+- 卡在哪一步
+- 哪些步骤是缓存复用
+- 哪些步骤被跳过
+- 哪些步骤需要人工复核
+- 这轮是提前停在视频前，还是跑到最终合成才失败
+
 如果只想先判断“这一轮能不能交付、最该先看哪里”，建议先看这两层摘要。
 
 ## 模块分层视图
@@ -115,6 +123,8 @@ Director 还会在 run 根目录再聚合：
 8. `Bridge Shot Planner -> Bridge Shot Router -> Bridge Clip Generator -> Bridge QA Agent` 只在高风险 cut 上按需触发。
 9. `Action Sequence Planner -> Action Sequence Router -> Sequence Clip Generator -> Sequence QA Agent` 只在高价值连续动作段上按需触发，默认沿用当前 `Seedance` 主视频 provider，显式 `fallback video` 仍兼容，内部仍映射到 `sora2` runtime branch。
 10. `Video Composer` 消费 `sequenceClips + videoResults + bridgeClips + lipsyncResults + animationClips + imageResults` 完成合成。
+
+如果在 `Character Ref Sheet Generator` 这里失败，后续链路会直接停，不再继续烧视频或音频成本。
 
 ## Phase 4 新增的排查入口
 

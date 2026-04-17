@@ -355,6 +355,7 @@ node --test tests/actionSequenceRouter.test.js tests/seedanceVideoApi.test.js te
 ### QA 快速查看口
 
 - 优先看 run 根目录的 `qa-overview.md`
+- `qa-overview.md` 里的 `Run Debug Signals` 会直接告诉你卡在哪一步、哪些步骤是缓存、哪些被跳过、哪些需要人工复核
 - 看最终 `delivery-summary.md` 判断整轮是否通过、哪些 sequence 回退
 - 做真实样本调优时，配合 [Sequence 调优 Checklist](docs/sop/2026-04-06-phase4-sequence-tuning-checklist.md)
 
