@@ -54,7 +54,47 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec, coveredShotI
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
 }
 
-function defaultEvaluateSequenceContinuity() {
+function buildSequenceContextMap(sequenceEntries = []) {
+  return new Map(
+    normalizeArray(sequenceEntries)
+      .filter((entry) => entry?.sequenceId)
+      .map((entry) => [entry.sequenceId, entry])
+  );
+}
+
+function defaultEvaluateSequenceContinuity(result, options = {}) {
+  const sequenceContext =
+    buildSequenceContextMap(options.actionSequencePackages).get(result?.sequenceId) ||
+    buildSequenceContextMap(options.actionSequencePlan).get(result?.sequenceId) ||
+    {};
+  const continuityTargets = normalizeArray(sequenceContext.continuityTargets)
+    .concat(normalizeArray(sequenceContext.motionContinuityTargets))
+    .concat(normalizeArray(sequenceContext.subjectContinuityTargets))
+    .concat(normalizeArray(sequenceContext.environmentContinuityTargets))
+    .filter(Boolean);
+  const hasEntryConstraint = Boolean(String(sequenceContext.entryConstraint || '').trim());
+  const hasExitConstraint = Boolean(String(sequenceContext.exitConstraint || '').trim());
+  const hasSequenceGoal = Boolean(
+    String(sequenceContext.sequenceContextSummary || sequenceContext.sequenceGoal || '').trim()
+  );
+
+  if (!hasSequenceGoal || continuityTargets.length < 2) {
+    return {
+      entryExitCheck: hasEntryConstraint && hasExitConstraint ? 'warn' : 'fail',
+      continuityCheck: continuityTargets.length === 0 ? 'fail' : 'warn',
+      entryExitDecisionReason: hasEntryConstraint && hasExitConstraint ? 'entry_exit_needs_manual_review' : 'soft_entry_exit_mismatch',
+      continuityDecisionReason: continuityTargets.length === 0 ? 'continuity_metadata_missing' : 'continuity_metadata_weak',
+    };
+  }
+
+  if (!hasEntryConstraint || !hasExitConstraint) {
+    return {
+      entryExitCheck: 'warn',
+      continuityCheck: 'pass',
+      entryExitDecisionReason: 'entry_exit_needs_manual_review',
+    };
+  }
+
   return {
     entryExitCheck: 'pass',
     continuityCheck: 'pass',
@@ -306,7 +346,7 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
     options.evaluateContinuity ||
     options.evaluateSequenceRules ||
     options.evaluator ||
-    (async () => defaultEvaluateSequenceContinuity());
+    (async (result, context) => defaultEvaluateSequenceContinuity(result, context));
   const { referenceContext, videoResults, bridgeClipResults } = buildReferenceContext(options);
   const shots = normalizeArray(options.shots);
 
@@ -407,7 +447,7 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
       let continuityEvaluation;
       try {
         continuityEvaluation = {
-          ...defaultEvaluateSequenceContinuity(),
+          ...defaultEvaluateSequenceContinuity(result, options),
           ...(await evaluateSequenceContinuity(result, {
             ...options,
             probeResult,

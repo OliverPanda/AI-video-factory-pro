@@ -28,6 +28,7 @@
     "test:tts-agent:prod:keep-artifacts": "node scripts/run-agent-prod-tests.js tts-agent --keep-artifacts",
     "test:tts-qa:prod": "node scripts/run-agent-prod-tests.js tts-qa",
     "test:tts-qa:prod:keep-artifacts": "node scripts/run-agent-prod-tests.js tts-qa --keep-artifacts",
+    "tts:preview": "node scripts/preview-tts-samples.js",
     "test:lipsync-agent:prod": "node scripts/run-agent-prod-tests.js lipsync-agent",
     "test:lipsync-agent:prod:keep-artifacts": "node scripts/run-agent-prod-tests.js lipsync-agent --keep-artifacts",
     "test:video-composer:prod": "node scripts/run-agent-prod-tests.js video-composer",

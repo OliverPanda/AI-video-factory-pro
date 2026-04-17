@@ -24,7 +24,46 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec) {
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
 }
 
-function defaultContinuityEvaluation() {
+function normalizeStringArray(values) {
+  return Array.isArray(values)
+    ? values.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
+}
+
+function buildBridgePlanMap(bridgeShotPlan = []) {
+  return new Map(
+    (Array.isArray(bridgeShotPlan) ? bridgeShotPlan : [])
+      .filter((entry) => entry?.bridgeId)
+      .map((entry) => [entry.bridgeId, entry])
+  );
+}
+
+function defaultContinuityEvaluation(result, options = {}) {
+  const planEntry = buildBridgePlanMap(options.bridgeShotPlan).get(result?.bridgeId) || {};
+  const subjectTargets = normalizeStringArray(planEntry.subjectContinuityTargets);
+  const environmentTargets = normalizeStringArray(planEntry.environmentContinuityTargets);
+  const continuityAnchorCount = subjectTargets.length + environmentTargets.length;
+  const hasBridgeGoal = Boolean(String(planEntry.bridgeGoal || '').trim());
+  const hasCameraIntent = Boolean(String(planEntry.cameraTransitionIntent || '').trim());
+
+  if (!hasBridgeGoal || continuityAnchorCount === 0) {
+    return {
+      continuityStatus: 'warn',
+      transitionSmoothness: 'warn',
+      identityDriftRisk: 'medium',
+      cameraAxisStatus: hasCameraIntent ? 'warn' : 'fail',
+    };
+  }
+
+  if (continuityAnchorCount < 2 || !hasCameraIntent) {
+    return {
+      continuityStatus: 'warn',
+      transitionSmoothness: 'warn',
+      identityDriftRisk: continuityAnchorCount === 0 ? 'high' : 'medium',
+      cameraAxisStatus: hasCameraIntent ? 'warn' : 'fail',
+    };
+  }
+
   return {
     continuityStatus: 'pass',
     transitionSmoothness: 'pass',
@@ -77,7 +116,7 @@ function decideFinalAction(continuityEvaluation) {
 export async function evaluateBridgeClips(bridgeClipResults = [], options = {}) {
   const entries = [];
   const probe = options.probeVideo || probeVideo;
-  const evaluateContinuity = options.evaluateContinuity || (async () => defaultContinuityEvaluation());
+  const evaluateContinuity = options.evaluateContinuity || (async (result, context) => defaultContinuityEvaluation(result, context));
 
   for (const result of bridgeClipResults) {
     if (result.status !== 'completed' || !result.videoPath) {
@@ -132,7 +171,7 @@ export async function evaluateBridgeClips(bridgeClipResults = [], options = {}) 
       }
 
       const continuityEvaluation = {
-        ...defaultContinuityEvaluation(),
+        ...defaultContinuityEvaluation(result, options),
         ...(await evaluateContinuity(result, options)),
       };
       const finalDecision = decideFinalAction(continuityEvaluation);

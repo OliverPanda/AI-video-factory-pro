@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { findCharacterByIdentity, resolveCharacterIdentity } from './characterRegistry.js';
+import { buildSeedancePromptPackages } from './seedancePromptAgent.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
@@ -19,6 +21,27 @@ function buildProviderRequestHints({
   performanceEntry,
   hasReferenceImage,
 }) {
+  const continuityTargets = [
+    motionEntry?.storyBeat || performanceEntry?.storyBeat || null,
+    motionEntry?.spaceAnchor || performanceEntry?.spaceAnchor ? `space:${motionEntry?.spaceAnchor || performanceEntry?.spaceAnchor}` : null,
+    (motionEntry?.screenDirection || performanceEntry?.screenDirection) &&
+    (motionEntry?.screenDirection || performanceEntry?.screenDirection) !== 'unspecified'
+      ? `screen_direction:${motionEntry?.screenDirection || performanceEntry?.screenDirection}`
+      : null,
+  ].filter(Boolean);
+  const hardContinuityRules = [
+    motionEntry?.spaceAnchor || performanceEntry?.spaceAnchor
+      ? `keep the shot grounded in ${motionEntry?.spaceAnchor || performanceEntry?.spaceAnchor}`
+      : null,
+    (motionEntry?.screenDirection || performanceEntry?.screenDirection) &&
+    (motionEntry?.screenDirection || performanceEntry?.screenDirection) !== 'unspecified'
+      ? `preserve subject travel and facing direction toward ${motionEntry?.screenDirection || performanceEntry?.screenDirection}`
+      : null,
+    motionEntry?.storyBeat || performanceEntry?.storyBeat
+      ? `open on the incoming beat and end on a readable handoff for ${motionEntry?.storyBeat || performanceEntry?.storyBeat}`
+      : null,
+  ].filter(Boolean);
+
   return {
     shotId: shot.id,
     scene: shot.scene || null,
@@ -30,7 +53,46 @@ function buildProviderRequestHints({
     requestedRatio: motionEntry?.cameraSpec?.ratio || null,
     requestedMoveType: motionEntry?.cameraSpec?.moveType || null,
     referenceImagePath: imageResult?.imagePath || null,
+    storyBeat: motionEntry?.storyBeat || performanceEntry?.storyBeat || null,
+    screenDirection: motionEntry?.screenDirection || performanceEntry?.screenDirection || 'unspecified',
+    spaceAnchor: motionEntry?.spaceAnchor || performanceEntry?.spaceAnchor || null,
+    continuityTargets,
+    hardContinuityRules,
+    cameraFlowIntent:
+      performanceEntry?.cameraMovePlan?.intent ||
+      motionEntry?.cameraIntent ||
+      motionEntry?.cameraSpec?.moveType ||
+      null,
   };
+}
+
+function collectReferenceImages(shot, imageResult, shotIndex, shots, imageResults, options = {}) {
+  const images = [];
+  if (imageResult?.imagePath) {
+    images.push({ type: 'keyframe', path: imageResult.imagePath, shotId: shot.id });
+  }
+  const characterRegistry = Array.isArray(options.characterRegistry) ? options.characterRegistry : [];
+  const shotCharacterIds = (Array.isArray(shot.characters) ? shot.characters : [])
+    .map((c) => resolveCharacterIdentity(c))
+    .filter(Boolean);
+  for (const charId of shotCharacterIds) {
+    if (images.length >= 9) break;
+    const card = findCharacterByIdentity(characterRegistry, charId);
+    if (card?.referenceImagePath) {
+      images.push({ type: 'character_reference', path: card.referenceImagePath, characterId: charId });
+    }
+  }
+  const adjacentIndices = [shotIndex - 1, shotIndex + 1];
+  for (const adjIdx of adjacentIndices) {
+    if (images.length >= 9) break;
+    if (adjIdx >= 0 && adjIdx < shots.length) {
+      const adjResult = imageResults.find((r) => r.shotId === shots[adjIdx].id);
+      if (adjResult?.imagePath) {
+        images.push({ type: 'adjacent_shot', path: adjResult.imagePath, shotId: shots[adjIdx].id });
+      }
+    }
+  }
+  return images.slice(0, 9);
 }
 
 function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options = {}) {
@@ -39,20 +101,23 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
   const preferredVideoProvider = resolvePreferredVideoProvider(options);
   const preferredProvider = hasReferenceImage ? preferredVideoProvider : 'static_image';
   const fallbackProviders = hasReferenceImage ? ['static_image'] : [];
+  const referenceImages = hasReferenceImage
+    ? collectReferenceImages(
+        shot,
+        imageResult,
+        options._shotIndex ?? 0,
+        options._shots ?? [],
+        options._imageResults ?? [],
+        options
+      )
+    : [];
   return {
     shotId: shot.id,
     shotType: motionEntry.shotType,
     durationTargetSec: motionEntry.durationTargetSec,
     visualGoal: promptEntry?.image_prompt || motionEntry.visualGoal,
     cameraSpec: motionEntry.cameraSpec,
-    referenceImages: hasReferenceImage
-      ? [
-          {
-            type: 'keyframe',
-            path: imageResult.imagePath,
-          },
-        ]
-      : [],
+    referenceImages,
     preferredProvider,
     fallbackProviders,
     providerRequestHints: buildProviderRequestHints({
@@ -64,6 +129,7 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
       hasReferenceImage,
     }),
     audioRef: options.audioRef || null,
+    continuityContext: performanceEntry?.continuityContext || motionEntry.continuityContext || null,
     performanceTemplate: performanceEntry?.performanceTemplate || null,
     actionBeatList: performanceEntry?.actionBeatList || [],
     cameraMovePlan: performanceEntry?.cameraMovePlan || null,
@@ -82,14 +148,19 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
 }
 
 export function buildShotPackages(shots = [], motionPlan = [], imageResults = [], options = {}) {
-  return shots.map((shot) => {
+  return shots.map((shot, index) => {
     const motionEntry = motionPlan.find((item) => item.shotId === shot.id);
     if (!motionEntry) {
       throw new Error(`缺少镜头动态规划：${shot.id}`);
     }
     const imageResult = imageResults.find((item) => item.shotId === shot.id);
     const promptEntry = options.promptList?.find((item) => item.shotId === shot.id) || null;
-    return buildShotPackage(shot, motionEntry, imageResult, promptEntry, options);
+    return buildShotPackage(shot, motionEntry, imageResult, promptEntry, {
+      ...options,
+      _shotIndex: index,
+      _shots: shots,
+      _imageResults: imageResults,
+    });
   });
 }
 
@@ -142,13 +213,21 @@ function writeArtifacts(shotPackages, artifactContext) {
 
 export async function routeVideoShots(shots = [], motionPlan = [], imageResults = [], options = {}) {
   const shotPackages = buildShotPackages(shots, motionPlan, imageResults, options);
-  writeArtifacts(shotPackages, options.artifactContext);
-  return shotPackages;
+  const enrichedShotPackages = buildSeedancePromptPackages(shotPackages, {
+    shots,
+    motionPlan,
+    scenePacks: options.scenePacks,
+    directorPacks: options.directorPacks,
+    artifactContext: options.seedancePromptArtifactContext,
+  });
+  writeArtifacts(enrichedShotPackages, options.artifactContext);
+  return enrichedShotPackages;
 }
 
 export const __testables = {
   buildShotPackage,
   buildShotPackages,
   buildProviderRequestHints,
+  collectReferenceImages,
   resolvePreferredVideoProvider,
 };

@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleepTimeout } from 'node:timers/promises';
 
-import { createSeedanceVideoClip } from '../apis/seedanceVideoApi.js';
+import PQueue from 'p-queue';
+
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
+import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { createSequenceClipResult } from '../utils/actionSequenceProtocol.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { probeVideoDurationSec } from '../utils/mediaProbe.js';
@@ -303,8 +305,12 @@ function resolveSequenceWorkflow(sequencePackage, options) {
 
   if (getPreferredSequenceProvider(sequencePackage, options) === 'seedance') {
     return {
-      kind: 'seedance',
-      run: (outputPath) => runSeedanceWorkflow(sequencePackage, outputPath, options),
+      kind: 'unified_seedance_client',
+      run: (outputPath) =>
+        runProviderClientWorkflow(sequencePackage, outputPath, {
+          ...options,
+          providerClient: createUnifiedVideoProviderClient(),
+        }),
     };
   }
 
@@ -418,7 +424,7 @@ async function runGenerateSequenceClipWorkflow(sequencePackage, outputPath, opti
 }
 
 async function runSeedanceWorkflow(sequencePackage, outputPath, options) {
-  const run = await createSeedanceVideoClip(sequencePackage, outputPath, options);
+  const run = await createFallbackVideoClip(sequencePackage, outputPath, options);
   if (!isLikelyMp4File(run?.videoPath || outputPath)) {
     throw {
       message: 'Sequence clip download is empty or invalid',
@@ -463,65 +469,100 @@ async function runSora2Workflow(sequencePackage, outputPath, options) {
 
 export async function generateSequenceClips(actionSequencePackages = [], videoDir, options = {}) {
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'sequence-video'));
-  const results = [];
+  const sequenceQueue = new PQueue({
+    concurrency: parseInt(process.env.VIDEO_CONCURRENCY || '3', 10),
+  });
 
-  for (const sequencePackage of actionSequencePackages) {
+  async function generateOne(sequencePackage) {
     const preferredProvider = getPreferredSequenceProvider(sequencePackage, options);
     const workflow = resolveSequenceWorkflow(sequencePackage, options);
 
     if (!workflow) {
-      results.push(
-        createSequenceClipResult({
-          sequenceId: sequencePackage.sequenceId,
-          status: 'skipped',
-          provider: preferredProvider,
-          model: null,
-          videoPath: null,
-          coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
-          targetDurationSec: sequencePackage.durationTargetSec ?? null,
-          actualDurationSec: null,
-          failureCategory: null,
-          error: null,
-        })
-      );
-      continue;
+      return createSequenceClipResult({
+        sequenceId: sequencePackage.sequenceId,
+        status: 'skipped',
+        provider: preferredProvider,
+        model: null,
+        videoPath: null,
+        coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
+        targetDurationSec: sequencePackage.durationTargetSec ?? null,
+        actualDurationSec: null,
+        failureCategory: null,
+        error: null,
+      });
     }
 
     const outputPath = buildOutputPath(resolvedVideoDir, sequencePackage);
     try {
       const run = await workflow.run(outputPath);
-      results.push(
-        createSequenceClipResult({
-          sequenceId: sequencePackage.sequenceId,
-          status: 'completed',
-          provider: run?.provider || preferredProvider,
-          model: run?.model || null,
-          videoPath: run?.videoPath || outputPath,
-          coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
-          targetDurationSec: sequencePackage.durationTargetSec ?? null,
-          actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
-          failureCategory: null,
-          error: null,
-        })
-      );
+      return createSequenceClipResult({
+        sequenceId: sequencePackage.sequenceId,
+        status: 'completed',
+        provider: run?.provider || preferredProvider,
+        model: run?.model || null,
+        videoPath: run?.videoPath || outputPath,
+        coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
+        targetDurationSec: sequencePackage.durationTargetSec ?? null,
+        actualDurationSec: Number.isFinite(run?.actualDurationSec) ? run.actualDurationSec : null,
+        failureCategory: null,
+        error: null,
+      });
     } catch (error) {
       const normalizedError = classifySequenceProviderError(error);
-      results.push(
-        createSequenceClipResult({
-          sequenceId: sequencePackage.sequenceId,
-          status: 'failed',
-          provider: preferredProvider,
-          model: null,
-          videoPath: null,
-          coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
-          targetDurationSec: sequencePackage.durationTargetSec ?? null,
-          actualDurationSec: null,
-          failureCategory: normalizedError.category,
-          error: normalizedError.message,
-        })
-      );
+      return createSequenceClipResult({
+        sequenceId: sequencePackage.sequenceId,
+        status: 'failed',
+        provider: preferredProvider,
+        model: null,
+        videoPath: null,
+        coveredShotIds: Array.isArray(sequencePackage.shotIds) ? sequencePackage.shotIds : [],
+        targetDurationSec: sequencePackage.durationTargetSec ?? null,
+        actualDurationSec: null,
+        failureCategory: normalizedError.category,
+        error: normalizedError.message,
+      });
     }
   }
+
+  let previousSequenceResult = null;
+  const settled = await Promise.allSettled(
+    actionSequencePackages.map((sequencePackage, index) =>
+      sequenceQueue.add(async () => {
+        if (
+          index > 0 &&
+          previousSequenceResult?.videoPath &&
+          getPreferredSequenceProvider(sequencePackage, options) === 'seedance'
+        ) {
+          sequencePackage.continuationVideoRef = {
+            path: previousSequenceResult.videoPath,
+            sequenceId: previousSequenceResult.sequenceId,
+          };
+        }
+        const result = await generateOne(sequencePackage);
+        if (result.status === 'completed') {
+          previousSequenceResult = result;
+        }
+        return result;
+      })
+    )
+  );
+
+  const results = settled.map((entry) =>
+    entry.status === 'fulfilled'
+      ? entry.value
+      : createSequenceClipResult({
+          sequenceId: null,
+          status: 'failed',
+          provider: null,
+          model: null,
+          videoPath: null,
+          coveredShotIds: [],
+          targetDurationSec: null,
+          actualDurationSec: null,
+          failureCategory: 'provider_generation_failed',
+          error: entry.reason?.message || 'unknown sequence generation error',
+        })
+  );
 
   const report = buildSequenceClipReport(results);
   writeArtifacts(results, report, {

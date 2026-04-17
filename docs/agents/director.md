@@ -13,6 +13,11 @@
 3. 维护 run package、run job、agent task run、QA overview 等可审计产物。
 4. 在动态镜头、bridge shot、配音、口型、最终合成之间做统一桥接和交付决策。
 
+另外它还负责守住一条很重要的工程约束：
+
+- 角色、参考图、voice cast、sequence / bridge / shot 相关资产一律按稳定 ID 串联
+- `name` 只能留在展示层、日志层和 prompt 文本层
+
 ## 入口函数
 
 - `runEpisodePipeline({ projectId, scriptId, episodeId, options })`
@@ -29,7 +34,7 @@
 
 1. 读取 project / script / episode 或兼容模式脚本文件。
 2. 初始化 `state.json`、run package、run job、artifact context。
-3. 执行 `Script Parser -> Character Registry -> Prompt Engineer -> Image Generator`。
+3. 执行 `Script Parser -> Character Registry -> Character Ref Sheet Generator -> Prompt Engineer -> Image Generator`。
 4. 执行 `Consistency Checker`，必要时按镜头重生成图片。
 5. 执行 `Continuity Checker`。
 6. 执行动态镜头主链：
@@ -57,6 +62,7 @@
 当前 `Director` 不是简单顺序调用，而是在几条链之间做协议桥接：
 
 - 把兼容模式脚本桥接成临时 `project / script / episode`
+- 把 `episodeCharacterId / id / mainCharacterTemplateId` 这些稳定身份继续往下游传，避免后续模块重新按 `name` 猜角色
 - 把 `imageResults` 桥接成 `animationClips`
 - 把通过 `Shot QA Agent` 的动态镜头桥接成 `videoClips`
 - 把通过 `Bridge QA Agent` 的桥接片段桥接成 `bridgeClips`

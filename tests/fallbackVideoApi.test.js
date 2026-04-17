@@ -20,7 +20,7 @@ test('buildFallbackVideoRequest maps shot package into generic fallback video re
     const imagePath = path.join(tempRoot, 'shot.jpg');
     fs.writeFileSync(imagePath, 'jpeg-binary');
 
-    const request = __testables.buildFallbackVideoRequest(
+    const request = await __testables.buildFallbackVideoRequest(
       {
         durationTargetSec: 12,
         visualGoal: '仓库里人物急速回身反击',
@@ -49,7 +49,7 @@ test('buildFallbackVideoRequest prefers generic fallback config when provided', 
     const imagePath = path.join(tempRoot, 'shot.jpg');
     fs.writeFileSync(imagePath, 'jpeg-binary');
 
-    const request = __testables.buildFallbackVideoRequest(
+    const request = await __testables.buildFallbackVideoRequest(
       {
         durationTargetSec: 12,
         visualGoal: '角色转身后快速奔跑',
@@ -66,6 +66,66 @@ test('buildFallbackVideoRequest prefers generic fallback config when provided', 
     assert.equal(request.model, 'veo-3.0-fast-generate-001');
     assert.equal(request.seconds, 4);
     assert.equal(request.size, '1280x720');
+  });
+});
+
+test('buildFallbackVideoRequest infers size from final video dimensions when VIDEO_FALLBACK_SIZE is not configured', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'shot.jpg');
+    fs.writeFileSync(imagePath, 'jpeg-binary');
+
+    const request = await __testables.buildFallbackVideoRequest(
+      {
+        durationTargetSec: 12,
+        visualGoal: '角色转身后快速奔跑',
+        cameraSpec: { moveType: 'tracking_pan', framing: 'medium', ratio: '9:16' },
+        referenceImages: [{ path: imagePath }],
+      },
+      {
+        VIDEO_FALLBACK_MODEL: 'veo-3.0-fast-generate-001',
+        VIDEO_FALLBACK_SECONDS: '4',
+        VIDEO_WIDTH: '1080',
+        VIDEO_HEIGHT: '1920',
+      }
+    );
+
+    assert.equal(request.size, '1080x1920');
+  });
+});
+
+test('buildFallbackVideoRequest falls back to ratio defaults when final video dimensions are unavailable', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'shot.jpg');
+    fs.writeFileSync(imagePath, 'jpeg-binary');
+
+    const portraitRequest = await __testables.buildFallbackVideoRequest(
+      {
+        durationTargetSec: 12,
+        visualGoal: '角色慢慢抬头',
+        cameraSpec: { moveType: 'static', framing: 'medium', ratio: '9:16' },
+        referenceImages: [{ path: imagePath }],
+      },
+      {
+        VIDEO_FALLBACK_MODEL: 'veo-3.0-fast-generate-001',
+        VIDEO_FALLBACK_SECONDS: '4',
+      }
+    );
+
+    const landscapeRequest = await __testables.buildFallbackVideoRequest(
+      {
+        durationTargetSec: 12,
+        visualGoal: '角色慢慢抬头',
+        cameraSpec: { moveType: 'static', framing: 'medium', ratio: '16:9' },
+        referenceImages: [{ path: imagePath }],
+      },
+      {
+        VIDEO_FALLBACK_MODEL: 'veo-3.0-fast-generate-001',
+        VIDEO_FALLBACK_SECONDS: '4',
+      }
+    );
+
+    assert.equal(portraitRequest.size, '720x1280');
+    assert.equal(landscapeRequest.size, '1280x720');
   });
 });
 
@@ -97,7 +157,7 @@ test('buildFallbackVideoRequest converts generic size into preset resolution for
     const imagePath = path.join(tempRoot, 'shot.jpg');
     fs.writeFileSync(imagePath, 'jpeg-binary');
 
-    const request = __testables.buildFallbackVideoRequest(
+    const request = await __testables.buildFallbackVideoRequest(
       {
         durationTargetSec: 12,
         visualGoal: '角色保持静止以验证清晰度映射',
@@ -121,7 +181,7 @@ test('buildFallbackVideoRequest keeps dimension size for non-grok models on t8st
     const imagePath = path.join(tempRoot, 'shot.jpg');
     fs.writeFileSync(imagePath, 'jpeg-binary');
 
-    const request = __testables.buildFallbackVideoRequest(
+    const request = await __testables.buildFallbackVideoRequest(
       {
         durationTargetSec: 12,
         visualGoal: '角色保持静止以验证非 grok 尺寸兼容',
@@ -229,8 +289,8 @@ test('buildFallbackVideoModelCandidates prepends primary model and de-duplicates
   );
 });
 
-test('buildFallbackVideoRequestCandidates degrades long sequence requests to shorter retries', () => {
-  const candidates = __testables.buildFallbackVideoRequestCandidates(
+test('buildFallbackVideoRequestCandidates degrades long sequence requests to shorter retries', async () => {
+  const candidates = await __testables.buildFallbackVideoRequestCandidates(
     {
       sequenceId: 'action_sequence_001',
       durationTargetSec: 12,
@@ -251,8 +311,8 @@ test('buildFallbackVideoRequestCandidates degrades long sequence requests to sho
   );
 });
 
-test('buildFallbackVideoRequest ignores VIDEO_FALLBACK_SECONDS for sequences and follows sequence target by default', () => {
-  const request = __testables.buildFallbackVideoRequest(
+test('buildFallbackVideoRequest ignores VIDEO_FALLBACK_SECONDS for sequences and follows sequence target by default', async () => {
+  const request = await __testables.buildFallbackVideoRequest(
     {
       sequenceId: 'action_sequence_001',
       durationTargetSec: 12,
@@ -270,8 +330,8 @@ test('buildFallbackVideoRequest ignores VIDEO_FALLBACK_SECONDS for sequences and
   assert.equal(request.duration, 15);
 });
 
-test('buildFallbackVideoRequest respects VIDEO_FALLBACK_SEQUENCE_SECONDS when explicitly configured', () => {
-  const request = __testables.buildFallbackVideoRequest(
+test('buildFallbackVideoRequest respects VIDEO_FALLBACK_SEQUENCE_SECONDS when explicitly configured', async () => {
+  const request = await __testables.buildFallbackVideoRequest(
     {
       sequenceId: 'action_sequence_001',
       durationTargetSec: 12,
@@ -290,8 +350,8 @@ test('buildFallbackVideoRequest respects VIDEO_FALLBACK_SEQUENCE_SECONDS when ex
   assert.equal(request.duration, 15);
 });
 
-test('buildFallbackVideoAttemptPlans expands sequence retries across models and request variants', () => {
-  const plans = __testables.buildFallbackVideoAttemptPlans(
+test('buildFallbackVideoAttemptPlans expands sequence retries across models and request variants', async () => {
+  const plans = await __testables.buildFallbackVideoAttemptPlans(
     {
       sequenceId: 'action_sequence_001',
       durationTargetSec: 12,

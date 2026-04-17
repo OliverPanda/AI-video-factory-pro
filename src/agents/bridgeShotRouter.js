@@ -8,12 +8,18 @@ function findAssetByShotId(items = [], shotId) {
 }
 
 function buildPromptDirectives(planEntry) {
+  const preserve = (Array.isArray(planEntry.mustPreserveElements) ? planEntry.mustPreserveElements : []).join(', ');
+  const continuityTargets = [
+    ...(Array.isArray(planEntry.subjectContinuityTargets) ? planEntry.subjectContinuityTargets : []),
+    ...(Array.isArray(planEntry.environmentContinuityTargets) ? planEntry.environmentContinuityTargets : []),
+  ].join(', ');
   return [
-    `bridge type: ${planEntry.bridgeType}`,
-    `bridge goal: ${planEntry.bridgeGoal}`,
-    `camera intent: ${planEntry.cameraTransitionIntent}`,
-    `preserve: ${(Array.isArray(planEntry.mustPreserveElements) ? planEntry.mustPreserveElements : []).join(', ')}`,
-  ];
+    `transition brief: create a ${planEntry.bridgeType} bridge that ${planEntry.bridgeGoal}`,
+    `camera and timing: ${planEntry.cameraTransitionIntent}, duration ${planEntry.durationTargetSec || ''} seconds`,
+    `reference binding: image1 is the first frame keyframe from ${planEntry.fromShotId}. image2 is the target last frame keyframe from ${planEntry.toShotId}`,
+    continuityTargets ? `continuity locks: ${continuityTargets}` : '',
+    preserve ? `preserve elements: ${preserve}` : '',
+  ].filter(Boolean);
 }
 
 function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
@@ -28,8 +34,8 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
 
   if (planEntry.bridgeGenerationMode === 'first_last_keyframe') {
     return {
-      preferredProvider: planEntry.preferredProvider || 'sora2',
-      fallbackProviders: ['direct_cut'],
+      preferredProvider: planEntry.preferredProvider || 'seedance',
+      fallbackProviders: ['sora2', 'direct_cut'],
       providerCapabilityRequirement: 'first_last_keyframe',
       firstLastFrameMode: 'required',
     };

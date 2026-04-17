@@ -15,7 +15,7 @@ function makeTempDir(t) {
 
 test('saveVoicePreset writes preset JSON under the project voice preset directory', (t) => {
   const baseTempDir = makeTempDir(t);
-  const preset = { id: 'preset-1', name: 'Narrator A', provider: 'xfyun' };
+  const preset = { id: 'preset-1', name: 'Narrator A', provider: 'minimax' };
 
   saveVoicePreset('project-123', preset, { baseTempDir });
 

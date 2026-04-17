@@ -273,7 +273,7 @@ test('classifySequenceProviderError categorizes auth rate-limit timeout invalid-
   );
 });
 
-test('resolveSequenceWorkflow defaults to seedance when sequence package does not declare provider', () => {
+test('resolveSequenceWorkflow defaults to unified seedance client when sequence package does not declare provider', () => {
   const previousVideoProvider = process.env.VIDEO_PROVIDER;
   delete process.env.VIDEO_PROVIDER;
 
@@ -285,7 +285,7 @@ test('resolveSequenceWorkflow defaults to seedance when sequence package does no
       {}
     );
 
-    assert.equal(workflow.kind, 'seedance');
+    assert.equal(workflow.kind, 'unified_seedance_client');
   } finally {
     if (previousVideoProvider == null) {
       delete process.env.VIDEO_PROVIDER;
@@ -306,6 +306,29 @@ test('resolveSequenceWorkflow follows fallback_video override when sequence pack
   );
 
   assert.equal(workflow.kind, 'sora2');
+});
+
+test('resolveSequenceWorkflow treats seedance main-path sequences as unified client work instead of legacy seedance workflow', () => {
+  const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  process.env.VIDEO_PROVIDER = 'seedance';
+
+  try {
+    const workflow = __testables.resolveSequenceWorkflow(
+      {
+        sequenceId: 'seq_unified_seedance',
+        preferredProvider: 'seedance',
+      },
+      {}
+    );
+
+    assert.equal(workflow.kind, 'unified_seedance_client');
+  } finally {
+    if (previousVideoProvider == null) {
+      delete process.env.VIDEO_PROVIDER;
+    } else {
+      process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+  }
 });
 
 test('generateSequenceClips surfaces providerClient polling timeout as provider_timeout', async () => {

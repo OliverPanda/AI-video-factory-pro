@@ -63,6 +63,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         ],
       }),
       buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateCharacterRefSheets: async () => [],
       generateAllPrompts: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: '' })),
       generateAllImages: async (prompts) =>
@@ -71,6 +72,11 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           imagePath: path.join(dirs.images, `${prompt.shotId}.png`),
           success: true,
         })),
+      regenerateImage: async (shotId) => ({
+        shotId,
+        imagePath: path.join(dirs.images, `${shotId}.png`),
+        success: true,
+      }),
       runConsistencyCheck: async () => ({ reports: [], needsRegeneration: [] }),
       runContinuityCheck: async () => ({
         reports: [
@@ -84,6 +90,43 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         ],
         flaggedTransitions: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 5 }],
       }),
+      planSceneGrammar: async () => [
+        {
+          scene_id: 'scene_001',
+          scene_goal: '让观众看懂角色动作如何连续推进。',
+          dramatic_question: '这段动作是否顺畅衔接？',
+          start_state: '角色起步',
+          end_state: '角色停步',
+          location_anchor: '宫道',
+          cast: ['沈清'],
+          action_beats: [
+            { beat_id: 'beat_001', shot_ids: ['shot_001'], summary: '走动' },
+            { beat_id: 'beat_002', shot_ids: ['shot_002'], summary: '停步' },
+          ],
+          hard_locks: ['preserve geography'],
+          delivery_priority: 'narrative_coherence',
+        },
+      ],
+      planDirectorPacks: async () => [
+        {
+          scene_id: 'scene_001',
+          cinematic_intent: '保持写实和动作可读性。',
+          coverage_strategy: 'master_anchor_then_selective_escalation',
+          shot_order_plan: [],
+          blocking_map: [],
+          continuity_locks: ['preserve geography'],
+        },
+      ],
+      planMotion: async (shots) =>
+        shots.map((shot) => ({
+          shotId: shot.id,
+          shotType: 'dialogue_medium',
+          durationTargetSec: 2,
+          cameraSpec: { ratio: '9:16', moveType: 'slow_dolly' },
+          cameraIntent: 'slow_dolly',
+          visualGoal: shot.action,
+          videoGenerationMode: 'seedance_image_to_video',
+        })),
       planPerformance: async (motionPlan) =>
         motionPlan.map((item) => ({
           shotId: item.shotId,
@@ -94,6 +137,41 @@ test('pipeline acceptance writes all major agent manifests including continuity 
           variantCount: 1,
           enhancementHints: [],
         })),
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: {
+          status: 'pass',
+          passCount: shotPackages.length,
+          warnCount: 0,
+          blockCount: 0,
+          entries: shotPackages.map((item) => ({
+            shotId: item.shotId,
+            decision: 'pass',
+            reasons: [],
+            reasonDetails: [],
+            scores: {},
+          })),
+        },
+      }),
+      routeVideoShots: async (shots, motionPlan) =>
+        motionPlan.map((item) => ({
+          shotId: item.shotId,
+          preferredProvider: 'seedance',
+          durationTargetSec: item.durationTargetSec,
+          visualGoal: shots.find((shot) => shot.id === item.shotId)?.scene || '',
+        })),
+      runSeedanceVideo: async (shotPackages) => ({
+        results: shotPackages.map((shotPackage) => ({
+          shotId: shotPackage.shotId,
+          provider: 'seedance',
+          model: 'doubao-seedance-2-0-260128',
+          status: 'completed',
+          videoPath: path.join(dirs.root, `${shotPackage.shotId}.mp4`),
+          targetDurationSec: shotPackage.durationTargetSec,
+          actualDurationSec: shotPackage.durationTargetSec,
+        })),
+        report: { status: 'pass', warnings: [], blockers: [] },
+      }),
       runSora2Video: async (shotPackages) => ({
         results: shotPackages.map((shotPackage) => ({
           shotId: shotPackage.shotId,
@@ -282,9 +360,14 @@ test('pipeline acceptance writes all major agent manifests including continuity 
         warnings: [],
         blockers: [],
       }),
+      normalizeDialogueShots: async (shots) => shots,
       generateAllAudio: async (shots) =>
         shots.map((shot) => ({ shotId: shot.id, audioPath: path.join(dirs.audio, `${shot.id}.mp3`) })),
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({
+        results: [],
+        report: { status: 'pass', warnings: [], blockers: [] },
+      }),
       composeVideo: async (shots, imageResults, audioResults, outputPath, options) => {
         const plan = buildCompositionPlan(
           shots,
@@ -379,8 +462,7 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.sequenceClipGenerator.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.sequenceQaAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
-    assert.equal(composeCalls[0].bridgeClips.length, 1);
-    assert.equal(composeCalls[0].bridgeClips[0].bridgeId, 'bridge_shot_001_shot_002');
+    assert.equal(composeCalls[0].bridgeClips.length, 0);
     assert.equal(composeCalls[0].sequenceClips.length, 1);
     assert.equal(composeCalls[0].sequenceClips[0].sequenceId, 'seq_001');
     assert.deepEqual(

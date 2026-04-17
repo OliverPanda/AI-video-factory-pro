@@ -34,6 +34,7 @@ function createDirectorHarness(t, overrides = {}) {
     { name: 'Alice', gender: 'female', voicePresetId: 'preset-alice' },
   ];
   const audioCalls = [];
+  const ensureVoiceCastCalls = [];
   const loadVoicePresetCalls = [];
   const loadPronunciationLexiconCalls = [];
   const qaCalls = [];
@@ -72,6 +73,22 @@ function createDirectorHarness(t, overrides = {}) {
       loadVoicePresetCalls.push({ projectId, voicePresetId, options });
       return { id: voicePresetId, voice: 'alice-voice' };
     },
+    ensureProjectVoiceCast: (projectId, registry, options = {}) => {
+      ensureVoiceCastCalls.push({ projectId, registry, options });
+      return [
+        {
+          characterId: 'ep-alice',
+          displayName: 'Alice',
+          voiceProfile: {
+            provider: 'minimax',
+            voice: 'alice-minimax',
+            rate: 0.96,
+            pitch: 1,
+            volume: 1,
+          },
+        },
+      ];
+    },
     loadPronunciationLexicon: (projectId) => {
       loadPronunciationLexiconCalls.push(projectId);
       return [{ source: 'Alice', target: '艾丽丝' }];
@@ -85,6 +102,7 @@ function createDirectorHarness(t, overrides = {}) {
     shots,
     characterRegistry,
     audioCalls,
+    ensureVoiceCastCalls,
     qaCalls,
     loadVoicePresetCalls,
     loadPronunciationLexiconCalls,
@@ -121,6 +139,69 @@ test('director passes projectId and a working voice preset loader into generateA
       options: { fromTest: true },
     },
   ]);
+});
+
+test('director ensures and reuses project voice cast before TTS generation', async (t) => {
+  const harness = createDirectorHarness(t);
+
+  await harness.runPipeline('script.txt', {
+    projectId: 'project-123',
+    skipConsistencyCheck: true,
+  });
+
+  assert.equal(harness.ensureVoiceCastCalls.length, 1);
+  assert.equal(harness.ensureVoiceCastCalls[0].projectId, 'project-123');
+  assert.equal(harness.ensureVoiceCastCalls[0].registry[0].name, 'Alice');
+  assert.equal(harness.audioCalls[0].options.voiceCast[0].voiceProfile.provider, 'minimax');
+  assert.equal(harness.audioCalls[0].options.voiceCast[0].voiceProfile.voice, 'alice-minimax');
+});
+
+test('director backfills reference images from legacy sheets using characterName when no stable id is present', async (t) => {
+  const harness = createDirectorHarness(t, {
+    generateCharacterRefSheets: async () => [
+      {
+        characterId: null,
+        characterName: 'Alice',
+        imagePath: '/tmp/alice-ref.png',
+        success: true,
+        error: null,
+      },
+    ],
+  });
+
+  await harness.runPipeline('script.txt', {
+    projectId: 'project-123',
+    skipConsistencyCheck: true,
+  });
+
+  assert.equal(harness.audioCalls.length, 1);
+  assert.equal(harness.audioCalls[0].options.voiceCast[0].displayName, 'Alice');
+});
+
+test('director blocks the pipeline when character ref sheet generation fails', async (t) => {
+  const harness = createDirectorHarness(t, {
+    generateCharacterRefSheets: async () => [
+      {
+        characterId: 'ep-alice',
+        characterName: 'Alice',
+        imagePath: null,
+        success: false,
+        error: 'ref sheet failed',
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () =>
+      harness.runPipeline('script.txt', {
+        projectId: 'project-123',
+        skipConsistencyCheck: true,
+      }),
+    /角色三视图生成失败/
+  );
+
+  assert.equal(harness.audioCalls.length, 0);
+  assert.equal(harness.qaCalls.length, 0);
 });
 
 test('director keeps audio generation backward-compatible when projectId is absent', async (t) => {

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720">
+  <defs>
+    <style>
+      .bg { fill: #f7f4ef; }
+      .card { fill: #ffffff; stroke: #1f2937; stroke-width: 2; rx: 18; }
+      .panel { fill: #fef3c7; stroke: #92400e; stroke-width: 2; rx: 18; }
+      .step { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 2; rx: 16; }
+      .step2 { fill: #ecfdf5; stroke: #047857; stroke-width: 2; rx: 16; }
+      .step3 { fill: #f5f3ff; stroke: #6d28d9; stroke-width: 2; rx: 16; }
+      .text { font-family: "Segoe UI", Arial, sans-serif; fill: #111827; }
+      .title { font-size: 34px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #4b5563; }
+      .label { font-size: 20px; font-weight: 700; }
+      .small { font-size: 15px; fill: #374151; }
+      .tiny { font-size: 14px; fill: #4b5563; }
+      .arrow { stroke: #374151; stroke-width: 4; fill: none; marker-end: url(#arrowhead); }
+      .dashed { stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#374151" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="720" />
+
+  <text class="text title" x="60" y="68">AI Video Factory Pro</text>
+  <text class="text subtitle" x="60" y="102">单个 Director 统一编排，静态分镜、视频、音频、口型和交付产物都在同一条生产线里。</text>
+
+  <rect class="card" x="40" y="140" width="300" height="240" rx="18" />
+  <text class="text label" x="66" y="180">输入层</text>
+  <text class="text small" x="66" y="218">• 剧本文件 / Project-Script-Episode</text>
+  <text class="text small" x="66" y="250">• 角色、台词、镜头、风格</text>
+  <text class="text small" x="66" y="282">• `.env` 里的模型与 provider 配置</text>
+  <text class="text small" x="66" y="314">• 断点续跑 / 项目模式 / 兼容模式</text>
+
+  <rect class="panel" x="380" y="140" width="360" height="240" rx="18" />
+  <text class="text label" x="406" y="180">Director</text>
+  <text class="text small" x="406" y="220">• 统一编排整条 pipeline</text>
+  <text class="text small" x="406" y="252">• 决定哪些步骤复用缓存</text>
+  <text class="text small" x="406" y="284">• 发现失败就中断 / 回退 / 记录 QA</text>
+  <text class="text small" x="406" y="316">• 维护 run state 和 artifact 目录</text>
+
+  <rect class="card" x="800" y="140" width="360" height="240" rx="18" />
+  <text class="text label" x="826" y="180">生产链路</text>
+  <text class="text small" x="826" y="220">1. Script Parser / Character Registry</text>
+  <text class="text small" x="826" y="250">2. Prompt / Image / Consistency / Continuity</text>
+  <text class="text small" x="826" y="280">3. Video / Bridge / Sequence / QA</text>
+  <text class="text small" x="826" y="310">4. Dialogue / TTS / Lip-sync</text>
+  <text class="text small" x="826" y="340">5. Video Composer 输出成片</text>
+
+  <rect class="step" x="40" y="440" width="230" height="120" rx="16" />
+  <text class="text label" x="66" y="480">TTS</text>
+  <text class="text tiny" x="66" y="512">`TTS_PROVIDER`</text>
+  <text class="text tiny" x="66" y="538">`openai_compat` + `TTS_TRANSPORT_PROVIDER`</text>
+
+  <rect class="step2" x="305" y="440" width="230" height="120" rx="16" />
+  <text class="text label" x="331" y="480">Video</text>
+  <text class="text tiny" x="331" y="512">`VIDEO_PROVIDER=seedance`</text>
+  <text class="text tiny" x="331" y="538">shot / sequence / bridge 共用同一 client</text>
+
+  <rect class="step3" x="570" y="440" width="230" height="120" rx="16" />
+  <text class="text label" x="596" y="480">QA</text>
+  <text class="text tiny" x="596" y="512">三视图失败直接中断</text>
+  <text class="text tiny" x="596" y="538">TTS / shot / sequence / bridge 都有验收</text>
+
+  <rect class="step" x="835" y="440" width="230" height="120" rx="16" />
+  <text class="text label" x="861" y="480">Compose</text>
+  <text class="text tiny" x="861" y="512">优先 sequenceClips</text>
+  <text class="text tiny" x="861" y="538">最后落 `final-video.mp4`</text>
+
+  <path class="arrow" d="M340 260 L380 260" />
+  <path class="arrow" d="M740 260 L800 260" />
+  <path class="arrow" d="M265 500 L305 500" />
+  <path class="arrow" d="M535 500 L570 500" />
+  <path class="arrow" d="M800 500 L835 500" />
+</svg>

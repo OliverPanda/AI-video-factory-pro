@@ -25,7 +25,7 @@
   - 典型字段有 `id`、`dialogue`、`speaker`、`characters`、`shotCharacters`
   - 进入 TTS 主链路前会补充 `dialogueOriginal`、`dialogueSegments`、`dialogueDurationMs`
 - `characterRegistry`
-  - 至少要能提供角色 `name` 和 `gender`
+  - 至少要能提供角色稳定 ID、`name` 和 `gender`
 - `audioDir`
   - 音频落盘目录
 - `options`
@@ -44,6 +44,12 @@
 3. 第一个参演角色
 
 这套逻辑来自 [character-registry.md](character-registry.md) 中的 `resolveShotSpeaker(...)`。
+
+身份绑定约束：
+
+- `voiceCast` 的主绑定键应是 `characterId / episodeCharacterId / mainCharacterTemplateId`
+- `displayName` 和 `name` 只能留作展示字段
+- 不应再靠 `displayName` 或 `name` 把历史 voice cast 自动套到新角色上
 
 ## 对白标准化
 
@@ -84,6 +90,10 @@
 - `voicePresetId` 仍然有效，但优先级低于 `voiceCast`
 - `.env` 里的默认男女声只做最终兜底
 
+Director 在第一次进入 TTS 时会先把当前角色表绑定成项目级 `voice-cast.json`，之后同一项目会直接复用这份绑定结果，不再重新挑声。
+
+当前推荐把 `voice-cast.json` 理解成“项目级一次绑定，后续永久复用”的角色声音资产表；它的复用前提不是名字一样，而是角色 ID 一致。
+
 `voiceCast` 的典型结构：
 
 ```json
@@ -96,6 +106,24 @@
       "voice": "shenqing_v1",
       "rate": 42,
       "pitch": 60
+    }
+  }
+]
+```
+
+如果角色走 `MiniMax`，推荐至少把 `provider` 和 `voice` 显式写进 `voiceProfile`：
+
+```json
+[
+  {
+    "characterId": "ep-hero",
+    "displayName": "沈清",
+    "voiceProfile": {
+      "provider": "minimax",
+      "voice": "Warm_Girl",
+      "rate": 1.05,
+      "pitch": 0,
+      "volume": 1
     }
   }
 ]
@@ -139,15 +167,57 @@
 
 ## Provider 路由现状
 
-当前 `textToSpeech(...)` 已经从单文件实现改成 provider router：
+当前 `textToSpeech(...)` 已经从单文件实现改成 provider router。
 
-- 已接入：`xfyun`、`cosyvoice`、`fish-speech`、`mock`
+其中 `openai_compat` 是项目内统一的 TTS 合同入口，用来把上层参数稳定下来，再由 `TTS_TRANSPORT_PROVIDER` 映射到具体供应商。
+
+### 怎么用
+
+默认情况直接用 MiniMax：
+
+```bash
+TTS_PROVIDER=minimax
+TTS_TRANSPORT_PROVIDER=minimax
+```
+
+如果想把上层固定成统一合同，再随时切供应商：
+
+```bash
+TTS_PROVIDER=openai_compat
+TTS_TRANSPORT_PROVIDER=minimax
+```
+
+后面只要把 `TTS_TRANSPORT_PROVIDER` 改成别的已接入供应商即可，比如：
+
+```bash
+TTS_TRANSPORT_PROVIDER=xfyun
+TTS_TRANSPORT_PROVIDER=cosyvoice
+TTS_TRANSPORT_PROVIDER=fish-speech
+```
+
+### 怎么切换
+
+1. 只换供应商，不想改业务代码时，优先改 `TTS_TRANSPORT_PROVIDER`。
+2. 如果你想让上层永远走统一合同，改 `TTS_PROVIDER=openai_compat`。
+3. 如果你就是想直接指定某个供应商，也可以继续把 `TTS_PROVIDER` 设成 `minimax / xfyun / cosyvoice / fish-speech`。
+4. 角色声线优先还是 `voiceCast -> voicePresetId -> gender fallback`，和 provider 切换是两层事。
+
+当前默认主链：
+
+- `minimax`
+
+- 已接入：`minimax`、`xfyun`、`cosyvoice`、`fish-speech`、`mock`
 - 已预留插槽：`tencent`、`volcengine`
 
 其中：
 
+- `minimax`
+  - 当前默认云端主实现
+  - 按官方 `POST /v1/t2a_v2` HTTP 形态接入
+  - 返回 `data.audio` 十六进制音频并直接落盘
+  - 推荐优先通过 `voiceProfile.provider + voiceProfile.voice` 管理角色声线
 - `xfyun`
-  - 当前云端主实现
+  - 仅保留历史兼容
 - `cosyvoice`
   - 当前已按官方 `runtime/python/fastapi` 形态接入最小可用版
   - 支持 `sft`

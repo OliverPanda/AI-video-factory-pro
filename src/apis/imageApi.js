@@ -1,21 +1,18 @@
 /**
  * 图像生成 API 封装
- * 当前默认使用老张中转站，按任务类型路由不同模型。
+ * 支持任意 OpenAI 兼容图像 API（老张、zhenzhen、t8star 等），通过 IMAGE_API_BASE_URL + IMAGE_API_KEY 配置。
  */
 
 import 'dotenv/config';
 import path from 'path';
 import logger from '../utils/logger.js';
 import {
-  __testables as laozhangTestables,
+  __testables as providerTestables,
   laozhangImageProvider,
 } from './imageProviders/laozhangImageProvider.js';
+import { createUnifiedImageProviderClient } from './unifiedImageProviderClient.js';
 
 const DEFAULT_STYLE = process.env.IMAGE_STYLE || 'realistic';
-const PRIMARY_API_PROVIDER = process.env.PRIMARY_API_PROVIDER || 'laozhang';
-function getLaozhangBaseUrl(env = process.env) {
-  return laozhangTestables.getLaozhangBaseUrl(env);
-}
 
 export const IMAGE_TASK_TYPES = Object.freeze({
   REALISTIC_IMAGE: 'realistic_image',
@@ -34,30 +31,27 @@ export function resolveImageTaskType(options = {}) {
 }
 
 export function resolveImageRoute(taskType, env = process.env) {
-  const provider = env.PRIMARY_API_PROVIDER || PRIMARY_API_PROVIDER;
-  if (provider !== 'laozhang') {
-    throw new Error(`当前仅支持 laozhang 作为图像主平台，收到：${provider}`);
-  }
+  const provider = env.PRIMARY_API_PROVIDER || 'openai_compat';
 
   const routes = {
     [IMAGE_TASK_TYPES.REALISTIC_IMAGE]: {
-      provider: 'laozhang',
+      provider,
       model: env.REALISTIC_IMAGE_MODEL || 'flux-kontext-pro',
     },
     [IMAGE_TASK_TYPES.THREED_IMAGE]: {
-      provider: 'laozhang',
+      provider,
       model: env.THREED_IMAGE_MODEL || 'gpt-image-1',
     },
     [IMAGE_TASK_TYPES.IMAGE_EDIT]: {
-      provider: 'laozhang',
+      provider,
       model: env.IMAGE_EDIT_MODEL || 'qwen-image-edit-max',
     },
     [IMAGE_TASK_TYPES.REALISTIC_VIDEO]: {
-      provider: 'laozhang',
+      provider,
       model: env.REALISTIC_VIDEO_MODEL || 'veo',
     },
     [IMAGE_TASK_TYPES.THREED_VIDEO]: {
-      provider: 'laozhang',
+      provider,
       model: env.THREED_VIDEO_MODEL || 'sora',
     },
   };
@@ -70,16 +64,15 @@ export function resolveImageRoute(taskType, env = process.env) {
   return route;
 }
 
-const IMAGE_PROVIDER_STRATEGIES = Object.freeze({
-  laozhang: laozhangImageProvider,
-});
+export function resolveImageTransportProvider(env = process.env) {
+  return env.IMAGE_TRANSPORT_PROVIDER || env.PRIMARY_API_PROVIDER || 'openai_compat';
+}
 
-export function resolveImageProvider(providerName) {
-  const provider = IMAGE_PROVIDER_STRATEGIES[providerName];
-  if (!provider) {
-    throw new Error(`未注册的图像 Provider：${providerName}`);
+export function resolveImageProvider(provider = 'laozhang') {
+  if (provider === 'laozhang' || provider === 'openai_compat') {
+    return laozhangImageProvider;
   }
-  return provider;
+  throw new Error(`未注册的图像 Provider：${provider}`);
 }
 
 /**
@@ -93,20 +86,32 @@ export function resolveImageProvider(providerName) {
 export async function generateImage(prompt, negativePrompt, outputPath, options = {}) {
   const taskType = resolveImageTaskType(options);
   const route = resolveImageRoute(taskType, options.env);
+  const env = options.env || process.env;
+  const transportProvider = options.transportProvider || resolveImageTransportProvider(env);
   const provider = resolveImageProvider(route.provider);
+  const imageClient = options.imageClient || createUnifiedImageProviderClient({
+    transports: {
+      openai_compat: provider,
+      ...(options.transports || {}),
+    },
+  });
 
   logger.info(
     'ImageAPI',
-    `生成图像 [${route.provider}/${route.model}/${taskType}]：${path.basename(outputPath)}`
+    `生成图像 [${transportProvider}/${route.model}/${taskType}]：${path.basename(outputPath)}`
   );
 
-  return provider.generate({
+  const result = await imageClient.generate({
     prompt,
     negativePrompt,
     outputPath,
     route,
-    env: options.env || process.env,
+    env,
+    size: options.size || null,
+    transportProvider,
+    references: options.references || [],
   });
+  return result.outputPath;
 }
 
 /**
@@ -123,9 +128,12 @@ export async function batchGenerateImages(tasks) {
 }
 
 export const __testables = {
-  buildLaozhangPrompt: laozhangTestables.buildLaozhangPrompt,
-  extractGeneratedImage: laozhangTestables.extractGeneratedImage,
-  downloadImageFromUrl: laozhangTestables.downloadImageFromUrl,
-  getLaozhangBaseUrl,
+  buildLaozhangPrompt: providerTestables.buildLaozhangPrompt,
+  buildImagePrompt: providerTestables.buildImagePrompt,
+  extractGeneratedImage: providerTestables.extractGeneratedImage,
+  downloadImageFromUrl: providerTestables.downloadImageFromUrl,
+  getImageApiBaseUrl: providerTestables.getImageApiBaseUrl,
+  getLaozhangBaseUrl: providerTestables.getLaozhangBaseUrl,
   resolveImageProvider,
+  resolveImageTransportProvider,
 };

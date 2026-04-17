@@ -179,6 +179,56 @@ test('buildBridgeShotPlan sets duration goal risk and transition intent within M
   assert.equal(entry.durationTargetSec >= 1.5 && entry.durationTargetSec <= 3, true);
 });
 
+test('buildBridgeShotPlan skips flagged cuts that are internal to an already planned sequence span', () => {
+  const bridgePlan = __testables.buildBridgeShotPlan(
+    [
+      {
+        id: 'shot_101',
+        scene: '回廊',
+        action: '主角逼近',
+        mood: '紧绷',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+      {
+        id: 'shot_102',
+        scene: '回廊',
+        action: '主角继续压上',
+        mood: '爆发',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+      {
+        id: 'shot_103',
+        scene: '回廊',
+        action: '对手退到柱边',
+        mood: '爆发',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+    ],
+    {
+      continuityFlaggedTransitions: [
+        { previousShotId: 'shot_101', shotId: 'shot_102', continuityScore: 5, hardViolationCodes: ['camera_axis_flip'] },
+        { previousShotId: 'shot_102', shotId: 'shot_103', continuityScore: 5, hardViolationCodes: ['camera_axis_flip'] },
+      ],
+      motionPlan: [
+        { shotId: 'shot_101', shotType: 'fight_wide' },
+        { shotId: 'shot_102', shotType: 'fight_wide' },
+        { shotId: 'shot_103', shotType: 'dialogue_closeup' },
+      ],
+      actionSequencePlan: [
+        {
+          sequenceId: 'sequence_101_102',
+          shotIds: ['shot_101', 'shot_102'],
+        },
+      ],
+    }
+  );
+
+  assert.deepEqual(
+    bridgePlan.map((entry) => [entry.fromShotId, entry.toShotId]),
+    [['shot_102', 'shot_103']]
+  );
+});
+
 test('planBridgeShots writes bridge-shot-plan artifacts and metrics', async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-bridge-planner-'));
   t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));

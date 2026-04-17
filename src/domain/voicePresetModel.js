@@ -11,7 +11,7 @@ export function createVoicePreset(input = {}) {
     id: input.id ?? randomUUID(),
     projectId: input.projectId,
     name: input.name,
-    provider: input.provider ?? 'xfyun',
+    provider: input.provider ?? 'minimax',
     tags: input.tags ? [...input.tags] : [],
     sampleAudioPath: input.sampleAudioPath ?? null,
     status: input.status ?? 'draft',

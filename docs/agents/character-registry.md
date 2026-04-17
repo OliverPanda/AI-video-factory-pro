@@ -8,6 +8,13 @@
 2. 为后续 Prompt、配音和一致性检查提供稳定的角色身份信息。
 3. 在 LLM 漏掉角色时，用 source character 做保底合并，避免角色在后续链路里“消失”。
 
+当前项目对这个 Agent 的核心要求是：
+
+- 角色身份必须 `ID-first`
+- `name` 只能作为展示名
+- 中文名、英文名、别名应收敛到 `aliases`
+- 后续模块不得再把 `name` 当主键使用
+
 ## 入口函数
 
 - `buildCharacterRegistry(characters, scriptContext, style, deps)`
@@ -39,8 +46,10 @@
 
 - `id`
 - `episodeCharacterId`
+- `characterBibleId`
 - `mainCharacterTemplateId`
 - `name`
+- `aliases`
 - `gender`
 - `age`
 - `visualDescription`
@@ -52,12 +61,12 @@
 
 - `Prompt Engineer` 读取 `basePromptTokens` 和 `visualDescription`
 - `TTS Agent` 读取 `gender`、`voicePresetId` 或 speaker 身份
-- `Consistency Checker` 用 `name` 和视觉档案聚合同角色镜头
+- `Consistency Checker` 应按角色 ID 聚合同角色镜头，`name` 只作为报告标题
 
 ## 关键流程
 
 1. 用 `CHARACTER_SYSTEM + prompt` 调 LLM，尝试为每个角色生成视觉描述。
-2. 把 LLM 返回的 `generatedCharacters` 和输入的 `sourceCharacters` 做 `mergeCharacterSources(...)`。
+2. 把 LLM 返回的 `generatedCharacters` 和输入的 `sourceCharacters` 做 `mergeCharacterSources(...)`，优先保留 source 侧稳定 ID。
 3. 对没被 LLM 返回的角色，保留 source fallback，防止角色被丢失。
 4. 输出角色档案，并在有 `artifactContext` 时落盘。
 
@@ -68,8 +77,8 @@
 - `buildEpisodeCharacterRegistry(...)`
   - 把 `MainCharacterTemplate` 和 `EpisodeCharacter` 合并成分集运行时角色
 - `resolveShotParticipants(...)`
-  - 优先读 `shot.shotCharacters`
-  - 没有关系数据时回退到 `shot.characters`
+  - 优先读 `shot.shotCharacters` 里的 `episodeCharacterId / characterId`
+  - 没有关系数据时才兼容回退到 `shot.characters`
 - `resolveShotSpeaker(...)`
   - 优先读 `ShotCharacter.isSpeaker`
   - 再读 `shot.speaker`
@@ -99,6 +108,17 @@
 ### 为什么角色卡和 `EpisodeCharacter` 不是一回事
 
 `EpisodeCharacter` 更像运行时角色实例；`Character Registry` 是当前流程真正消费的统一角色视图。它把模板、分集实例和 LLM 生成描述压平成一层，方便后续 agent 使用。
+
+### 为什么这里不能再按 `name` 判定“是不是同一个角色”
+
+因为实际运行里经常会同时出现：
+
+- 中文名
+- 英文翻译名
+- 别名
+- LLM 自己改写过的名字
+
+如果这里按 `name` 合并或绑定，后面三视图、参考图、voice cast、视频参考素材都会串角色。当前规范是：`name` 可以进入 `aliases`，但身份主键只能是稳定 ID。
 
 ### 为什么 LLM 少返回角色也不直接失败
 

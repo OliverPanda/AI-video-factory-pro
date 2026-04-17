@@ -1,6 +1,13 @@
 /**
  * TTS 配音 API 封装
- * 当前主实现：讯飞在线语音合成
+ * 用法分两层：
+ * 1. TTS_PROVIDER：上层业务合同入口，决定走哪条语义路由
+ * 2. TTS_TRANSPORT_PROVIDER：当 TTS_PROVIDER=openai_compat 时，决定实际落地的供应商
+ *
+ * 当前默认：
+ * - TTS_PROVIDER=minimax
+ * - TTS_TRANSPORT_PROVIDER=minimax
+ *
  * 扩展方式：provider router + focused provider modules
  */
 
@@ -10,6 +17,7 @@ import path from 'path';
 import logger from '../utils/logger.js';
 import { buildCosyVoiceRequest, ttsWithCosyVoice } from './providers/cosyvoiceTtsApi.js';
 import { buildFishSpeechRequest, ttsWithFishSpeech } from './providers/fishSpeechTtsApi.js';
+import { buildMiniMaxTtsRequest, ttsWithMiniMax } from './providers/minimaxTtsApi.js';
 import {
   buildXfyunPayload,
   buildXfyunRequestUrl,
@@ -19,18 +27,49 @@ import {
 import { ttsWithMock } from './providers/mockTtsApi.js';
 import { createPlaceholderProvider } from './providers/placeholderTtsApi.js';
 
-const DEFAULT_PROVIDER_HANDLERS = {
+const DEFAULT_TRANSPORT_HANDLERS = {
+  minimax: ttsWithMiniMax,
   xfyun: ttsWithXfyun,
-  'env-default': ttsWithXfyun,
   mock: ttsWithMock,
   cosyvoice: ttsWithCosyVoice,
   'fish-speech': ttsWithFishSpeech,
+};
+
+function resolveTtsTransportProvider(options = {}, env = process.env) {
+  // 统一合同入口下的真实供应商选择。
+  return options.transportProvider || env.TTS_TRANSPORT_PROVIDER || 'minimax';
+}
+
+function createOpenAICompatHandler(transportHandlers = DEFAULT_TRANSPORT_HANDLERS) {
+  return async (text, outputPath, options = {}) => {
+    const transportProvider = resolveTtsTransportProvider(options);
+    const handler = transportHandlers[transportProvider];
+    if (!handler) {
+      throw new Error(`未知 TTS 传输 Provider：${transportProvider}`);
+    }
+
+    return handler(text, outputPath, {
+      ...options,
+      transportProvider,
+    });
+  };
+}
+
+const DEFAULT_PROVIDER_HANDLERS = {
+  minimax: ttsWithMiniMax,
+  xfyun: ttsWithXfyun,
+  'env-default': ttsWithMiniMax,
+  mock: ttsWithMock,
+  cosyvoice: ttsWithCosyVoice,
+  'fish-speech': ttsWithFishSpeech,
+  openai_compat: createOpenAICompatHandler(),
   tencent: createPlaceholderProvider('tencent'),
   volcengine: createPlaceholderProvider('volcengine'),
 };
 
 export function resolveTtsProvider(options = {}, env = process.env) {
-  return options.provider || env.TTS_PROVIDER || 'xfyun';
+  // 上层业务入口。默认直走 minimax，也可以显式切到 openai_compat。
+  return options.provider || env.TTS_PROVIDER || 'minimax';
 }
 
 export function getProviderHandler(provider, providerHandlers = DEFAULT_PROVIDER_HANDLERS) {
@@ -79,7 +118,10 @@ export const __testables = {
   buildXfyunPayload,
   buildCosyVoiceRequest,
   buildFishSpeechRequest,
+  buildMiniMaxTtsRequest,
   normalizeXfyunBusinessValue,
   resolveTtsProvider,
+  resolveTtsTransportProvider,
   getProviderHandler,
+  createOpenAICompatHandler,
 };

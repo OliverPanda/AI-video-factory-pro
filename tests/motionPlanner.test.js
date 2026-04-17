@@ -41,5 +41,9 @@ test('planMotion returns motion plan entries with required phase1 fields', async
     'cameraSpec',
     'videoGenerationMode',
     'visualGoal',
+    'storyBeat',
+    'screenDirection',
+    'spaceAnchor',
+    'continuityContext',
   ]);
 });

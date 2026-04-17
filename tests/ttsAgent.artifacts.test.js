@@ -152,6 +152,7 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
     await generateAllAudio(shots, registry, audioDir, {
       artifactContext: ctx.agents.ttsAgent,
       projectId: 'project-123',
+      ttsProvider: 'minimax',
       voicePresetLoader: async (voicePresetId) => ({
         voice: `${voicePresetId}-voice`,
         rate: 65,
@@ -203,6 +204,7 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
       resolvedGender: 'female',
       ttsOptions: {
         gender: 'female',
+        provider: 'minimax',
         voice: 'preset-red-voice',
         rate: 65,
       },
@@ -216,6 +218,7 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
     assert.equal(voiceResolution[1].status, 'failed');
     assert.equal(voiceResolution[1].usedDefaultVoiceFallback, true);
     assert.equal(voiceResolution[1].voicePresetId, null);
+    assert.equal(voiceResolution[1].ttsOptions.provider, 'minimax');
     assert.equal(voiceResolution[2].shotId, 'shot_003');
     assert.equal(voiceResolution[2].status, 'skipped');
     assert.equal(voiceResolution[2].voicePresetId, null);

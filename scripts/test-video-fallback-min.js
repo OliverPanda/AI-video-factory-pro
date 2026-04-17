@@ -6,10 +6,23 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const BASE_URL = String(process.env.VIDEO_FALLBACK_BASE_URL || 'https://api.laozhang.ai/v1').replace(/\/+$/, '');
 const API_KEY = process.env.VIDEO_FALLBACK_API_KEY || process.env.LAOZHANG_API_KEY || '';
 const MODEL = process.env.VIDEO_FALLBACK_MODEL || 'veo-3.0-fast-generate-001';
-const SIZE = process.env.VIDEO_FALLBACK_SIZE || '720x1280';
 const SECONDS = String(process.env.VIDEO_FALLBACK_SECONDS || '4');
 const POLL_INTERVAL_MS = Number.parseInt(process.env.VIDEO_FALLBACK_POLL_INTERVAL_MS || '5000', 10);
 const OUTPUT_DIR = path.resolve(process.cwd(), 'temp', 'video-fallback-min-test');
+const VIDEO_WIDTH = Number.parseInt(process.env.VIDEO_WIDTH || '', 10);
+const VIDEO_HEIGHT = Number.parseInt(process.env.VIDEO_HEIGHT || '', 10);
+
+function inferSize() {
+  if (process.env.VIDEO_FALLBACK_SIZE) {
+    return process.env.VIDEO_FALLBACK_SIZE;
+  }
+  if (Number.isFinite(VIDEO_WIDTH) && VIDEO_WIDTH > 0 && Number.isFinite(VIDEO_HEIGHT) && VIDEO_HEIGHT > 0) {
+    return `${VIDEO_WIDTH}x${VIDEO_HEIGHT}`;
+  }
+  return '720x1280';
+}
+
+const SIZE = inferSize();
 
 function sanitizeFileSegment(value, fallback = 'video') {
   const normalized = String(value || fallback)

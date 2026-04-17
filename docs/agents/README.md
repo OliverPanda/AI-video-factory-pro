@@ -7,6 +7,16 @@
 - 运行目录和产物位置：看 [../runtime/README.md](../runtime/README.md)
 - 排障、验收、交接：看 [../sop/README.md](../sop/README.md)
 - 全链路输入输出：看 [agent-io-map.md](agent-io-map.md)
+- 角色身份与资产绑定规则：看 [../superpowers/specs/2026-04-17-identity-resolution-regression-spec.md](../superpowers/specs/2026-04-17-identity-resolution-regression-spec.md)
+
+## 统一身份规则
+
+从 2026-04-17 起，当前项目统一按下面口径理解角色身份：
+
+- `id / episodeCharacterId / mainCharacterTemplateId / characterBibleId` 是真正可绑定的稳定键
+- `name` 只用于展示、日志、prompt 文本和兼容迁移
+- 角色三视图、参考图、voice cast、视频参考素材都必须优先按 ID 绑定
+- 看到 `episodeCharacterId || id || name`、`displayName || name`、`find(... name === ...)` 这类写法时，应默认视为高风险信号
 
 ## 先看哪层摘要
 
@@ -97,7 +107,7 @@ Director 还会在 run 根目录再聚合：
 
 1. `Director` 读取剧本或 `project / script / episode`，初始化 `state.json`、run package 和可观测产物。
 2. `Script Parser` 生成扁平 `shots`、角色抽取结果和镜头表。
-3. `Character Registry -> Prompt Engineer -> Image Generator` 完成角色建档、prompt 生成和首轮出图。
+3. `Character Registry -> Character Ref Sheet Generator -> Prompt Engineer -> Image Generator` 完成角色建档、角色三视图、prompt 生成和首轮出图。
 4. `Consistency Checker` 检查角色外观一致性，必要时由 `Director` 触发重生成。
 5. `Continuity Checker` 标记高风险 cut，为后续 `Motion Planner` 和 bridge 子链提供输入。
 6. `Motion Planner -> Performance Planner -> Video Router -> Seedance / Fallback Video Adapter -> Motion Enhancer -> Shot QA Agent` 形成动态镜头主链。

@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import PQueue from 'p-queue';
+
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
+import { createFallbackVideoClip as createSeedanceBridgeClipViaFallback } from '../apis/fallbackVideoApi.js';
+import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
@@ -118,10 +122,11 @@ function capabilitySupported(bridgePackage, supportedCapabilities = []) {
 }
 
 function toSora2ShotPackage(bridgePackage) {
+  const preferredProvider = bridgePackage.preferredProvider === 'seedance' ? 'seedance' : 'sora2';
   return {
     shotId: bridgePackage.bridgeId,
     durationTargetSec: bridgePackage.durationTargetSec,
-    preferredProvider: 'sora2',
+    preferredProvider,
     visualGoal: (Array.isArray(bridgePackage.promptDirectives) ? bridgePackage.promptDirectives : []).join('. '),
     cameraSpec: {
       moveType: bridgePackage.firstLastFrameMode === 'required' ? 'bridge_keyframe_transition' : 'bridge_transition',
@@ -139,78 +144,132 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
   const supportedCapabilities = Array.isArray(options.supportedCapabilities)
     ? options.supportedCapabilities
     : ['image_to_video'];
+  const providerClient = options.providerClient || createUnifiedVideoProviderClient();
   const generateBridgeClip = options.generateBridgeClip || ((bridgePackage, outputPath, innerOptions) =>
     createFallbackVideoClip(toSora2ShotPackage(bridgePackage), outputPath, innerOptions));
-  const results = [];
+  const bridgeQueue = new PQueue({
+    concurrency: parseInt(process.env.VIDEO_CONCURRENCY || '3', 10),
+  });
 
-  for (const bridgePackage of bridgeShotPackages) {
-    if (bridgePackage.preferredProvider !== 'sora2') {
-      results.push({
-        bridgeId: bridgePackage.bridgeId,
-        status: 'skipped',
-        provider: bridgePackage.preferredProvider,
-        model: null,
-        videoPath: null,
-        targetDurationSec: bridgePackage.durationTargetSec,
-        actualDurationSec: null,
-        failureCategory: null,
-        error: null,
-        taskId: null,
-        outputUrl: null,
-      });
-      continue;
-    }
+  const settled = await Promise.allSettled(
+    bridgeShotPackages.map((bridgePackage) =>
+      bridgeQueue.add(async () => {
+        const provider = bridgePackage.preferredProvider;
+        if (provider !== 'sora2' && provider !== 'seedance') {
+          return {
+            bridgeId: bridgePackage.bridgeId,
+            status: 'skipped',
+            provider,
+            model: null,
+            videoPath: null,
+            targetDurationSec: bridgePackage.durationTargetSec,
+            actualDurationSec: null,
+            failureCategory: null,
+            error: null,
+            taskId: null,
+            outputUrl: null,
+          };
+        }
 
-    if (!capabilitySupported(bridgePackage, supportedCapabilities)) {
-      results.push({
-        bridgeId: bridgePackage.bridgeId,
-        status: 'failed',
-        provider: 'sora2',
-        model: null,
-        videoPath: null,
-        targetDurationSec: bridgePackage.durationTargetSec,
-        actualDurationSec: null,
-        failureCategory: 'provider_invalid_request',
-        error: `unsupported capability: ${bridgePackage.providerCapabilityRequirement}`,
-        taskId: null,
-        outputUrl: null,
-      });
-      continue;
-    }
+        if (provider === 'sora2' && !capabilitySupported(bridgePackage, supportedCapabilities)) {
+          return {
+            bridgeId: bridgePackage.bridgeId,
+            status: 'failed',
+            provider: 'sora2',
+            model: null,
+            videoPath: null,
+            targetDurationSec: bridgePackage.durationTargetSec,
+            actualDurationSec: null,
+            failureCategory: 'provider_invalid_request',
+            error: `unsupported capability: ${bridgePackage.providerCapabilityRequirement}`,
+            taskId: null,
+            outputUrl: null,
+          };
+        }
 
-    const outputPath = buildOutputPath(resolvedVideoDir, bridgePackage);
-    try {
-      const run = await generateBridgeClip(bridgePackage, outputPath, options);
-      results.push({
-        bridgeId: bridgePackage.bridgeId,
-        status: 'completed',
-        provider: run?.provider || 'sora2',
-        model: run?.model || null,
-        videoPath: run?.videoPath || outputPath,
-        targetDurationSec: bridgePackage.durationTargetSec,
-        actualDurationSec: run?.actualDurationSec || bridgePackage.durationTargetSec || null,
-        failureCategory: null,
-        error: null,
-        taskId: run?.taskId || null,
-        outputUrl: run?.outputUrl || null,
-      });
-    } catch (error) {
-      const normalizedError = normalizeProviderError(error);
-      results.push({
-        bridgeId: bridgePackage.bridgeId,
-        status: 'failed',
-        provider: 'sora2',
-        model: null,
-        videoPath: null,
-        targetDurationSec: bridgePackage.durationTargetSec,
-        actualDurationSec: null,
-        failureCategory: normalizedError.category,
-        error: normalizedError.message,
-        taskId: null,
-        outputUrl: null,
-      });
-    }
-  }
+        const outputPath = buildOutputPath(resolvedVideoDir, bridgePackage);
+        try {
+          const run = options.generateBridgeClip
+            ? await generateBridgeClip(bridgePackage, outputPath, options)
+            : await (async () => {
+                const unifiedBridgePackage = {
+                  ...bridgePackage,
+                  packageType: 'bridge',
+                  shotId: bridgePackage.bridgeId,
+                  visualGoal: (bridgePackage.promptDirectives || []).join('. '),
+                  referenceImages: [
+                    bridgePackage.fromReferenceImage ? { path: bridgePackage.fromReferenceImage, role: 'first_frame' } : null,
+                    bridgePackage.toReferenceImage ? { path: bridgePackage.toReferenceImage, role: 'last_frame' } : null,
+                  ].filter(Boolean),
+                };
+                const submitResult = await providerClient.submit(unifiedBridgePackage, outputPath, options);
+                const pollResult = await providerClient.poll(submitResult.taskId, unifiedBridgePackage, submitResult, options);
+                await providerClient.download(
+                  pollResult?.outputUrl || submitResult?.outputUrl || outputPath,
+                  outputPath,
+                  unifiedBridgePackage,
+                  pollResult,
+                  options
+                );
+                return {
+                  provider: submitResult?.provider || provider,
+                  model: submitResult?.model || null,
+                  videoPath: outputPath,
+                  taskId: submitResult?.taskId || null,
+                  outputUrl: pollResult?.outputUrl || submitResult?.outputUrl || null,
+                  actualDurationSec: pollResult?.actualDurationSec || bridgePackage.durationTargetSec || null,
+                };
+              })();
+          return {
+            bridgeId: bridgePackage.bridgeId,
+            status: 'completed',
+            provider: run?.provider || provider,
+            model: run?.model || null,
+            videoPath: run?.videoPath || outputPath,
+            targetDurationSec: bridgePackage.durationTargetSec,
+            actualDurationSec: run?.actualDurationSec || bridgePackage.durationTargetSec || null,
+            failureCategory: null,
+            error: null,
+            taskId: run?.taskId || null,
+            outputUrl: run?.outputUrl || null,
+          };
+        } catch (error) {
+          const normalizedError = normalizeProviderError(error);
+          return {
+            bridgeId: bridgePackage.bridgeId,
+            status: 'failed',
+            provider,
+            model: null,
+            videoPath: null,
+            targetDurationSec: bridgePackage.durationTargetSec,
+            actualDurationSec: null,
+            failureCategory: normalizedError.category,
+            error: normalizedError.message,
+            taskId: null,
+            outputUrl: null,
+          };
+        }
+      })
+    )
+  );
+
+  const results = settled.map((entry) =>
+    entry.status === 'fulfilled'
+      ? entry.value
+      : {
+          bridgeId: null,
+          status: 'failed',
+          provider: null,
+          model: null,
+          videoPath: null,
+          targetDurationSec: null,
+          actualDurationSec: null,
+          failureCategory: 'provider_generation_failed',
+          error: entry.reason?.message || 'unknown bridge generation error',
+          taskId: null,
+          outputUrl: null,
+        }
+  );
 
   const report = buildBridgeClipReport(results);
   writeArtifacts(results, report, options.artifactContext);

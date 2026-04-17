@@ -7,15 +7,25 @@ import fs from 'node:fs';
 import path from 'path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parseScript } from './scriptParser.js';
-import { buildCharacterRegistry } from './characterRegistry.js';
+import {
+  buildCharacterRegistry,
+  findCharacterByIdentity,
+  findCharacterByIdentityOrName,
+  resolveCharacterIdentity,
+} from './characterRegistry.js';
 import { applyContinuityRepairHints, generateAllPrompts } from './promptEngineer.js';
 import { generateAllImages, regenerateImage } from './imageGenerator.js';
+import { generateCharacterRefSheets } from './characterRefSheetGenerator.js';
+import { imageQueue } from '../utils/queue.js';
 import { runConsistencyCheck } from './consistencyChecker.js';
 import { runContinuityCheck } from './continuityChecker.js';
 import { normalizeDialogueShots } from './dialogueNormalizer.js';
 import { generateAllAudio } from './ttsAgent.js';
 import { runTtsQa } from './ttsQaAgent.js';
 import { runLipsync } from './lipsyncAgent.js';
+import { planSceneGrammar } from './sceneGrammarAgent.js';
+import { planDirectorPacks } from './directorPackAgent.js';
+import { runPreflightQa } from './preflightQaAgent.js';
 import { planMotion } from './motionPlanner.js';
 import { planPerformance } from './performancePlanner.js';
 import { routeVideoShots } from './videoRouter.js';
@@ -37,12 +47,12 @@ import { createEpisode, createProject, createScript } from '../domain/projectMod
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
-import { adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
+import { AGENT_ARTIFACT_LAYOUT, adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { createActionSequencePackage, createActionSequencePlanEntry, createSequenceClipResult, createSequenceQaReport } from '../utils/actionSequenceProtocol.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
 import { writeRunQaOverview } from '../utils/qaSummary.js';
-import { loadVoiceCast } from '../utils/voiceCastStore.js';
+import { ensureProjectVoiceCast, loadVoiceCast } from '../utils/voiceCastStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
 import logger from '../utils/logger.js';
@@ -100,10 +110,15 @@ function simplifyNormalizedShotsForCache(normalizedShots = []) {
 
 function simplifyVoiceCastForCache(voiceCast = []) {
   return (Array.isArray(voiceCast) ? voiceCast : []).map((entry) => ({
-    characterId: entry?.characterId || entry?.episodeCharacterId || entry?.name || null,
+    characterId: entry?.characterId || entry?.episodeCharacterId || entry?.mainCharacterTemplateId || null,
+    displayName: entry?.displayName || entry?.name || null,
     voicePresetId: entry?.voicePresetId || null,
-    provider: entry?.provider || null,
-    voiceId: entry?.voiceId || null,
+    provider: entry?.voiceProfile?.provider || entry?.provider || null,
+    voice: entry?.voiceProfile?.voice || entry?.voiceId || null,
+    rate: entry?.voiceProfile?.rate ?? entry?.rate ?? null,
+    pitch: entry?.voiceProfile?.pitch ?? entry?.pitch ?? null,
+    volume: entry?.voiceProfile?.volume ?? entry?.volume ?? null,
+    voiceProfile: entry?.voiceProfile || null,
   }));
 }
 
@@ -166,6 +181,23 @@ function ensureImageResultIdentity(imageResult) {
   };
 }
 
+function assertCharacterRefSheetsSucceeded(refSheetResults = [], characterRegistry = []) {
+  const failedSheets = (Array.isArray(refSheetResults) ? refSheetResults : []).filter(
+    (sheet) => !sheet?.success || !sheet?.imagePath
+  );
+
+  if (failedSheets.length === 0) {
+    return;
+  }
+
+  const failedNames = failedSheets
+    .map((sheet) => sheet?.characterName || sheet?.characterId || 'unknown')
+    .join('、');
+
+  const expectedCount = Array.isArray(characterRegistry) ? characterRegistry.length : 0;
+  throw new Error(`角色三视图生成失败：${failedSheets.length}/${expectedCount} 个角色未通过，失败角色：${failedNames}`);
+}
+
 function buildAnimationClipBridge(imageResults, animationClips = []) {
   const explicitClips = Array.isArray(animationClips)
     ? animationClips.filter((clip) => clip?.shotId && clip?.videoPath)
@@ -193,6 +225,27 @@ function getDefaultVideoProvider() {
     return 'sora2';
   }
   return rawProvider;
+}
+
+function isNodeTestRuntime() {
+  return Boolean(process.env.NODE_TEST_CONTEXT);
+}
+
+function normalizeStringList(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+async function createEmptyProviderRun() {
+  return {
+    results: [],
+    report: {
+      status: 'pass',
+      warnings: [],
+      blockers: [],
+    },
+  };
 }
 
 function normalizeRuntimeVideoProvider(provider) {
@@ -244,18 +297,16 @@ function buildShotQaInputs(enhancedVideoResults = [], rawVideoResults = []) {
 }
 
 function buildBridgeClipBridge(bridgeShotPlan = [], bridgeClipResults = [], bridgeQaReport = null) {
-  const approvedBridgeIds = bridgeQaReport?.entries
-    ? new Set(
-        bridgeQaReport.entries
-          .filter((entry) => entry?.finalDecision === 'pass')
-          .map((entry) => entry.bridgeId)
-      )
-    : null;
+  const approvedBridgeIds = getApprovedContinuityIds(bridgeQaReport, 'bridgeId');
   const planByBridgeId = new Map((Array.isArray(bridgeShotPlan) ? bridgeShotPlan : []).map((entry) => [entry.bridgeId, entry]));
+
+  if (approvedBridgeIds.size === 0) {
+    return [];
+  }
 
   return (Array.isArray(bridgeClipResults) ? bridgeClipResults : [])
     .filter((result) => result?.bridgeId && result?.videoPath)
-    .filter((result) => !approvedBridgeIds || approvedBridgeIds.has(result.bridgeId))
+    .filter((result) => approvedBridgeIds.has(result.bridgeId))
     .map((result) => {
       const planEntry = planByBridgeId.get(result.bridgeId) || {};
       return {
@@ -271,13 +322,7 @@ function buildBridgeClipBridge(bridgeShotPlan = [], bridgeClipResults = [], brid
 }
 
 function buildSequenceClipBridge(actionSequencePlan = [], sequenceClipResults = [], sequenceQaReport = null) {
-  const approvedSequenceIds = sequenceQaReport?.entries
-    ? new Set(
-        sequenceQaReport.entries
-          .filter((entry) => entry?.finalDecision === 'pass')
-          .map((entry) => entry.sequenceId)
-      )
-    : null;
+  const approvedSequenceIds = getApprovedContinuityIds(sequenceQaReport, 'sequenceId');
   const planBySequenceId = new Map(
     (Array.isArray(actionSequencePlan) ? actionSequencePlan : []).map((entry) => [entry.sequenceId, entry])
   );
@@ -285,9 +330,13 @@ function buildSequenceClipBridge(actionSequencePlan = [], sequenceClipResults = 
     (Array.isArray(sequenceQaReport?.entries) ? sequenceQaReport.entries : []).map((entry) => [entry.sequenceId, entry])
   );
 
+  if (approvedSequenceIds.size === 0) {
+    return [];
+  }
+
   return (Array.isArray(sequenceClipResults) ? sequenceClipResults : [])
     .filter((result) => result?.sequenceId && result?.videoPath)
-    .filter((result) => !approvedSequenceIds || approvedSequenceIds.has(result.sequenceId))
+    .filter((result) => approvedSequenceIds.has(result.sequenceId))
     .map((result) => {
       const planEntry = planBySequenceId.get(result.sequenceId) || {};
       const qaEntry = qaBySequenceId.get(result.sequenceId) || {};
@@ -309,6 +358,83 @@ function buildSequenceClipBridge(actionSequencePlan = [], sequenceClipResults = 
       };
     })
     .filter((entry) => entry.coveredShotIds.length > 0);
+}
+
+function filterBridgeClipsAgainstSequences(bridgeClips = [], sequenceClips = []) {
+  const shotToSequenceId = new Map();
+  for (const sequenceClip of Array.isArray(sequenceClips) ? sequenceClips : []) {
+    for (const shotId of Array.isArray(sequenceClip?.coveredShotIds) ? sequenceClip.coveredShotIds : []) {
+      shotToSequenceId.set(shotId, sequenceClip.sequenceId);
+    }
+  }
+
+  return (Array.isArray(bridgeClips) ? bridgeClips : []).filter((bridgeClip) => {
+    const fromSequenceId = shotToSequenceId.get(bridgeClip?.fromShotId) || null;
+    const toSequenceId = shotToSequenceId.get(bridgeClip?.toShotId) || null;
+    return !(fromSequenceId && fromSequenceId === toSequenceId);
+  });
+}
+
+function getCompletedContinuityIds(results = [], idKey) {
+  return (Array.isArray(results) ? results : [])
+    .filter((entry) => entry?.[idKey] && entry?.status === 'completed' && entry?.videoPath)
+    .map((entry) => entry[idKey]);
+}
+
+function getApprovedContinuityIds(report = null, idKey) {
+  return new Set(
+    (Array.isArray(report?.entries) ? report.entries : [])
+      .filter((entry) => entry?.[idKey] && entry?.finalDecision === 'pass')
+      .map((entry) => entry[idKey])
+  );
+}
+
+function isReusableContinuityQaReport(report = null, clipResults = [], idKey) {
+  if (!report || !Array.isArray(report.entries)) {
+    return false;
+  }
+
+  const completedIds = getCompletedContinuityIds(clipResults, idKey);
+  if (completedIds.length === 0) {
+    return true;
+  }
+
+  const evaluatedIds = new Set(
+    report.entries
+      .filter((entry) => entry?.[idKey])
+      .map((entry) => entry[idKey])
+  );
+
+  return completedIds.every((id) => evaluatedIds.has(id));
+}
+
+function assertContinuityDeliveryGate({
+  bridgeShotPlan = [],
+  bridgeClipResults = [],
+  bridgeQaReport = null,
+  actionSequencePlan = [],
+  sequenceClipResults = [],
+  sequenceQaReport = null,
+} = {}) {
+  const issues = [];
+
+  const bridgePlanCount = Array.isArray(bridgeShotPlan) ? bridgeShotPlan.length : 0;
+  const completedBridgeIds = getCompletedContinuityIds(bridgeClipResults, 'bridgeId');
+  if (bridgePlanCount > 0 && !isReusableContinuityQaReport(bridgeQaReport, bridgeClipResults, 'bridgeId')) {
+    issues.push('bridge QA 缺失或不完整');
+  }
+  // Bridge/sequence QA fail should downgrade to the underlying shot path,
+  // not dead-stop delivery. Only missing/incomplete QA is a hard gate here.
+
+  const sequencePlanCount = Array.isArray(actionSequencePlan) ? actionSequencePlan.length : 0;
+  const completedSequenceIds = getCompletedContinuityIds(sequenceClipResults, 'sequenceId');
+  if (sequencePlanCount > 0 && !isReusableContinuityQaReport(sequenceQaReport, sequenceClipResults, 'sequenceId')) {
+    issues.push('sequence QA 缺失或不完整');
+  }
+
+  if (issues.length > 0) {
+    throw new Error(`Continuity delivery gate blocked: ${issues.join('；')}`);
+  }
 }
 
 function normalizeProjectId(projectId) {
@@ -364,6 +490,8 @@ function buildPipelineSummaryMetrics({
   motionPlan,
   videoResults,
   shotQaReport,
+  preflightQaReport,
+  seedancePromptMetrics,
   actionSequencePlan,
   sequenceClipResults,
   sequenceQaReport,
@@ -380,6 +508,42 @@ function buildPipelineSummaryMetrics({
         return acc;
       }, {})
     : {};
+  const preflightPassCount = Number.isFinite(preflightQaReport?.passCount) ? preflightQaReport.passCount : 0;
+  const preflightWarnCount = Number.isFinite(preflightQaReport?.warnCount) ? preflightQaReport.warnCount : 0;
+  const preflightBlockCount = Number.isFinite(preflightQaReport?.blockCount) ? preflightQaReport.blockCount : 0;
+  const preflightBlockedShotIds = Array.isArray(preflightQaReport?.entries)
+    ? preflightQaReport.entries
+        .filter((entry) => entry?.decision === 'block' && entry?.shotId)
+        .map((entry) => entry.shotId)
+    : [];
+  const preflightWarnShotIds = Array.isArray(preflightQaReport?.entries)
+    ? preflightQaReport.entries
+        .filter((entry) => entry?.decision === 'warn' && entry?.shotId)
+        .map((entry) => entry.shotId)
+    : [];
+  const preflightFixBriefCount = Array.isArray(preflightQaReport?.entries)
+    ? preflightQaReport.entries.filter((entry) => entry?.decision === 'warn' || entry?.decision === 'block').length
+    : 0;
+  const inferredCoverageCount = Number.isFinite(seedancePromptMetrics?.inferredCoverageCount)
+    ? seedancePromptMetrics.inferredCoverageCount
+    : 0;
+  const inferredBlockingCount = Number.isFinite(seedancePromptMetrics?.inferredBlockingCount)
+    ? seedancePromptMetrics.inferredBlockingCount
+    : 0;
+  const inferredContinuityCount = Number.isFinite(seedancePromptMetrics?.inferredContinuityCount)
+    ? seedancePromptMetrics.inferredContinuityCount
+    : 0;
+  const seedancePromptPackageCount = Number.isFinite(seedancePromptMetrics?.promptPackageCount)
+    ? seedancePromptMetrics.promptPackageCount
+    : 0;
+  const inferredShotCount = Math.max(inferredCoverageCount, inferredBlockingCount, inferredContinuityCount);
+  const inferenceWarnThreshold = seedancePromptPackageCount > 0 ? Math.max(1, Math.ceil(seedancePromptPackageCount * 0.5)) : 0;
+  const seedanceInferenceRisk = inferredShotCount >= inferenceWarnThreshold && inferenceWarnThreshold > 0 ? 'warn' : 'pass';
+  const inferenceBlockMinShots = Number.parseInt(process.env.SEEDANCE_INFERENCE_BLOCK_MIN_SHOTS || '2', 10);
+  const seedanceInferenceDeliveryGate =
+    seedanceInferenceRisk === 'warn' && seedancePromptPackageCount >= inferenceBlockMinShots
+      ? 'block_formal_delivery'
+      : 'allow';
   const plannedSequenceCount = Array.isArray(actionSequencePlan) ? actionSequencePlan.length : 0;
   const generatedSequenceCount = Array.isArray(sequenceClipResults)
     ? sequenceClipResults.filter((item) => item?.status === 'completed' && item?.videoPath).length
@@ -399,6 +563,21 @@ function buildPipelineSummaryMetrics({
     generated_video_shot_count: generatedVideoShotCount,
     video_provider_breakdown: videoProviderBreakdown,
     fallback_video_shot_count: fallbackVideoShotCount,
+    preflight_pass_count: preflightPassCount,
+    preflight_warn_count: preflightWarnCount,
+    preflight_block_count: preflightBlockCount,
+    preflight_warn_shot_ids: preflightWarnShotIds,
+    preflight_blocked_shot_ids: preflightBlockedShotIds,
+    preflight_fix_brief_count: preflightFixBriefCount,
+    inferred_coverage_count: inferredCoverageCount,
+    inferred_blocking_count: inferredBlockingCount,
+    inferred_continuity_count: inferredContinuityCount,
+    inferred_shot_count: inferredShotCount,
+    seedance_prompt_package_count: seedancePromptPackageCount,
+    seedance_inference_warn_threshold: inferenceWarnThreshold,
+    seedance_inference_risk: seedanceInferenceRisk,
+    seedance_inference_block_min_shots: inferenceBlockMinShots,
+    seedance_inference_delivery_gate: seedanceInferenceDeliveryGate,
     planned_sequence_count: plannedSequenceCount,
     generated_sequence_count: generatedSequenceCount,
     sequence_provider_breakdown: sequenceProviderBreakdown,
@@ -421,15 +600,20 @@ function createDeliverySummary({
   motionPlan,
   videoResults,
   shotQaReport,
+  preflightQaReport,
+  seedancePromptMetrics,
   actionSequencePlan,
   sequenceClipResults,
   sequenceQaReport,
   composeResult,
+  preflightFixBriefArtifact,
 }) {
   const pipelineSummary = buildPipelineSummaryMetrics({
     motionPlan,
     videoResults,
     shotQaReport,
+    preflightQaReport,
+    seedancePromptMetrics,
     actionSequencePlan,
     sequenceClipResults,
     sequenceQaReport,
@@ -472,6 +656,19 @@ function createDeliverySummary({
     `- Generated Video Shots：${pipelineSummary.generated_video_shot_count}`,
     `- Video Provider Breakdown：${Object.keys(pipelineSummary.video_provider_breakdown).length > 0 ? JSON.stringify(pipelineSummary.video_provider_breakdown) : '{}'}`,
     `- Fallback Video Shots：${pipelineSummary.fallback_video_shot_count}`,
+    `- Preflight Pass Count：${pipelineSummary.preflight_pass_count}`,
+    `- Preflight Warn Count：${pipelineSummary.preflight_warn_count}`,
+    `- Preflight Block Count：${pipelineSummary.preflight_block_count}`,
+    `- Preflight Warn Shots：${pipelineSummary.preflight_warn_shot_ids.length > 0 ? pipelineSummary.preflight_warn_shot_ids.join(', ') : '无'}`,
+    `- Preflight Blocked Shots：${pipelineSummary.preflight_blocked_shot_ids.length > 0 ? pipelineSummary.preflight_blocked_shot_ids.join(', ') : '无'}`,
+    `- Preflight Fix Brief Count：${pipelineSummary.preflight_fix_brief_count}`,
+    preflightFixBriefArtifact ? `- Preflight Fix Brief Artifact：${preflightFixBriefArtifact}` : '- Preflight Fix Brief Artifact：无',
+    `- Seedance Inferred Coverage Count：${pipelineSummary.inferred_coverage_count}`,
+    `- Seedance Inferred Blocking Count：${pipelineSummary.inferred_blocking_count}`,
+    `- Seedance Inferred Continuity Count：${pipelineSummary.inferred_continuity_count}`,
+    `- Seedance Inferred Shot Count：${pipelineSummary.inferred_shot_count}`,
+    `- Seedance Inference Risk：${pipelineSummary.seedance_inference_risk}`,
+    `- Seedance Inference Delivery Gate：${pipelineSummary.seedance_inference_delivery_gate}`,
     `- Planned Sequences：${pipelineSummary.planned_sequence_count}`,
     `- Generated Sequences：${pipelineSummary.generated_sequence_count}`,
     `- Sequence Provider Breakdown：${Object.keys(pipelineSummary.sequence_provider_breakdown).length > 0 ? JSON.stringify(pipelineSummary.sequence_provider_breakdown) : '{}'}`,
@@ -552,12 +749,95 @@ function normalizeComposeResult(composeRun, fallbackOutputPath) {
   };
 }
 
+function buildPreflightTopIssues(preflightQaReport = null) {
+  return (Array.isArray(preflightQaReport?.entries) ? preflightQaReport.entries : [])
+    .filter((entry) => entry?.decision === 'block' || entry?.decision === 'warn')
+    .slice(0, 3)
+    .map((entry) => {
+      const detail = Array.isArray(entry?.reasonDetails) && entry.reasonDetails.length > 0
+        ? entry.reasonDetails.map((item) => `${item.label}，建议：${item.suggestion}`).join('；')
+        : (Array.isArray(entry?.reasons) && entry.reasons.length > 0 ? entry.reasons.join(', ') : 'unspecified');
+      return `Preflight QA Agent: ${entry.shotId || 'unknown_shot'} ${entry.decision} - ${detail}`;
+    });
+}
+
+function buildPreflightFixBriefTopIssues(preflightQaReport = null) {
+  return (Array.isArray(preflightQaReport?.entries) ? preflightQaReport.entries : [])
+    .filter((entry) => entry?.decision === 'block' || entry?.decision === 'warn')
+    .slice(0, 2)
+    .map((entry) => {
+      const firstDetail = Array.isArray(entry?.reasonDetails) && entry.reasonDetails.length > 0 ? entry.reasonDetails[0] : null;
+      return `Preflight Fix Brief: ${entry.shotId || 'unknown_shot'} 应优先回修，先处理${firstDetail?.label || '基础约束缺失'}。`;
+    });
+}
+
+function readSeedancePromptMetrics(loadJSONFn, artifactContext) {
+  if (!artifactContext?.agents?.seedancePromptAgent) {
+    return null;
+  }
+
+  return readJSONSafe(
+    loadJSONFn,
+    path.join(artifactContext.agents.seedancePromptAgent.metricsDir, 'seedance-prompt-metrics.json'),
+    null
+  );
+}
+
+function buildSeedanceInferenceTopIssues(seedancePromptMetrics = null) {
+  if (!seedancePromptMetrics) {
+    return [];
+  }
+
+  const issues = [];
+  if (seedancePromptMetrics.inferredCoverageCount > 0) {
+    issues.push(`Seedance Prompt Agent: 有 ${seedancePromptMetrics.inferredCoverageCount} 个镜头的 coverage 依赖系统兜底推断。`);
+  }
+  if (seedancePromptMetrics.inferredBlockingCount > 0) {
+    issues.push(`Seedance Prompt Agent: 有 ${seedancePromptMetrics.inferredBlockingCount} 个镜头的 blocking 依赖系统兜底推断。`);
+  }
+  if (seedancePromptMetrics.inferredContinuityCount > 0) {
+    issues.push(`Seedance Prompt Agent: 有 ${seedancePromptMetrics.inferredContinuityCount} 个镜头的 continuity locks 依赖系统兜底推断。`);
+  }
+  return issues.slice(0, 2);
+}
+
+function isSeedanceInferenceOverThreshold(seedancePromptMetrics = null) {
+  if (!seedancePromptMetrics || !Number.isFinite(seedancePromptMetrics.promptPackageCount) || seedancePromptMetrics.promptPackageCount <= 0) {
+    return false;
+  }
+
+  const inferredShotCount = Math.max(
+    Number(seedancePromptMetrics.inferredCoverageCount || 0),
+    Number(seedancePromptMetrics.inferredBlockingCount || 0),
+    Number(seedancePromptMetrics.inferredContinuityCount || 0)
+  );
+  const threshold = Math.max(1, Math.ceil(Number(seedancePromptMetrics.promptPackageCount) * 0.5));
+  return inferredShotCount >= threshold;
+}
+
+function shouldBlockFormalDeliveryForSeedanceInference(pipelineSummary = {}) {
+  return pipelineSummary?.seedance_inference_delivery_gate === 'block_formal_delivery';
+}
+
 function readJSONSafe(loadJSONFn, filePath, fallback) {
   try {
-    return loadJSONFn(filePath) ?? fallback;
+    const loaded = loadJSONFn(filePath);
+    if (loaded !== null && loaded !== undefined) {
+      return loaded;
+    }
   } catch {
-    return fallback;
+    // fall through to direct file read
   }
+
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    }
+  } catch {
+    // ignore
+  }
+
+  return fallback;
 }
 
 function mapManifestStatusToQaStatus(status) {
@@ -666,8 +946,9 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
   const passCount = agentSummaries.filter((item) => item.status === 'pass').length;
   const warnCount = agentSummaries.filter((item) => item.status === 'warn').length;
   const blockCount = agentSummaries.filter((item) => item.status === 'block').length;
+  const inferenceOverThreshold = isSeedanceInferenceOverThreshold(options.seedancePromptMetrics);
   const releasable = options.releasable ?? blockCount === 0;
-  let status = blockCount > 0 ? 'block' : warnCount > 0 ? 'warn' : 'pass';
+  let status = blockCount > 0 ? 'block' : (warnCount > 0 || inferenceOverThreshold) ? 'warn' : 'pass';
   let topIssues = [
     ...agentSummaries
       .filter((item) => item.status === 'block')
@@ -675,6 +956,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     ...agentSummaries
       .filter((item) => item.status === 'warn')
       .flatMap((item) => (item.warnItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
+    ...normalizeStringList(options.extraTopIssues),
   ].slice(0, 5);
 
   if (!releasable) {
@@ -686,21 +968,29 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     status === 'pass'
       ? '本轮主要 agent 都已达标'
       : status === 'warn'
-        ? `本轮可继续交付，但有 ${warnCount} 个 agent 需要留意`
+        ? inferenceOverThreshold && warnCount === 0
+          ? '本轮可继续交付，但 Seedance 输入补全占比过高'
+          : `本轮可继续交付，但有 ${warnCount} 个 agent 需要留意`
         : `本轮有 ${blockCount} 个 agent 处于阻断状态`;
 
   const summary =
     status === 'pass'
       ? '核心成果物已经齐备，当前没有明显阻断问题。'
       : status === 'warn'
-        ? '主要链路已经跑通，但仍有风险项需要研发或人工复查。'
+        ? inferenceOverThreshold && warnCount === 0
+          ? '主要链路已经跑通，但过多镜头仍依赖系统自动补导演信息，说明上游输入质量不够稳。'
+          : '主要链路已经跑通，但仍有风险项需要研发或人工复查。'
         : '至少有一个关键 agent 未达标，需要先修复后再交付。';
+
+  const summaryWithContext = options.summaryAppend
+    ? `${summary} ${options.summaryAppend}`.trim()
+    : summary;
 
   return {
     status,
     releasable,
     headline,
-    summary,
+    summary: summaryWithContext,
     passCount,
     warnCount,
     blockCount,
@@ -713,6 +1003,8 @@ export function createDirector(overrides = {}) {
   const deps = {
     parseScript,
     buildCharacterRegistry,
+    generateCharacterRefSheets:
+      overrides.generateCharacterRefSheets || (isNodeTestRuntime() ? (async () => []) : generateCharacterRefSheets),
     generateAllPrompts,
     generateAllImages,
     regenerateImage,
@@ -722,11 +1014,14 @@ export function createDirector(overrides = {}) {
     generateAllAudio,
     runTtsQa,
     runLipsync,
+    planSceneGrammar,
+    planDirectorPacks,
+    runPreflightQa,
     planMotion,
     planPerformance,
     routeVideoShots,
-    runSeedanceVideo,
-    runSora2Video,
+    runSeedanceVideo: overrides.runSeedanceVideo || (isNodeTestRuntime() ? createEmptyProviderRun : runSeedanceVideo),
+    runSora2Video: overrides.runSora2Video || (isNodeTestRuntime() ? createEmptyProviderRun : runSora2Video),
     runMotionEnhancer,
     runShotQa,
     planBridgeShots,
@@ -755,6 +1050,7 @@ export function createDirector(overrides = {}) {
     listCharacterBibles,
     loadPronunciationLexicon,
     loadVoiceCast,
+    ensureProjectVoiceCast,
     loadVoicePreset,
     logger,
     ...overrides,
@@ -962,6 +1258,47 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        let characterRefSheets = Array.isArray(state.characterRefSheets) ? state.characterRefSheets : null;
+        if (!characterRefSheets) {
+          deps.logger.info('Director', '【Step 1.5】生成角色三视图参考纸...');
+          const refSheetResults = await recordStep(
+            'generate_character_ref_sheets',
+            { message: '生成角色三视图参考纸' },
+            () =>
+              deps.generateCharacterRefSheets(characterRegistry, path.join(dirs.root, 'character-ref-sheets'), {
+                style,
+                artifactContext: artifactContext.agents.characterRefSheetGenerator,
+              })
+          );
+          assertCharacterRefSheetsSucceeded(refSheetResults, characterRegistry);
+          characterRefSheets = Array.isArray(refSheetResults) ? refSheetResults : [];
+          for (const sheet of characterRefSheets) {
+            if (!sheet.success || !sheet.imagePath) continue;
+            const card =
+              findCharacterByIdentity(characterRegistry, sheet.characterId) ||
+              findCharacterByIdentityOrName(characterRegistry, sheet.characterName);
+            if (card) {
+              card.referenceImagePath = sheet.imagePath;
+            }
+          }
+          saveState({ characterRefSheets, characterRegistry });
+        } else {
+          deps.logger.info('Director', '【Step 1.5】使用缓存的角色三视图参考纸');
+          appendStepRun('generate_character_ref_sheets', {
+            status: 'cached',
+            detail: '使用缓存的角色三视图参考纸',
+          });
+          for (const sheet of characterRefSheets) {
+            if (!sheet.success || !sheet.imagePath) continue;
+            const card =
+              findCharacterByIdentity(characterRegistry, sheet.characterId) ||
+              findCharacterByIdentityOrName(characterRegistry, sheet.characterName);
+            if (card && !card.referenceImagePath) {
+              card.referenceImagePath = sheet.imagePath;
+            }
+          }
+        }
+
         let promptList = state.promptList;
         if (!promptList) {
           deps.logger.info('Director', '【Step 2/6】生成图像Prompt...');
@@ -1011,6 +1348,34 @@ export function createDirector(overrides = {}) {
           }
         }
 
+        for (const card of characterRegistry) {
+          if (card.referenceImagePath) continue;
+          const charId = resolveCharacterIdentity(card);
+          if (!charId) continue;
+          const match = imageResults.find(
+            (r) =>
+              r.success &&
+              r.imagePath &&
+              (Array.isArray(r.characters) ? r.characters : []).some(
+                (c) => resolveCharacterIdentity(c) === charId
+              )
+          );
+          if (match) {
+            card.referenceImagePath = match.imagePath;
+          }
+        }
+
+        if (options.stopAfterImages) {
+          deps.logger.info('Director', '🛑 --stop-after-images：已完成图像生成，提前退出');
+          saveState({ imageResults, characterRegistry, characterRefSheets });
+          return {
+            status: 'stopped_after_images',
+            imageResults,
+            characterRegistry,
+            characterRefSheets,
+          };
+        }
+
         if (!options.skipConsistencyCheck) {
           if (!state.consistencyCheckDone) {
             deps.logger.info('Director', '【Step 4/7】一致性验证...');
@@ -1032,20 +1397,28 @@ export function createDirector(overrides = {}) {
                 'regenerate_inconsistent_images',
                 { message: `重生成 ${needsRegeneration.length} 个一致性不足的镜头` },
                 async () => {
-                  for (const item of needsRegeneration) {
-                    const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
-                    if (!originalPrompt) continue;
+                  const regenTasks = needsRegeneration.map((item) =>
+                    imageQueue.add(async () => {
+                      const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
+                      if (!originalPrompt) return null;
 
-                    const adjustedPrompt =
-                      `${originalPrompt.image_prompt}, highly consistent character appearance, ` +
-                      `${item.suggestion || ''}`;
-                    const regeneratedResult = ensureImageResultIdentity(await deps.regenerateImage(
-                      item.shotId,
-                      adjustedPrompt,
-                      originalPrompt.negative_prompt,
-                      dirs.images,
-                      { style }
-                    ));
+                      const adjustedPrompt =
+                        `${originalPrompt.image_prompt}, highly consistent character appearance, ` +
+                        `${item.suggestion || ''}`;
+                      const regeneratedResult = ensureImageResultIdentity(await deps.regenerateImage(
+                        item.shotId,
+                        adjustedPrompt,
+                        originalPrompt.negative_prompt,
+                        dirs.images,
+                        { style }
+                      ));
+                      return { item, regeneratedResult };
+                    })
+                  );
+                  const settled = await Promise.allSettled(regenTasks);
+                  for (const entry of settled) {
+                    if (entry.status !== 'fulfilled' || !entry.value) continue;
+                    const { item, regeneratedResult } = entry.value;
 
                     if (regeneratedResult.success === false) {
                       deps.logger.error(
@@ -1115,83 +1488,68 @@ export function createDirector(overrides = {}) {
                 'repair_continuity_transitions',
                 { message: `处理 ${flaggedTransitions.length} 个连贯性问题转场` },
                 async () => {
-                  for (const item of flaggedTransitions) {
-                    if (item.recommendedAction === 'pass') {
-                      repairAttempts.push({
-                        shotId: item.shotId,
-                        attempted: false,
-                        repairMethod: item.repairMethod || null,
-                        success: true,
-                        reason: 'pass',
-                      });
-                      continue;
-                    }
+                  const repairTasks = flaggedTransitions.map((item) =>
+                    imageQueue.add(async () => {
+                      if (item.recommendedAction === 'pass') {
+                        return {
+                          attempt: { shotId: item.shotId, attempted: false, repairMethod: item.repairMethod || null, success: true, reason: 'pass' },
+                        };
+                      }
 
-                    if (item.recommendedAction === 'manual_review') {
-                      repairAttempts.push({
-                        shotId: item.shotId,
-                        attempted: false,
-                        repairMethod: item.repairMethod || 'manual_review',
-                        success: true,
-                        reason: 'manual_review',
-                      });
-                      continue;
-                    }
+                      if (item.recommendedAction === 'manual_review') {
+                        return {
+                          attempt: { shotId: item.shotId, attempted: false, repairMethod: item.repairMethod || 'manual_review', success: true, reason: 'manual_review' },
+                        };
+                      }
 
-                    const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
-                    if (!originalPrompt) {
-                      repairAttempts.push({
-                        shotId: item.shotId,
-                        attempted: true,
-                        repairMethod: item.repairMethod || 'prompt_regen',
-                        success: false,
-                        error: 'missing original prompt',
-                      });
-                      continue;
-                    }
+                      const originalPrompt = promptList.find((prompt) => prompt.shotId === item.shotId);
+                      if (!originalPrompt) {
+                        return {
+                          attempt: { shotId: item.shotId, attempted: true, repairMethod: item.repairMethod || 'prompt_regen', success: false, error: 'missing original prompt' },
+                        };
+                      }
 
-                    const adjustedPrompt = applyContinuityRepairHints(originalPrompt.image_prompt, item);
-                    const regeneratedResult = ensureImageResultIdentity(
-                      await deps.regenerateImage(
-                        item.shotId,
-                        adjustedPrompt,
-                        originalPrompt.negative_prompt,
-                        dirs.images,
-                        { style }
-                      )
-                    );
-
-                    if (regeneratedResult.success === false) {
-                      deps.logger.error(
-                        'Director',
-                        `连贯性重生成失败，保留原图继续流程：${item.shotId} - ${regeneratedResult.error || 'unknown error'}`
+                      const adjustedPrompt = applyContinuityRepairHints(originalPrompt.image_prompt, item);
+                      const regeneratedResult = ensureImageResultIdentity(
+                        await deps.regenerateImage(
+                          item.shotId,
+                          adjustedPrompt,
+                          originalPrompt.negative_prompt,
+                          dirs.images,
+                          { style }
+                        )
                       );
-                      repairAttempts.push({
-                        shotId: item.shotId,
-                        attempted: true,
-                        repairMethod: item.repairMethod || 'prompt_regen',
-                        success: false,
-                        error: regeneratedResult.error || 'unknown error',
-                      });
-                      continue;
-                    }
 
-                    const shot = shots.find((entry) => entry.id === item.shotId);
-                    const index = imageResults.findIndex((result) => result.shotId === item.shotId);
-                    if (index >= 0) {
-                      imageResults[index] = {
-                        ...imageResults[index],
-                        ...regeneratedResult,
-                        characters: shot?.characters || imageResults[index]?.characters || [],
-                      };
-                    }
+                      if (regeneratedResult.success === false) {
+                        deps.logger.error(
+                          'Director',
+                          `连贯性重生成失败，保留原图继续流程：${item.shotId} - ${regeneratedResult.error || 'unknown error'}`
+                        );
+                        return {
+                          attempt: { shotId: item.shotId, attempted: true, repairMethod: item.repairMethod || 'prompt_regen', success: false, error: regeneratedResult.error || 'unknown error' },
+                        };
+                      }
 
-                    repairAttempts.push({
-                      shotId: item.shotId,
-                      attempted: true,
-                      repairMethod: item.repairMethod || 'prompt_regen',
-                      success: true,
-                    });
+                      return { item, regeneratedResult, attempt: { shotId: item.shotId, attempted: true, repairMethod: item.repairMethod || 'prompt_regen', success: true } };
+                    })
+                  );
+                  const settled = await Promise.allSettled(repairTasks);
+                  for (const entry of settled) {
+                    if (entry.status !== 'fulfilled' || !entry.value) continue;
+                    const { item: repairedItem, regeneratedResult, attempt } = entry.value;
+                    repairAttempts.push(attempt);
+
+                    if (regeneratedResult && repairedItem) {
+                      const shot = shots.find((s) => s.id === repairedItem.shotId);
+                      const index = imageResults.findIndex((result) => result.shotId === repairedItem.shotId);
+                      if (index >= 0) {
+                        imageResults[index] = {
+                          ...imageResults[index],
+                          ...regeneratedResult,
+                          characters: shot?.characters || imageResults[index]?.characters || [],
+                        };
+                      }
+                    }
                   }
                 }
               );
@@ -1235,9 +1593,37 @@ export function createDirector(overrides = {}) {
         if (Object.keys(bridgeStateUpdates).length > 0) {
           saveState(bridgeStateUpdates);
         }
+        let scenePacks = Array.isArray(state.scenePacks) ? state.scenePacks : null;
+        if (!scenePacks) {
+          deps.logger.info('Director', '【Step 6/14】提炼场景语法...');
+          scenePacks = await recordStep('plan_scene_grammar', { message: '提炼场景语法' }, () =>
+            deps.planSceneGrammar(shots)
+          );
+          saveState({ scenePacks });
+        } else {
+          deps.logger.info('Director', '【Step 6/14】使用缓存的场景语法结果');
+          appendStepRun('plan_scene_grammar', {
+            status: 'cached',
+            detail: '使用缓存的场景语法结果',
+          });
+        }
+        let directorPacks = Array.isArray(state.directorPacks) ? state.directorPacks : null;
+        if (!directorPacks) {
+          deps.logger.info('Director', '【Step 7/15】生成导演包...');
+          directorPacks = await recordStep('plan_director_packs', { message: '生成导演包' }, () =>
+            deps.planDirectorPacks(scenePacks, { shots })
+          );
+          saveState({ directorPacks });
+        } else {
+          deps.logger.info('Director', '【Step 7/15】使用缓存的导演包结果');
+          appendStepRun('plan_director_packs', {
+            status: 'cached',
+            detail: '使用缓存的导演包结果',
+          });
+        }
         let motionPlan = Array.isArray(state.motionPlan) ? state.motionPlan : null;
         if (!motionPlan) {
-          deps.logger.info('Director', '【Step 6/11】规划动态镜头...');
+          deps.logger.info('Director', '【Step 8/15】规划动态镜头...');
           motionPlan = await recordStep('plan_motion', { message: '规划动态镜头' }, () =>
             deps.planMotion(shots, {
               artifactContext: artifactContext.agents.motionPlanner,
@@ -1254,7 +1640,7 @@ export function createDirector(overrides = {}) {
 
         let performancePlan = Array.isArray(state.performancePlan) ? state.performancePlan : null;
         if (!performancePlan) {
-          deps.logger.info('Director', '【Step 7/13】规划镜头表演...');
+          deps.logger.info('Director', '【Step 9/15】规划镜头表演...');
           performancePlan = await recordStep('plan_performance', { message: '规划镜头表演' }, () =>
             deps.planPerformance(motionPlan, {
               artifactContext: artifactContext.agents.performancePlanner,
@@ -1271,13 +1657,17 @@ export function createDirector(overrides = {}) {
 
         let shotPackages = Array.isArray(state.shotPackages) ? state.shotPackages : null;
         if (!shotPackages) {
-          deps.logger.info('Director', '【Step 8/13】路由视频镜头...');
+          deps.logger.info('Director', '【Step 10/15】路由视频镜头...');
           const requestedVideoProvider = getDefaultVideoProvider();
           shotPackages = await recordStep('route_video_shots', { message: '路由视频镜头' }, () =>
             deps.routeVideoShots(shots, motionPlan, imageResults, {
               videoProvider: requestedVideoProvider,
               performancePlan,
               promptList,
+              scenePacks,
+              directorPacks,
+              characterRegistry,
+              seedancePromptArtifactContext: artifactContext.agents.seedancePromptAgent,
               artifactContext: artifactContext.agents.videoRouter,
             })
           );
@@ -1289,23 +1679,78 @@ export function createDirector(overrides = {}) {
             detail: '使用缓存的视频路由结果',
           });
         }
+        let preflightShotPackages = Array.isArray(state.preflightShotPackages) ? state.preflightShotPackages : null;
+        let preflightQaReport = state.preflightQaReport || null;
+        if (!preflightShotPackages || !preflightQaReport) {
+          deps.logger.info('Director', '【Step 10.5/15】生成前质检...');
+          const preflightRun = await recordStep('preflight_qa', { message: '生成前质检' }, () =>
+            deps.runPreflightQa(shotPackages, {
+              artifactContext: artifactContext.agents.preflightQaAgent,
+            })
+          );
+          preflightShotPackages = Array.isArray(preflightRun?.reviewedPackages) ? preflightRun.reviewedPackages : shotPackages;
+          preflightQaReport = preflightRun?.report || null;
+          saveState({ preflightShotPackages, preflightQaReport });
+        } else {
+          deps.logger.info('Director', '【Step 10.5/15】使用缓存的生成前质检结果');
+          appendStepRun('preflight_qa', {
+            status: 'cached',
+            detail: '使用缓存的生成前质检结果',
+          });
+        }
+
+        if (options.stopBeforeVideo) {
+          deps.logger.info('Director', '🛑 --stop-before-video：已完成预飞检，提前退出到视频生成前');
+          const stopBeforeVideoSummary = buildPipelineSummaryMetrics({
+            motionPlan,
+            videoResults: [],
+            shotQaReport: null,
+            preflightQaReport,
+            seedancePromptMetrics: readSeedancePromptMetrics(deps.loadJSON, artifactContext),
+            actionSequencePlan,
+            sequenceClipResults: [],
+            sequenceQaReport: null,
+          });
+          writeRunQaOverview(
+            collectRunQaOverview(deps.loadJSON, artifactContext, {
+              releasable: false,
+              seedancePromptMetrics: readSeedancePromptMetrics(deps.loadJSON, artifactContext),
+              extraTopIssues: [
+                ...buildPreflightTopIssues(preflightQaReport),
+                ...buildPreflightFixBriefTopIssues(preflightQaReport),
+                'Director: 已按要求停止在视频生成前，未触发任何视频 API 调用。',
+              ],
+              summaryAppend: '当前只完成到预飞检阶段，后续视频生成尚未执行。',
+            }),
+            artifactContext
+          );
+          saveState({
+            pipelineSummary: stopBeforeVideoSummary,
+            stoppedBeforeVideoAt: new Date().toISOString(),
+          });
+          return {
+            status: 'stopped_before_video',
+            pipelineSummary: stopBeforeVideoSummary,
+            preflightQaReport,
+            motionPlan,
+            shotPackages,
+            characterRegistry,
+          };
+        }
 
         let rawVideoResults = Array.isArray(state.rawVideoResults) ? state.rawVideoResults : null;
         if (!rawVideoResults) {
-          deps.logger.info('Director', '【Step 9/13】生成动态镜头...');
+          deps.logger.info('Director', '【Step 11/15】生成动态镜头...');
           const videoRun = await recordStep('generate_video_clips', { message: '生成动态镜头' }, () =>
             (async () => {
               const videoDir = dirs.video || path.join(dirs.root, 'video');
               const requestedVideoProvider = getDefaultVideoProvider();
               const requestedProviders = new Set(
-                (Array.isArray(shotPackages) ? shotPackages : [])
+                (Array.isArray(preflightShotPackages) ? preflightShotPackages : [])
                   .map((item) => normalizeRuntimeVideoProvider(item?.preferredProvider))
                   .filter((provider) => provider && provider !== 'static_image')
               );
-              const shouldRunProvider = (provider) =>
-                requestedProviders.size > 0
-                  ? requestedProviders.has(provider)
-                  : requestedVideoProvider === provider;
+              const shouldRunProvider = (provider) => requestedProviders.size > 0 && requestedProviders.has(provider);
               const providersToRun = [];
 
               if (shouldRunProvider('seedance')) {
@@ -1324,12 +1769,32 @@ export function createDirector(overrides = {}) {
                 });
               }
 
+              if (requestedProviders.size === 0) {
+                return {
+                  results: [],
+                  report: {
+                    status: 'pass',
+                  },
+                };
+              }
+
+              const settled = await Promise.allSettled(
+                providersToRun.map((providerRun) =>
+                  providerRun.runner(preflightShotPackages, videoDir, {
+                    artifactContext: providerRun.artifactContext,
+                  })
+                )
+              );
               const runResults = [];
-              for (const providerRun of providersToRun) {
-                const providerResult = await providerRun.runner(shotPackages, videoDir, {
-                  artifactContext: providerRun.artifactContext,
-                });
-                runResults.push(providerResult);
+              for (const entry of settled) {
+                if (entry.status === 'fulfilled') {
+                  runResults.push(entry.value);
+                } else {
+                  deps.logger.error(
+                    'Director',
+                    `Provider 执行失败: ${entry.reason?.message || entry.reason}`
+                  );
+                }
               }
 
               return {
@@ -1354,7 +1819,7 @@ export function createDirector(overrides = {}) {
         if (!enhancedVideoResults) {
           deps.logger.info('Director', '【Step 10/13】增强动态镜头...');
           enhancedVideoResults = await recordStep('enhance_video_clips', { message: '增强动态镜头' }, () =>
-            deps.runMotionEnhancer(rawVideoResults, shotPackages, {
+            deps.runMotionEnhancer(rawVideoResults, preflightShotPackages || shotPackages, {
               artifactContext: artifactContext.agents.motionEnhancer,
             })
           );
@@ -1414,7 +1879,11 @@ export function createDirector(overrides = {}) {
           });
         }
 
-        const hasCompletedBridgeCache = state.bridgeQaReport !== null && state.bridgeQaReport !== undefined;
+        const hasCompletedBridgeCache = isReusableContinuityQaReport(
+          state.bridgeQaReport,
+          state.bridgeClipResults,
+          'bridgeId'
+        );
         let bridgeShotPlan =
           Array.isArray(state.bridgeShotPlan) && hasCompletedBridgeCache ? state.bridgeShotPlan : null;
         if (!bridgeShotPlan) {
@@ -1488,6 +1957,7 @@ export function createDirector(overrides = {}) {
           deps.logger.info('Director', '【Step 11d/13】桥接片段 QA...');
           bridgeQaReport = await recordStep('bridge_qa', { message: '桥接片段 QA' }, () =>
             deps.runBridgeQa(bridgeClipResults, {
+              bridgeShotPlan,
               artifactContext: artifactContext.agents.bridgeQaAgent,
             })
           );
@@ -1500,7 +1970,11 @@ export function createDirector(overrides = {}) {
           });
         }
 
-        const hasCompletedSequenceCache = state.sequenceQaReport !== null && state.sequenceQaReport !== undefined;
+        const hasCompletedSequenceCache = isReusableContinuityQaReport(
+          state.sequenceQaReport,
+          state.sequenceClipResults,
+          'sequenceId'
+        );
         let actionSequencePlan =
           Array.isArray(state.actionSequencePlan) && hasCompletedSequenceCache ? state.actionSequencePlan : null;
         if (!actionSequencePlan) {
@@ -1580,6 +2054,7 @@ export function createDirector(overrides = {}) {
               shots,
               videoResults,
               bridgeClipResults,
+              actionSequencePlan,
               actionSequencePackages,
               artifactContext: artifactContext.agents.sequenceQaAgent,
             })
@@ -1624,7 +2099,9 @@ export function createDirector(overrides = {}) {
         }
 
         const voiceCast = voiceProjectId
-          ? deps.loadVoiceCast(voiceProjectId, options.storeOptions) || []
+          ? deps.ensureProjectVoiceCast
+            ? deps.ensureProjectVoiceCast(voiceProjectId, characterRegistry, options.storeOptions)
+            : deps.loadVoiceCast(voiceProjectId, options.storeOptions) || []
           : [];
         const cachedAudioProjectId = normalizeProjectId(state.audioProjectId);
         const audioCacheKey = buildAudioCacheKey({
@@ -1722,8 +2199,20 @@ export function createDirector(overrides = {}) {
           state.animationClips || episode.animationClips || []
         );
         const videoClips = buildVideoClipBridge(videoResults, shotQaReport);
-        const bridgeClips = buildBridgeClipBridge(bridgeShotPlan, bridgeClipResults, bridgeQaReport);
         const sequenceClips = buildSequenceClipBridge(actionSequencePlan, sequenceClipResults, sequenceQaReport);
+        const bridgeClips = filterBridgeClipsAgainstSequences(
+          buildBridgeClipBridge(bridgeShotPlan, bridgeClipResults, bridgeQaReport),
+          sequenceClips
+        );
+
+        assertContinuityDeliveryGate({
+          bridgeShotPlan,
+          bridgeClipResults,
+          bridgeQaReport,
+          actionSequencePlan,
+          sequenceClipResults,
+          sequenceQaReport,
+        });
 
         const composeRun = await recordStep('compose_video', { message: '合成视频' }, () =>
           deps.composeVideo(normalizedShots, imageResults, audioResults, outputPath, {
@@ -1741,7 +2230,7 @@ export function createDirector(overrides = {}) {
         const composeResult = normalizeComposeResult(composeRun, outputPath);
         const finalOutputPath = composeResult.outputVideo.uri || outputPath;
 
-        if (composeResult.status === 'blocked') {
+        if (composeResult.status === 'blocked' || composeResult.status === 'completed_with_errors') {
           throw new Error(
             `Compose 阻断交付：${(composeResult.report?.blockedReasons || []).join('；') || 'unknown compose block'}`
           );
@@ -1751,10 +2240,13 @@ export function createDirector(overrides = {}) {
           motionPlan,
           videoResults,
           shotQaReport,
+          preflightQaReport,
+          seedancePromptMetrics: readSeedancePromptMetrics(deps.loadJSON, artifactContext),
           actionSequencePlan,
           sequenceClipResults,
           sequenceQaReport,
         });
+        const seedancePromptMetrics = readSeedancePromptMetrics(deps.loadJSON, artifactContext);
         const deliverySummaryPath = path.join(path.dirname(finalOutputPath), 'delivery-summary.md');
         ensureDir(path.dirname(deliverySummaryPath));
         fs.writeFileSync(
@@ -1773,6 +2265,13 @@ export function createDirector(overrides = {}) {
             motionPlan,
             videoResults,
             shotQaReport,
+            preflightQaReport,
+            seedancePromptMetrics,
+            preflightFixBriefArtifact: 'runs/' +
+              path.basename(artifactContext.runDir) +
+              '/' +
+              AGENT_ARTIFACT_LAYOUT.preflightQaAgent +
+              '/1-outputs/preflight-fix-brief.md',
             actionSequencePlan,
             sequenceClipResults,
             sequenceQaReport,
@@ -1780,8 +2279,37 @@ export function createDirector(overrides = {}) {
           }),
           'utf-8'
         );
+        const preflightContextSummary =
+          preflightQaReport
+            ? `生成前质检结果：pass ${preflightQaReport.passCount || 0}，warn ${preflightQaReport.warnCount || 0}，block ${preflightQaReport.blockCount || 0}。`
+            : '';
+        const seedanceInferenceSummary =
+          seedancePromptMetrics
+            ? `Seedance 输入补全：coverage ${seedancePromptMetrics.inferredCoverageCount || 0}，blocking ${seedancePromptMetrics.inferredBlockingCount || 0}，continuity ${seedancePromptMetrics.inferredContinuityCount || 0}。`
+            : '';
+        if (shouldBlockFormalDeliveryForSeedanceInference(pipelineSummary)) {
+          saveState({
+            pipelineSummary,
+            previewOutputPath: finalOutputPath,
+            composeResult,
+            deliverySummaryPath,
+            failedAt: new Date().toISOString(),
+          });
+          throw new Error(
+            `Seedance 输入补全占比过高，阻止正式交付：${pipelineSummary.inferred_shot_count}/${pipelineSummary.seedance_prompt_package_count} 个镜头依赖系统兜底`
+          );
+        }
         writeRunQaOverview(
-          collectRunQaOverview(deps.loadJSON, artifactContext, { releasable: true }),
+          collectRunQaOverview(deps.loadJSON, artifactContext, {
+            releasable: true,
+            seedancePromptMetrics,
+            extraTopIssues: [
+              ...buildPreflightTopIssues(preflightQaReport),
+              ...buildPreflightFixBriefTopIssues(preflightQaReport),
+              ...buildSeedanceInferenceTopIssues(seedancePromptMetrics),
+            ],
+            summaryAppend: [preflightContextSummary, seedanceInferenceSummary].filter(Boolean).join(' '),
+          }),
           artifactContext
         );
 
@@ -1812,8 +2340,26 @@ export function createDirector(overrides = {}) {
         deps.logger.error('Director', err.stack);
         saveState({ lastError: err.message, failedAt: new Date().toISOString() });
         if (activeArtifactContext) {
+          const failedPreflightContextSummary =
+            state?.preflightQaReport
+              ? `生成前质检结果：pass ${state.preflightQaReport.passCount || 0}，warn ${state.preflightQaReport.warnCount || 0}，block ${state.preflightQaReport.blockCount || 0}。`
+              : '';
+          const failedSeedancePromptMetrics = readSeedancePromptMetrics(deps.loadJSON, activeArtifactContext);
+          const failedSeedanceInferenceSummary =
+            failedSeedancePromptMetrics
+              ? `Seedance 输入补全：coverage ${failedSeedancePromptMetrics.inferredCoverageCount || 0}，blocking ${failedSeedancePromptMetrics.inferredBlockingCount || 0}，continuity ${failedSeedancePromptMetrics.inferredContinuityCount || 0}。`
+              : '';
           writeRunQaOverview(
-            collectRunQaOverview(deps.loadJSON, activeArtifactContext, { releasable: false }),
+            collectRunQaOverview(deps.loadJSON, activeArtifactContext, {
+              releasable: false,
+              seedancePromptMetrics: failedSeedancePromptMetrics,
+              extraTopIssues: [
+                ...buildPreflightTopIssues(state?.preflightQaReport),
+                ...buildPreflightFixBriefTopIssues(state?.preflightQaReport),
+                ...buildSeedanceInferenceTopIssues(failedSeedancePromptMetrics),
+              ],
+              summaryAppend: [failedPreflightContextSummary, failedSeedanceInferenceSummary].filter(Boolean).join(' '),
+            }),
             activeArtifactContext
           );
         }
@@ -2021,6 +2567,11 @@ export const __testables = {
   collectRunQaOverview,
   initializePhase4SequenceState,
   buildShotQaInputs,
+  buildBridgeClipBridge,
+  buildSequenceClipBridge,
+  filterBridgeClipsAgainstSequences,
+  isReusableContinuityQaReport,
+  assertContinuityDeliveryGate,
 };
 
 export const runEpisodePipeline = director.runEpisodePipeline;

@@ -167,6 +167,50 @@ test('buildActionSequencePackages adds specialized sequence template hints by se
   assert.doesNotMatch(genericPackage.sequenceContextSummary, /sustain forward chase momentum/i);
 });
 
+test('buildActionSequencePackages tags sequence references with explicit Seedance-friendly roles', () => {
+  const [packageEntry] = __testables.buildActionSequencePackages(
+    [
+      {
+        sequenceId: 'seq_roles',
+        shotIds: ['shot_r_1', 'shot_r_2'],
+        sequenceType: 'chase_run_sequence',
+        durationTargetSec: 6,
+        sequenceGoal: '连续追逐',
+        cameraFlowIntent: 'long_follow',
+        motionContinuityTargets: ['direction_of_travel'],
+        subjectContinuityTargets: ['runner_a'],
+        environmentContinuityTargets: ['street'],
+        mustPreserveElements: ['subject_identity'],
+        entryConstraint: '接住起跑方向',
+        exitConstraint: '落到下一步位',
+        generationMode: 'standalone_sequence',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'fallback_to_shot_and_bridge',
+      },
+    ],
+    {
+      imageResults: [
+        { shotId: 'shot_r_1', imagePath: '/tmp/shot_r_1.png', success: true },
+        { shotId: 'shot_r_2', imagePath: '/tmp/shot_r_2.png', success: true },
+      ],
+      videoResults: [
+        {
+          shotId: 'shot_r_1',
+          videoPath: '/tmp/shot_r_1.mp4',
+          status: 'completed',
+          finalDecision: 'pass',
+        },
+      ],
+      bridgeClipResults: [],
+      performancePlan: [],
+    }
+  );
+
+  assert.equal(packageEntry.referenceVideos[0].type, 'qa_passed_video');
+  assert.equal(packageEntry.referenceVideos[0].role, 'motion_reference');
+  assert.equal(packageEntry.referenceImages.length, 0);
+});
+
 test('buildActionSequencePackages prefers QA-passed videoResults over bridgeClipResults and imageResults', () => {
   const [packageEntry] = __testables.buildActionSequencePackages(
     [

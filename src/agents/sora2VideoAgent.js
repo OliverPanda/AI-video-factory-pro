@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
+import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
@@ -22,6 +23,33 @@ function normalizeProviderError(error) {
     status: error?.status || null,
     details: error?.details || null,
     attemptedModels: Array.isArray(error?.attemptedModels) ? error.attemptedModels : [],
+  };
+}
+
+async function runViaProviderClient(providerClient, shotPackage, outputPath, options = {}) {
+  const submitResult = await providerClient.submit(
+    {
+      ...shotPackage,
+      packageType: 'shot',
+    },
+    outputPath,
+    options
+  );
+  const pollResult = await providerClient.poll(submitResult.taskId, shotPackage, submitResult, options);
+  await providerClient.download(
+    pollResult?.outputUrl || submitResult?.outputUrl || outputPath,
+    outputPath,
+    shotPackage,
+    pollResult,
+    options
+  );
+  return {
+    provider: submitResult?.provider || shotPackage.preferredProvider || 'sora2',
+    model: submitResult?.model || null,
+    videoPath: outputPath,
+    taskId: submitResult?.taskId || null,
+    outputUrl: pollResult?.outputUrl || submitResult?.outputUrl || null,
+    actualDurationSec: pollResult?.actualDurationSec || shotPackage.durationTargetSec || null,
   };
 }
 
@@ -116,6 +144,7 @@ function writeArtifacts(results, report, artifactContext) {
 export async function runSora2Video(shotPackages = [], videoDir, options = {}) {
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'video'));
   const results = [];
+  const providerClient = options.providerClient || createUnifiedVideoProviderClient();
 
   for (const shotPackage of shotPackages) {
     if (shotPackage.preferredProvider !== 'sora2') {
@@ -136,7 +165,9 @@ export async function runSora2Video(shotPackages = [], videoDir, options = {}) {
 
     const outputPath = buildOutputPath(resolvedVideoDir, shotPackage);
     try {
-      const run = await (options.generateVideoClip || createFallbackVideoClip)(shotPackage, outputPath, options);
+      const run = options.generateVideoClip
+        ? await options.generateVideoClip(shotPackage, outputPath, options)
+        : await runViaProviderClient(providerClient, shotPackage, outputPath, options);
       results.push({
         shotId: shotPackage.shotId,
         preferredProvider: shotPackage.preferredProvider,

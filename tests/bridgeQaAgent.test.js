@@ -173,3 +173,39 @@ test('runBridgeQa writes bridge-qa-report artifacts', async (t) => {
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed');
 });
+
+test('runBridgeQa does not auto-pass when bridge continuity metadata is missing', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'bridge-missing-metadata.mp4');
+    fs.writeFileSync(videoPath, 'bridge-video');
+
+    const report = await runBridgeQa(
+      [
+        {
+          bridgeId: 'bridge_missing_metadata',
+          status: 'completed',
+          videoPath,
+          targetDurationSec: 1.8,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 1.8 }),
+        bridgeShotPlan: [
+          {
+            bridgeId: 'bridge_missing_metadata',
+            fromShotId: 'shot_001',
+            toShotId: 'shot_002',
+            bridgeGoal: '',
+            cameraTransitionIntent: '',
+            subjectContinuityTargets: [],
+            environmentContinuityTargets: [],
+          },
+        ],
+      }
+    );
+
+    assert.equal(report.status, 'warn');
+    assert.equal(report.entries[0].finalDecision, 'fallback_to_direct_cut');
+    assert.notEqual(report.entries[0].decisionReason, null);
+  });
+});

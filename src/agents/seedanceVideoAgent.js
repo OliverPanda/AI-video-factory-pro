@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createSeedanceVideoClip } from '../apis/seedanceVideoApi.js';
+import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
+import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
@@ -21,6 +22,36 @@ function normalizeProviderError(error) {
     category: error?.category || 'provider_generation_failed',
     status: error?.status || null,
     details: error?.details || null,
+  };
+}
+
+async function runViaProviderClient(providerClient, shotPackage, outputPath, options = {}) {
+  const submitResult = await providerClient.submit(
+    {
+      ...shotPackage,
+      packageType: 'shot',
+    },
+    outputPath,
+    options
+  );
+  const pollResult = await providerClient.poll(submitResult.taskId, shotPackage, submitResult, options);
+  await providerClient.download(
+    pollResult?.outputUrl || submitResult?.outputUrl || outputPath,
+    outputPath,
+    shotPackage,
+    pollResult,
+    options
+  );
+  return {
+    provider: submitResult?.provider || shotPackage.preferredProvider || 'seedance',
+    model: submitResult?.model || null,
+    videoPath: outputPath,
+    taskId: submitResult?.taskId || null,
+    providerJobId: submitResult?.taskId || null,
+    outputUrl: pollResult?.outputUrl || submitResult?.outputUrl || null,
+    actualDurationSec: pollResult?.actualDurationSec || shotPackage.durationTargetSec || null,
+    providerRequest: submitResult?.providerRequest || null,
+    providerMetadata: submitResult?.providerMetadata || null,
   };
 }
 
@@ -106,6 +137,7 @@ function writeArtifacts(results, report, artifactContext) {
 export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}) {
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'video'));
   const results = [];
+  const providerClient = options.providerClient || createUnifiedVideoProviderClient();
 
   for (const shotPackage of shotPackages) {
     if (shotPackage.preferredProvider !== 'seedance') {
@@ -124,7 +156,9 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
 
     const outputPath = buildOutputPath(resolvedVideoDir, shotPackage);
     try {
-      const run = await (options.generateVideoClip || createSeedanceVideoClip)(shotPackage, outputPath, options);
+      const run = options.generateVideoClip
+        ? await options.generateVideoClip(shotPackage, outputPath, options)
+        : await runViaProviderClient(providerClient, shotPackage, outputPath, options);
       results.push({
         ...run,
         shotId: shotPackage.shotId,

@@ -42,6 +42,68 @@ function hasUsefulProfile(character = {}) {
   return Boolean(character.visualDescription || character.basePromptTokens);
 }
 
+function normalizeNameKey(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+function normalizeAliasList(values = []) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+export function buildCharacterIdentityCandidates(character = {}) {
+  return [
+    character?.episodeCharacterId,
+    character?.characterId,
+    character?.id,
+    character?.mainCharacterTemplateId,
+    character?.characterBibleId,
+    character?.voicePresetId,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+export function resolveCharacterIdentity(character = {}) {
+  return buildCharacterIdentityCandidates(character)[0] || null;
+}
+
+export function findCharacterByIdentity(registry = [], identity = null) {
+  const target = String(identity || '').trim();
+  if (!target) return null;
+
+  return (
+    registry.find((character) => buildCharacterIdentityCandidates(character).includes(target)) ?? null
+  );
+}
+
+function findCharacterByName(registry = [], name = '') {
+  const target = normalizeNameKey(name);
+  if (!target) return null;
+
+  return (
+    registry.find((character) => {
+      const candidates = [character?.name, ...(Array.isArray(character?.aliases) ? character.aliases : [])];
+      return candidates.some((candidate) => normalizeNameKey(candidate) === target);
+    }) ?? null
+  );
+}
+
+function findUniqueCharacterByName(registry = [], name = '') {
+  const target = normalizeNameKey(name);
+  if (!target) return null;
+
+  const matches = (Array.isArray(registry) ? registry : []).filter((character) => {
+    const candidates = [character?.name, ...(Array.isArray(character?.aliases) ? character.aliases : [])];
+    return candidates.some((candidate) => normalizeNameKey(candidate) === target);
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function findCharacterByIdentityOrName(registry = [], identityOrName = '') {
+  return findCharacterByIdentity(registry, identityOrName) ?? findUniqueCharacterByName(registry, identityOrName);
+}
+
 function buildNameMapping(cards, sourceCharacters = [], generatedCharacters = []) {
   return sourceCharacters.map((source, index) => {
     const registryCharacter =
@@ -246,38 +308,55 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
  * @returns {string} basePromptTokens
  */
 export function getCharacterTokens(characterName, registry) {
-  const card = registry.find((c) => c.name === characterName);
+  const card = findCharacterByName(registry, characterName);
   return card ? card.basePromptTokens : '';
 }
 
 function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) {
-  const remainingSources = [...sourceCharacters];
+  const consumedSourceIndices = new Set();
   const mergedCharacters = generatedCharacters.map((character, index) => {
-    const matchedSourceIndex = remainingSources.findIndex((source) => source?.name === character?.name);
-    const source =
-      matchedSourceIndex >= 0
-        ? remainingSources.splice(matchedSourceIndex, 1)[0]
-        : sourceCharacters[index] ?? null;
+    const exactMatchIndex = sourceCharacters.findIndex(
+      (source, sourceIndex) =>
+        !consumedSourceIndices.has(sourceIndex) &&
+        normalizeNameKey(source?.name) === normalizeNameKey(character?.name)
+    );
+    const sourceIndex = exactMatchIndex >= 0 ? exactMatchIndex : index;
+    const source = sourceCharacters[sourceIndex] ?? null;
+    if (source) {
+      consumedSourceIndices.add(sourceIndex);
+    }
 
     if (!source) return character;
+    const aliasCandidates = normalizeAliasList([
+      ...(Array.isArray(source.aliases) ? source.aliases : []),
+      ...(character?.name && character.name !== source.name ? [character.name] : []),
+      ...(Array.isArray(character?.aliases) ? character.aliases : []),
+    ]);
+
     return {
-      ...source,
       ...character,
+      ...source,
       id: source.id ?? character.id,
       episodeCharacterId: source.episodeCharacterId ?? source.id ?? character.episodeCharacterId ?? character.id,
       characterBibleId: source.characterBibleId ?? character.characterBibleId ?? null,
       mainCharacterTemplateId:
         source.mainCharacterTemplateId ?? character.mainCharacterTemplateId ?? null,
+      name: source.name ?? character.name ?? '',
+      aliases: aliasCandidates.length > 0 ? aliasCandidates : undefined,
+      generatedName: character.name ?? null,
     };
   });
 
-  const fallbackCharacters = remainingSources.map((source) => ({
-    ...source,
-    id: source.id,
-    episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
-    characterBibleId: source.characterBibleId ?? null,
-    mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
-  }));
+  const fallbackCharacters = sourceCharacters
+    .filter((_, index) => !consumedSourceIndices.has(index))
+    .map((source) => ({
+      ...source,
+      id: source.id,
+      episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
+      characterBibleId: source.characterBibleId ?? null,
+      mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
+      aliases: normalizeAliasList(source.aliases || []),
+    }));
 
   return [...mergedCharacters, ...fallbackCharacters];
 }
@@ -351,10 +430,7 @@ export function buildEpisodeCharacterRegistry(
 }
 
 export function getEpisodeCharacterContext(episodeCharacterId, registry = []) {
-  const character =
-    registry.find(
-      (entry) => entry?.episodeCharacterId === episodeCharacterId || entry?.id === episodeCharacterId
-    ) ?? null;
+  const character = findCharacterByIdentity(registry, episodeCharacterId);
 
   if (!character) return null;
 
@@ -377,18 +453,15 @@ function sortShotCharacters(shotCharacters = []) {
 function findRegistryCharacterByRelation(relation, registry) {
   if (!relation) return null;
 
-  const relationCharacterId = relation.episodeCharacterId ?? relation.characterId ?? null;
+  const relationCharacterId = resolveCharacterIdentity(relation);
   if (relationCharacterId) {
-    const matchedById = registry.find(
-      (character) =>
-        character?.episodeCharacterId === relationCharacterId || character?.id === relationCharacterId
-    );
+    const matchedById = findCharacterByIdentity(registry, relationCharacterId);
     if (matchedById) return matchedById;
   }
 
   const relationName = relation.characterName ?? relation.name ?? relation.character?.name ?? '';
   if (!relationName) return null;
-  return registry.find((character) => character?.name === relationName) ?? null;
+  return findCharacterByName(registry, relationName);
 }
 
 function createParticipant(character, relation = null, fallbackName = '') {
@@ -404,7 +477,7 @@ function resolveLegacyParticipants(shot, registry = [], relations = []) {
 
   return shot.characters
     .map((name, index) => {
-      const character = registry.find((card) => card?.name === name) ?? null;
+      const character = findCharacterByName(registry, name);
       const relation = relations[index] ?? null;
       return createParticipant(character, relation, name);
     })
@@ -423,9 +496,7 @@ export function resolveShotParticipants(shot, registry = []) {
           relation?.character?.name ??
           shot?.characters?.[index] ??
           '';
-        const fallbackCharacter =
-          character ?? (fallbackName ? registry.find((card) => card?.name === fallbackName) ?? null : null);
-        return createParticipant(fallbackCharacter, relation, fallbackName);
+        return createParticipant(character, relation, fallbackName);
       })
       .filter((participant) => participant.character || participant.name);
 
@@ -457,11 +528,22 @@ export function resolveShotSpeaker(shot, registry = []) {
   if (relationSpeaker) return relationSpeaker;
 
   if (shot?.speaker) {
-    const namedParticipant = participants.find((participant) => participant.name === shot.speaker);
-    if (namedParticipant) return namedParticipant;
+    const speakerCard = findCharacterByIdentityOrName(registry, shot.speaker);
+    if (speakerCard) {
+      const speakerIdentity = resolveCharacterIdentity(speakerCard);
+      const identityParticipant = speakerIdentity
+        ? participants.find((participant) => resolveCharacterIdentity(participant.character) === speakerIdentity)
+        : null;
+      if (identityParticipant) return identityParticipant;
 
-    const speakerCard = registry.find((character) => character?.name === shot.speaker) ?? null;
-    if (speakerCard) return createParticipant(speakerCard, null, shot.speaker);
+      return createParticipant(speakerCard, null, shot.speaker);
+    }
+
+    const namedParticipants = participants.filter(
+      (participant) => normalizeNameKey(participant.name) === normalizeNameKey(shot.speaker)
+    );
+    if (namedParticipants.length === 1) return namedParticipants[0];
+    if (namedParticipants.length > 1) return createParticipant(null, null, shot.speaker);
 
     return createParticipant(null, null, shot.speaker);
   }
@@ -478,3 +560,11 @@ export function getShotCharacterTokens(shot, registry) {
     .filter(Boolean)
     .join(', ');
 }
+
+export const __testables = {
+  buildCharacterIdentityCandidates,
+  findCharacterByIdentity,
+  findCharacterByIdentityOrName,
+  mergeCharacterSources,
+  findCharacterByName,
+};

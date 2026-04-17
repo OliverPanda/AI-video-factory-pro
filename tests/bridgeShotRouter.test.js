@@ -22,7 +22,7 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
         environmentContinuityTargets: ['lighting'],
         mustPreserveElements: ['character:char_a', 'subject_identity'],
         bridgeGenerationMode: 'first_last_keyframe',
-        preferredProvider: 'sora2',
+        preferredProvider: 'seedance',
         fallbackStrategy: 'direct_cut',
       },
     ],
@@ -46,17 +46,18 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
     fromReferenceImage: '/tmp/shot_001.png',
     toReferenceImage: '/tmp/shot_002.png',
     promptDirectives: [
-      'bridge type: motion_carry',
-      'bridge goal: carry_action_across_cut',
-      'camera intent: follow_through_motion',
-      'preserve: character:char_a, subject_identity',
+      'transition brief: create a motion_carry bridge that carry_action_across_cut',
+      'camera and timing: follow_through_motion, duration 1.8 seconds',
+      'reference binding: image1 is the first frame keyframe from shot_001. image2 is the target last frame keyframe from shot_002',
+      'continuity locks: char_a, lighting',
+      'preserve elements: character:char_a, subject_identity',
     ],
     negativePromptDirectives: ['identity drift', 'flash frame', 'axis break'],
     durationTargetSec: 1.8,
     providerCapabilityRequirement: 'first_last_keyframe',
     firstLastFrameMode: 'required',
-    preferredProvider: 'sora2',
-    fallbackProviders: ['direct_cut'],
+    preferredProvider: 'seedance',
+    fallbackProviders: ['sora2', 'direct_cut'],
     qaRules: {
       mustProbeWithFfprobe: true,
       mustConnectFromShot: true,
@@ -64,6 +65,43 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
       canFallbackToDirectCut: true,
     },
   });
+});
+
+test('buildBridgeShotPackages emits Seedance-friendly bridge directives with explicit frame binding', () => {
+  const [bridgePackage] = __testables.buildBridgeShotPackages(
+    [
+      {
+        bridgeId: 'bridge_seedance_prompt',
+        fromShotId: 'shot_101',
+        toShotId: 'shot_102',
+        bridgeType: 'motion_carry',
+        bridgeGoal: 'carry the sword swing cleanly across the cut',
+        durationTargetSec: 1.8,
+        continuityRisk: 'high',
+        cameraTransitionIntent: 'follow_through_motion',
+        subjectContinuityTargets: ['char_a'],
+        environmentContinuityTargets: ['courtyard_light'],
+        mustPreserveElements: ['character:char_a', 'subject_identity', 'sword_path'],
+        bridgeGenerationMode: 'first_last_keyframe',
+        preferredProvider: 'seedance',
+        fallbackStrategy: 'direct_cut',
+      },
+    ],
+    {
+      imageResults: [
+        { shotId: 'shot_101', imagePath: '/tmp/shot_101.png', success: true },
+        { shotId: 'shot_102', imagePath: '/tmp/shot_102.png', success: true },
+      ],
+      videoResults: [],
+    }
+  );
+
+  assert.match(bridgePackage.promptDirectives.join(' | '), /transition brief:/i);
+  assert.match(bridgePackage.promptDirectives.join(' | '), /reference binding:/i);
+  assert.match(bridgePackage.promptDirectives.join(' | '), /image1 is the first frame/i);
+  assert.match(bridgePackage.promptDirectives.join(' | '), /image2 is the target last frame/i);
+  assert.match(bridgePackage.promptDirectives.join(' | '), /camera and timing:/i);
+  assert.match(bridgePackage.promptDirectives.join(' | '), /continuity locks:/i);
 });
 
 test('buildBridgeShotPackages routes standard and constrained bridge tiers correctly', () => {

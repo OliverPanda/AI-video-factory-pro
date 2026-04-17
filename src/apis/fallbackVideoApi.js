@@ -7,13 +7,14 @@ import axios from 'axios';
 
 import logger from '../utils/logger.js';
 import { saveBuffer } from '../utils/fileHelper.js';
+import { ensureEnglishPrompt } from '../utils/translatePrompt.js';
 import {
   normalizeVideoProviderError,
   normalizeVideoProviderRequest,
   normalizeVideoProviderResult,
 } from './videoProviderProtocol.js';
 
-const DEFAULT_VIDEO_FALLBACK_BASE_URL = 'https://api.laozhang.ai/v1';
+const DEFAULT_VIDEO_FALLBACK_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_VIDEO_FALLBACK_MODEL = 'veo-3.0-fast-generate-001';
 const DEFAULT_VIDEO_FALLBACK_SECONDS = 5;
 const DEFAULT_VIDEO_FALLBACK_PORTRAIT_SIZE = '720x1280';
@@ -22,9 +23,38 @@ const SEQUENCE_RETRY_SECONDS = [6, 4];
 const DEFAULT_SEQUENCE_RETRY_ATTEMPTS = 2;
 const FALLBACK_VIDEO_DEFAULT_POLL_INTERVAL_MS = Number.parseInt(process.env.VIDEO_FALLBACK_POLL_INTERVAL_MS || '5000', 10);
 const FALLBACK_VIDEO_DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.VIDEO_FALLBACK_TIMEOUT_MS || '300000', 10);
+const FALLBACK_VIDEO_PROTOCOL_OPENAI = 'openai_videos';
+const FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2 = 'relay_seedance_v2';
 
 function resolveVideoFallbackBaseUrl(options = {}, env = process.env) {
   return options.baseUrl || env.VIDEO_FALLBACK_BASE_URL || DEFAULT_VIDEO_FALLBACK_BASE_URL;
+}
+
+function stripKnownApiSuffix(baseUrl) {
+  const normalized = String(baseUrl || '').trim().replace(/\/+$/, '');
+  for (const suffix of ['/v1', '/v2', '/api/v3']) {
+    if (normalized.toLowerCase().endsWith(suffix)) {
+      return normalized.slice(0, -suffix.length);
+    }
+  }
+  return normalized;
+}
+
+function autoDetectFallbackVideoProtocol(options = {}, env = process.env) {
+  const baseUrl = String(resolveVideoFallbackBaseUrl(options, env)).toLowerCase();
+  const model = String(options.model || env.VIDEO_FALLBACK_MODEL || '').trim().toLowerCase();
+  if (baseUrl.includes('ai.t8star.cn') && model.includes('seedance')) {
+    return FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2;
+  }
+  return FALLBACK_VIDEO_PROTOCOL_OPENAI;
+}
+
+function resolveFallbackVideoProtocol(options = {}, env = process.env) {
+  const configured = String(options.protocol || env.VIDEO_FALLBACK_PROTOCOL || '').trim().toLowerCase();
+  if (configured === FALLBACK_VIDEO_PROTOCOL_OPENAI || configured === FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2) {
+    return configured;
+  }
+  return autoDetectFallbackVideoProtocol(options, env);
 }
 
 function shouldUsePresetResolution(model, options = {}, env = process.env) {
@@ -37,16 +67,13 @@ function resolveFallbackVideoApiKey(options = {}, env = process.env) {
   if (options.apiKey) {
     return options.apiKey;
   }
-
   if (env.VIDEO_FALLBACK_API_KEY) {
     return env.VIDEO_FALLBACK_API_KEY;
   }
-
   const baseUrl = String(resolveVideoFallbackBaseUrl(options, env)).toLowerCase();
   if (baseUrl.includes('laozhang')) {
     return env.LAOZHANG_API_KEY || null;
   }
-
   return null;
 }
 
@@ -86,9 +113,18 @@ function resolveFallbackVideoModel(shotPackage, env = process.env) {
   return String(env.VIDEO_FALLBACK_MODEL || DEFAULT_VIDEO_FALLBACK_MODEL).trim();
 }
 
+function parsePositiveInt(value) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function inferVideoSize(shotPackage, env = process.env) {
-  if (env.VIDEO_FALLBACK_SIZE) {
-    return env.VIDEO_FALLBACK_SIZE;
+  if (env.VIDEO_FALLBACK_SIZE) return env.VIDEO_FALLBACK_SIZE;
+
+  const outputWidth = parsePositiveInt(env.VIDEO_WIDTH);
+  const outputHeight = parsePositiveInt(env.VIDEO_HEIGHT);
+  if (outputWidth && outputHeight) {
+    return `${outputWidth}x${outputHeight}`;
   }
 
   const ratio = inferRatio(shotPackage, env);
@@ -165,24 +201,26 @@ function isSequencePackage(shotPackage) {
   return Boolean(shotPackage?.sequenceId);
 }
 
-function buildPromptText(shotPackage) {
-  return [
+async function buildPromptText(shotPackage) {
+  const rawPrompt = [
     shotPackage?.visualGoal || '',
     shotPackage?.cameraSpec?.moveType ? `camera motion: ${shotPackage.cameraSpec.moveType}` : '',
     shotPackage?.cameraSpec?.framing ? `framing: ${shotPackage.cameraSpec.framing}` : '',
   ]
     .filter(Boolean)
     .join('. ');
+
+  return ensureEnglishPrompt(rawPrompt);
 }
 
-export function buildFallbackVideoRequest(shotPackage, env = process.env) {
+export async function buildFallbackVideoRequest(shotPackage, env = process.env) {
   const referenceImage = shotPackage?.referenceImages?.[0]?.path || null;
   const ratio = inferRatio(shotPackage, env);
   const size = normalizeVideoFallbackSize(inferVideoSize(shotPackage, env), {}, env);
 
   return {
     model: resolveFallbackVideoModel(shotPackage, env),
-    prompt: buildPromptText(shotPackage),
+    prompt: await buildPromptText(shotPackage),
     imagePath: referenceImage,
     ratio,
     duration: normalizeDurationBucket(shotPackage?.durationTargetSec),
@@ -191,8 +229,8 @@ export function buildFallbackVideoRequest(shotPackage, env = process.env) {
   };
 }
 
-function buildFallbackVideoRequestCandidates(shotPackage, env = process.env) {
-  const baseRequest = buildFallbackVideoRequest(shotPackage, env);
+async function buildFallbackVideoRequestCandidates(shotPackage, env = process.env) {
+  const baseRequest = await buildFallbackVideoRequest(shotPackage, env);
   const candidates = [baseRequest];
 
   if (!isSequencePackage(shotPackage)) {
@@ -219,8 +257,9 @@ function buildFallbackVideoRequestCandidates(shotPackage, env = process.env) {
 }
 
 function resolveSequenceRetryAttempts(shotPackage, env = process.env) {
+  const globalRetries = Number.parseInt(env.VIDEO_FALLBACK_RETRY_ATTEMPTS || '', 10);
   if (!isSequencePackage(shotPackage)) {
-    return 1;
+    return Number.isFinite(globalRetries) && globalRetries > 0 ? globalRetries : 2;
   }
 
   const configured = Number.parseInt(env.VIDEO_FALLBACK_SEQUENCE_RETRY_ATTEMPTS || '', 10);
@@ -231,8 +270,8 @@ function resolveSequenceRetryAttempts(shotPackage, env = process.env) {
   return DEFAULT_SEQUENCE_RETRY_ATTEMPTS;
 }
 
-function buildFallbackVideoAttemptPlans(shotPackage, env = process.env) {
-  const requestCandidates = buildFallbackVideoRequestCandidates(shotPackage, env);
+async function buildFallbackVideoAttemptPlans(shotPackage, env = process.env) {
+  const requestCandidates = await buildFallbackVideoRequestCandidates(shotPackage, env);
   const modelCandidates = buildFallbackVideoModelCandidates(shotPackage, env);
   const retryAttempts = resolveSequenceRetryAttempts(shotPackage, env);
   const plans = [];
@@ -370,15 +409,24 @@ function createDefaultHttpClient(apiKey, options = {}, env = process.env) {
       return { data };
     },
     async get(url) {
-      return axios.get(`${baseUrl}${url}`, {
+      return axios.get(url.startsWith('http') ? url : `${baseUrl}${url}`, {
         timeout: timeoutMs,
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
       });
     },
+    async postJson(url, body) {
+      return axios.post(url.startsWith('http') ? url : `${baseUrl}${url}`, body, {
+        timeout: timeoutMs,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    },
     async getBinary(url) {
-      return axios.get(`${baseUrl}${url}`, {
+      return axios.get(url.startsWith('http') ? url : `${baseUrl}${url}`, {
         responseType: 'arraybuffer',
         timeout: timeoutMs,
         headers: {
@@ -391,6 +439,95 @@ function createDefaultHttpClient(apiKey, options = {}, env = process.env) {
 
 function normalizeTaskStatus(task) {
   return String(task?.status || task?.state || '').trim().toUpperCase();
+}
+
+function normalizeRelaySeedanceTaskStatus(task) {
+  return String(task?.status || '').trim().toUpperCase();
+}
+
+function buildRelaySeedanceV2Body(request) {
+  const payload = {
+    model: request.model,
+    prompt: request.prompt,
+  };
+  if (request.imagePath) {
+    payload.image_url = `data:image/png;base64,${fs.readFileSync(request.imagePath).toString('base64')}`;
+  }
+  return payload;
+}
+
+function extractRelaySeedanceVideoUrl(task) {
+  return task?.data?.output || task?.data?.video_url || task?.video_url || null;
+}
+
+function buildAttemptMetadata(shotPackage, attemptPlan, requestBody) {
+  return {
+    model: requestBody.model,
+    duration: requestBody.duration,
+    seconds: requestBody.seconds,
+    size: requestBody.size,
+    ratio: requestBody.ratio,
+    requestIndex: attemptPlan.requestIndex,
+    modelIndex: attemptPlan.modelIndex,
+    attempt: attemptPlan.attempt,
+    protocol: requestBody.protocol || null,
+    shotId: shotPackage?.shotId || null,
+    sequenceId: shotPackage?.sequenceId || null,
+  };
+}
+
+function buildFallbackRequestSummary(shotPackage, requestBody) {
+  return normalizeVideoProviderRequest({
+    provider: 'sora2',
+    request: {
+      model: requestBody.model,
+      duration: requestBody.duration,
+      seconds: requestBody.seconds,
+      size: requestBody.size,
+      ratio: requestBody.ratio,
+      prompt: requestBody.prompt,
+      hasReferenceImage: Boolean(requestBody.imagePath),
+    },
+    metadata: {
+      shotId: shotPackage?.shotId || null,
+      sequenceId: shotPackage?.sequenceId || null,
+      referenceImageCount: Array.isArray(shotPackage?.referenceImages) ? shotPackage.referenceImages.length : 0,
+      protocol: requestBody.protocol || FALLBACK_VIDEO_PROTOCOL_OPENAI,
+    },
+  });
+}
+
+function buildFallbackVideoResult(shotPackage, requestBody, outputPath, taskId, outputUrl, requestSummary, attemptedModels, attemptedRequests, extraMetadata = {}) {
+  return normalizeVideoProviderResult({
+    provider: 'sora2',
+    shotId: shotPackage?.shotId || null,
+    preferredProvider: shotPackage?.preferredProvider || 'sora2',
+    model: requestBody.model,
+    videoPath: outputPath,
+    outputUrl,
+    taskId,
+    providerJobId: taskId,
+    targetDurationSec: shotPackage?.durationTargetSec || requestBody.duration,
+    actualDurationSec: requestBody.duration,
+    providerRequest: requestSummary.providerRequest,
+    providerMetadata: {
+      ...requestSummary.providerMetadata,
+      ...extraMetadata,
+    },
+    extra: {
+      model: requestBody.model,
+      attemptedModels,
+      attemptedRequests,
+      requestBody: {
+        model: requestBody.model,
+        duration: requestBody.duration,
+        seconds: requestBody.seconds,
+        size: requestBody.size,
+        ratio: requestBody.ratio,
+        protocol: requestBody.protocol || FALLBACK_VIDEO_PROTOCOL_OPENAI,
+      },
+    },
+  });
 }
 
 function shouldRetryWithNextRequestVariant(error) {
@@ -410,7 +547,8 @@ export async function fallbackImageToVideo(shotPackage, outputPath, options = {}
     });
   }
 
-  const attemptPlans = buildFallbackVideoAttemptPlans(shotPackage, env);
+  const attemptPlans = await buildFallbackVideoAttemptPlans(shotPackage, env);
+  const protocol = resolveFallbackVideoProtocol(options, env);
 
   const httpClient = options.httpClient || createDefaultHttpClient(apiKey, options, env);
   const sleep = options.sleep || ((ms) => sleepTimeout(ms));
@@ -423,20 +561,73 @@ export async function fallbackImageToVideo(shotPackage, outputPath, options = {}
     let lastClassifiedError = null;
     for (let planIndex = 0; planIndex < attemptPlans.length; planIndex += 1) {
       const attemptPlan = attemptPlans[planIndex];
-      const requestBody = attemptPlan.request;
+      const requestBody = {
+        ...attemptPlan.request,
+        protocol,
+      };
       attemptedModels.push(requestBody.model);
-      attemptedRequests.push({
-        model: requestBody.model,
-        duration: requestBody.duration,
-        seconds: requestBody.seconds,
-        size: requestBody.size,
-        ratio: requestBody.ratio,
-        requestIndex: attemptPlan.requestIndex,
-        modelIndex: attemptPlan.modelIndex,
-        attempt: attemptPlan.attempt,
-      });
+      attemptedRequests.push(buildAttemptMetadata(shotPackage, attemptPlan, requestBody));
 
       try {
+        if (protocol === FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2) {
+          const baseHost = stripKnownApiSuffix(resolveVideoFallbackBaseUrl(options, env));
+          const createResponse = await httpClient.postJson(`${baseHost}/v2/videos/generations`, buildRelaySeedanceV2Body(requestBody));
+          const taskId = createResponse?.data?.task_id || createResponse?.data?.id || null;
+          if (!taskId) {
+            throw createProviderError('Relay Seedance v2 未返回任务 ID', {
+              code: 'SORA2_INVALID_RESPONSE',
+              category: 'provider_generation_failed',
+              details: createResponse?.data || null,
+            });
+          }
+
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < overallTimeoutMs) {
+            await sleep(pollIntervalMs);
+            const taskResponse = await httpClient.get(`${baseHost}/v2/videos/generations/${taskId}`);
+            const task = taskResponse?.data || {};
+            const status = normalizeRelaySeedanceTaskStatus(task);
+
+            if (status === 'SUCCESS') {
+              const videoUrl = extractRelaySeedanceVideoUrl(task);
+              if (!videoUrl) {
+                throw createProviderError('Relay Seedance v2 任务成功但未返回视频地址', {
+                  code: 'SORA2_MISSING_OUTPUT',
+                  category: 'provider_generation_failed',
+                  details: task,
+                });
+              }
+              const binary = await httpClient.getBinary(videoUrl);
+              saveBuffer(outputPath, Buffer.from(binary.data));
+              const requestSummary = buildFallbackRequestSummary(shotPackage, requestBody);
+              return buildFallbackVideoResult(
+                shotPackage,
+                requestBody,
+                outputPath,
+                taskId,
+                videoUrl,
+                requestSummary,
+                attemptedModels,
+                attemptedRequests,
+                { progress: task?.progress || null }
+              );
+            }
+
+            if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+              throw createProviderError(task?.fail_reason || task?.error?.message || `Relay Seedance v2 任务${status}`, {
+                code: task?.error?.code || 'SORA2_TASK_FAILED',
+                category: 'provider_generation_failed',
+                details: task,
+              });
+            }
+          }
+
+          throw createProviderError('Relay Seedance v2 任务轮询超时', {
+            code: 'SORA2_TIMEOUT',
+            category: 'provider_timeout',
+          });
+        }
+
         const createResponse = await httpClient.postMultipart('/videos', buildMultipartBody(requestBody));
 
         const taskId = createResponse?.data?.id || createResponse?.data?.taskId || null;
@@ -458,50 +649,17 @@ export async function fallbackImageToVideo(shotPackage, outputPath, options = {}
           if (status === 'SUCCEEDED' || status === 'COMPLETED') {
             const binary = await httpClient.getBinary(`/videos/${taskId}/content`);
             saveBuffer(outputPath, Buffer.from(binary.data));
-            const requestSummary = normalizeVideoProviderRequest({
-              provider: 'sora2',
-              request: {
-                model: requestBody.model,
-                duration: requestBody.duration,
-                seconds: requestBody.seconds,
-                size: requestBody.size,
-                ratio: requestBody.ratio,
-                prompt: requestBody.prompt,
-                hasReferenceImage: Boolean(requestBody.imagePath),
-              },
-              metadata: {
-                shotId: shotPackage?.shotId || null,
-                sequenceId: shotPackage?.sequenceId || null,
-                referenceImageCount: Array.isArray(shotPackage?.referenceImages) ? shotPackage.referenceImages.length : 0,
-              },
-            });
-
-            return normalizeVideoProviderResult({
-              provider: 'sora2',
-              shotId: shotPackage?.shotId || null,
-              preferredProvider: shotPackage?.preferredProvider || 'sora2',
-              model: requestBody.model,
-              videoPath: outputPath,
-              outputUrl: `/videos/${taskId}/content`,
+            const requestSummary = buildFallbackRequestSummary(shotPackage, requestBody);
+            return buildFallbackVideoResult(
+              shotPackage,
+              requestBody,
+              outputPath,
               taskId,
-              providerJobId: taskId,
-              targetDurationSec: shotPackage?.durationTargetSec || requestBody.duration,
-              actualDurationSec: requestBody.duration,
-              providerRequest: requestSummary.providerRequest,
-              providerMetadata: requestSummary.providerMetadata,
-              extra: {
-                model: requestBody.model,
-                attemptedModels,
-                attemptedRequests,
-                requestBody: {
-                  model: requestBody.model,
-                  duration: requestBody.duration,
-                  seconds: requestBody.seconds,
-                  size: requestBody.size,
-                  ratio: requestBody.ratio,
-                },
-              },
-            });
+              `/videos/${taskId}/content`,
+              requestSummary,
+              attemptedModels,
+              attemptedRequests
+            );
           }
 
           if (status === 'FAILED' || status === 'CANCELLED' || status === 'EXPIRED') {
@@ -527,6 +685,10 @@ export async function fallbackImageToVideo(shotPackage, outputPath, options = {}
         if (!hasNextAttemptPlan || !shouldRetryWithNextRequestVariant(classifiedError)) {
           throw classifiedError;
         }
+
+        const retryDelay = 5000 * (planIndex + 1);
+        logger.info('FallbackVideo', `重试第 ${planIndex + 1} 次（${retryDelay / 1000}s 后）：${classifiedError.message || 'unknown error'}`);
+        await sleep(retryDelay);
       }
     }
 
@@ -561,6 +723,7 @@ export const __testables = {
   isUnavailableChannelError,
   normalizeDurationBucket,
   normalizeVideoFallbackSize,
+  parsePositiveInt,
   resolveRequestedSeconds,
   resolveFallbackVideoApiKey,
   resolveVideoFallbackBaseUrl,

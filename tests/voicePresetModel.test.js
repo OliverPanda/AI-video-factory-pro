@@ -10,7 +10,7 @@ test('createVoicePreset returns a project-scoped preset with defaults', () => {
 
   assert.equal(preset.projectId, 'project-123');
   assert.equal(preset.name, 'Narrator A');
-  assert.equal(preset.provider, 'xfyun');
+  assert.equal(preset.provider, 'minimax');
   assert.deepEqual(preset.tags, []);
   assert.equal(preset.sampleAudioPath, null);
   assert.equal(preset.status, 'draft');

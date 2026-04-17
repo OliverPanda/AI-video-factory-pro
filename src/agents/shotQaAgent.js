@@ -24,24 +24,40 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec) {
     return false;
   }
 
-  const minDuration = Math.max(0.5, targetDurationSec * 0.6);
-  const maxDuration = Math.max(targetDurationSec + 5, targetDurationSec * 2.5);
+  const minDuration = Math.max(0.75, targetDurationSec * 0.82);
+  const maxDuration = Math.max(targetDurationSec + 1.5, targetDurationSec * 1.25);
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
 }
 
 function getMotionThresholds(performanceTemplate) {
   if (performanceTemplate === 'fight_impact_insert') {
     return {
-      maxFreezeDurationSec: 1.2,
-      maxNearDuplicateRatio: 0.75,
+      maxFreezeDurationSec: 0.45,
+      maxNearDuplicateRatio: 0.35,
+      minMotionScore: 0.42,
+    };
+  }
+
+  if (performanceTemplate === 'fight_exchange_medium') {
+    return {
+      maxFreezeDurationSec: 0.6,
+      maxNearDuplicateRatio: 0.42,
+      minMotionScore: 0.36,
+    };
+  }
+
+  if (performanceTemplate === 'ambient_transition_motion') {
+    return {
+      maxFreezeDurationSec: 0.9,
+      maxNearDuplicateRatio: 0.55,
       minMotionScore: 0.18,
     };
   }
 
   return {
-    maxFreezeDurationSec: 2.4,
-    maxNearDuplicateRatio: 0.9,
-    minMotionScore: 0.08,
+    maxFreezeDurationSec: 0.75,
+    maxNearDuplicateRatio: 0.48,
+    minMotionScore: 0.24,
   };
 }
 

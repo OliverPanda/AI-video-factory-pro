@@ -58,6 +58,10 @@ function buildPerformancePlanEntry(motionEntry = {}) {
     shotId: motionEntry.shotId,
     order: motionEntry.order ?? null,
     performanceTemplate,
+    storyBeat: motionEntry.storyBeat || null,
+    screenDirection: motionEntry.screenDirection || 'unspecified',
+    spaceAnchor: motionEntry.spaceAnchor || null,
+    continuityContext: motionEntry.continuityContext || null,
     subjectBlocking: Array.isArray(motionEntry.subjectBlocking) ? motionEntry.subjectBlocking : [],
     actionBeatList: Array.isArray(motionEntry.actionBeatList) ? motionEntry.actionBeatList : [],
     cameraMovePlan: motionEntry.cameraMovePlan || {

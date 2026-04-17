@@ -8,8 +8,12 @@ import { textToSpeech } from '../apis/ttsApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { ttsQueue, queueWithRetry } from '../utils/queue.js';
-import { resolveShotParticipants, resolveShotSpeaker } from './characterRegistry.js';
+import { buildCharacterIdentityCandidates, resolveShotParticipants, resolveShotSpeaker } from './characterRegistry.js';
 import logger from '../utils/logger.js';
+
+function resolveDefaultTtsProvider(options = {}) {
+  return options.ttsProvider || process.env.TTS_PROVIDER || 'minimax';
+}
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -22,18 +26,14 @@ function findVoiceCastEntry(speaker, voiceCast = []) {
   }
 
   const speakerCard = speaker.character || {};
-  const identifiers = new Set(
-    [
-      speakerCard.id,
-      speakerCard.episodeCharacterId,
-      speakerCard.mainCharacterTemplateId,
-      speaker.name,
-      speakerCard.name,
-    ].filter(Boolean)
-  );
+  const identifiers = new Set(buildCharacterIdentityCandidates(speakerCard));
+
+  if (identifiers.size === 0) {
+    return null;
+  }
 
   return voiceCast.find((entry) =>
-    [entry?.characterId, entry?.episodeCharacterId, entry?.displayName, entry?.name]
+    [entry?.characterId, entry?.episodeCharacterId, entry?.mainCharacterTemplateId]
       .filter(Boolean)
       .some((value) => identifiers.has(value))
   ) || null;
@@ -160,6 +160,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
     voiceCast = [],
     textToSpeech: runTextToSpeech = textToSpeech,
   } = options;
+  const defaultTtsProvider = resolveDefaultTtsProvider(options);
   logger.info('TTSAgent', `开始为 ${shots.length} 个分镜生成配音...`);
   const voiceResolution = [];
 
@@ -193,7 +194,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
           const speakerName = speaker?.name || '';
           const gender = speaker?.character?.gender || 'female';
           const speakerCard = speaker?.character || null;
-          const ttsOptions = { gender };
+          const ttsOptions = { gender, provider: defaultTtsProvider };
           let usedDefaultVoiceFallback = true;
           let voiceSource = 'gender_fallback';
           const voiceCastEntry = findVoiceCastEntry(speaker, voiceCast);
@@ -219,7 +220,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
               ['instructText', 'instructText'],
               ['zeroShotSpeakerId', 'zeroShotSpeakerId'],
             ]) {
-              if (voiceProfile[sourceKey] !== undefined && ttsOptions[targetKey] === undefined) {
+              if (voiceProfile[sourceKey] !== undefined) {
                 ttsOptions[targetKey] = voiceProfile[sourceKey];
               }
             }
@@ -234,7 +235,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
                 speakerCard,
               });
               if (preset) {
-                for (const key of ['voice', 'rate', 'pitch', 'volume']) {
+                for (const key of ['provider', 'voice', 'rate', 'pitch', 'volume']) {
                   if (preset[key] !== undefined) ttsOptions[key] = preset[key];
                 }
                 usedDefaultVoiceFallback = false;
@@ -277,7 +278,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
           dialogue: shot.dialogue || '',
           speakerName: speaker?.name || '',
           resolvedGender: gender,
-          ttsOptions: { gender },
+          ttsOptions: { gender, provider: defaultTtsProvider },
           usedDefaultVoiceFallback: true,
           status: 'failed',
           audioPath: null,

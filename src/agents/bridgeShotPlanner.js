@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { resolveCharacterIdentity } from './characterRegistry.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { shapeBridgeShotPlanEntry } from '../utils/bridgeShotProtocol.js';
@@ -24,6 +25,22 @@ function buildFlaggedTransitionMap(flaggedTransitions = []) {
   );
 }
 
+function buildSequenceCoverageMap(actionSequencePlan = []) {
+  const shotToSequenceId = new Map();
+  for (const sequenceEntry of Array.isArray(actionSequencePlan) ? actionSequencePlan : []) {
+    const sequenceId = sequenceEntry?.sequenceId || null;
+    if (!sequenceId) {
+      continue;
+    }
+    for (const shotId of Array.isArray(sequenceEntry?.shotIds) ? sequenceEntry.shotIds : []) {
+      if (shotId) {
+        shotToSequenceId.set(shotId, sequenceId);
+      }
+    }
+  }
+  return shotToSequenceId;
+}
+
 function getFramingClass(shotType) {
   if (shotType.includes('close')) return 'close';
   if (shotType.includes('medium')) return 'medium';
@@ -34,7 +51,7 @@ function getFramingClass(shotType) {
 
 function getCharacterIds(shot = {}) {
   return (Array.isArray(shot.characters) ? shot.characters : [])
-    .map((character) => character?.episodeCharacterId || character?.id || character?.name)
+    .map((character) => resolveCharacterIdentity(character))
     .filter(Boolean);
 }
 
@@ -172,6 +189,7 @@ function buildSubjectContinuityTargets(previousShot, currentShot) {
 export function buildBridgeShotPlan(shots = [], options = {}) {
   const motionPlanMap = buildMotionPlanMap(options.motionPlan);
   const flaggedTransitionMap = buildFlaggedTransitionMap(options.continuityFlaggedTransitions);
+  const sequenceCoverageMap = buildSequenceCoverageMap(options.actionSequencePlan);
   const bridgePlan = [];
 
   for (let index = 1; index < shots.length; index += 1) {
@@ -180,6 +198,12 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
     const flaggedTransition = flaggedTransitionMap.get(`${previousShot.id}__${currentShot.id}`) || null;
 
     if (!flaggedTransition) {
+      continue;
+    }
+
+    const previousSequenceId = sequenceCoverageMap.get(previousShot.id) || null;
+    const currentSequenceId = sequenceCoverageMap.get(currentShot.id) || null;
+    if (previousSequenceId && previousSequenceId === currentSequenceId) {
       continue;
     }
 
@@ -205,7 +229,7 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
         environmentContinuityTargets: buildEnvironmentTargets(bridgeType, previousShot, currentShot),
         mustPreserveElements: buildMustPreserveElements(previousShot, currentShot),
         bridgeGenerationMode: buildBridgeGenerationMode(bridgeType, continuityRisk),
-        preferredProvider: 'sora2',
+        preferredProvider: buildBridgeGenerationMode(bridgeType, continuityRisk) === 'first_last_keyframe' ? 'seedance' : 'sora2',
         fallbackStrategy: 'direct_cut',
       })
     );
@@ -261,6 +285,7 @@ export async function planBridgeShots(shots = [], options = {}) {
 }
 
 export const __testables = {
+  buildSequenceCoverageMap,
   buildBridgeShotPlan,
   buildBridgeGoal,
   buildCameraTransitionIntent,

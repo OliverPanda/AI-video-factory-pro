@@ -4,8 +4,9 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createDirector } from '../src/agents/director.js';
+import { __testables as directorTestables, createDirector } from '../src/agents/director.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
+import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-director-'));
@@ -27,6 +28,13 @@ function createDirs(root) {
 
   Object.values(dirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
   return dirs;
+}
+
+function createTestDirector(overrides = {}) {
+  return createDirector({
+    generateCharacterRefSheets: async () => [],
+    ...overrides,
+  });
 }
 
 test('runEpisodePipeline returns the requested episode artifact path', async () => {
@@ -719,6 +727,7 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
       appendAgentTaskRun: (_runJobRef, taskRun) => taskRuns.push(structuredClone(taskRun)),
       finishRunJob: (_runJobRef, update) => finishedRuns.push(structuredClone(update)),
       buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateCharacterRefSheets: async () => [{ characterId: '沈清', characterName: '沈清', imagePath: '/tmp/ref_shenqing.png', success: true }],
       generateAllPrompts: async () => [
         { shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' },
       ],
@@ -755,13 +764,17 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
       taskRuns.map((taskRun) => taskRun.step),
       [
         'build_character_registry',
+        'generate_character_ref_sheets',
         'generate_prompts',
         'generate_images',
         'consistency_check',
         'continuity_check',
+        'plan_scene_grammar',
+        'plan_director_packs',
         'plan_motion',
         'plan_performance',
         'route_video_shots',
+        'preflight_qa',
         'generate_video_clips',
         'enhance_video_clips',
         'shot_qa',
@@ -964,6 +977,7 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
       createRunJob: () => {},
       appendAgentTaskRun: (_runJobRef, taskRun) => taskRuns.push(structuredClone(taskRun)),
       finishRunJob: () => {},
+      generateCharacterRefSheets: async () => [{ characterId: '沈清', characterName: '沈清', imagePath: '/tmp/ref_shenqing.png', success: true }],
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
       runLipsync: async () => ({ results: [] }),
       composeVideo: async () => {},
@@ -980,13 +994,17 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
       taskRuns.map((taskRun) => [taskRun.step, taskRun.status]),
       [
         ['build_character_registry', 'cached'],
+        ['generate_character_ref_sheets', 'completed'],
         ['generate_prompts', 'cached'],
         ['generate_images', 'cached'],
         ['consistency_check', 'skipped'],
         ['continuity_check', 'skipped'],
+        ['plan_scene_grammar', 'completed'],
+        ['plan_director_packs', 'completed'],
         ['plan_motion', 'completed'],
         ['plan_performance', 'completed'],
         ['route_video_shots', 'completed'],
+        ['preflight_qa', 'completed'],
         ['generate_video_clips', 'completed'],
         ['enhance_video_clips', 'completed'],
         ['shot_qa', 'completed'],
@@ -1189,6 +1207,10 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           enhancementHints: shot.id === 'shot_1' ? ['timing_normalizer'] : [],
           qaRules: { mustProbeWithFfprobe: true },
         })),
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: { status: 'pass', passCount: shotPackages.length, warnCount: 0, blockCount: 0, entries: [] },
+      }),
       runSora2Video: async () => ({
         results: [
           { shotId: 'shot_1', provider: 'sora2', model: 'veo-3.0-fast-generate-001', status: 'completed', videoPath: '/tmp/shot_1.mp4', targetDurationSec: 4 },
@@ -1337,6 +1359,10 @@ test('runEpisodePipeline can switch to seedance provider and pass provider-tagge
             providerRequestHints: { shotId: shot.id, hasReferenceImage: true },
             qaRules: { mustProbeWithFfprobe: true },
           })),
+        runPreflightQa: async (shotPackages) => ({
+          reviewedPackages: shotPackages,
+          report: { status: 'pass', passCount: shotPackages.length, warnCount: 0, blockCount: 0, entries: [] },
+        }),
         runSeedanceVideo: async () => ({
           results: [
             {
@@ -1570,6 +1596,10 @@ test('runEpisodePipeline writes delivery summary with lipsync review and downgra
     const summary = fs.readFileSync(summaryPath, 'utf-8');
     assert.match(summary, /TTS QA：warn/);
     assert.match(summary, /Lip-sync QA：warn/);
+    assert.match(summary, /Preflight Pass Count：1/);
+    assert.match(summary, /Preflight Warn Count：0/);
+    assert.match(summary, /Preflight Block Count：0/);
+    assert.match(summary, /Preflight Blocked Shots：无/);
     assert.match(summary, /人工抽查建议：shot_1, shot_3/);
     assert.match(summary, /人工复核镜头：shot_1/);
     assert.match(summary, /降级镜头数：1/);
@@ -1743,5 +1773,649 @@ test('runEpisodePipeline writes block qa-overview when the run fails before fina
     assert.equal(qaOverview.status, 'block');
     assert.equal(qaOverview.releasable, false);
     assert.match(qaOverview.headline, /阻断状态/);
+    assert.match(qaOverview.summary, /生成前质检结果：pass 1，warn 0，block 0/);
   });
+});
+
+test('runEpisodePipeline includes preflight blocked shots in delivery summary and qa overview', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const runAttemptId = 'run_job_preflight_visibility_20260414100000000_deadbeef';
+    const startedAt = '2026-04-14T10:00:00.000Z';
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_preflight_visibility',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '预检可见性' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '预检可见性',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_1', scene: '未知空间', action: '快速移动', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: null, success: false }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'whip_pan',
+        cameraSpec: { moveType: 'whip_pan', framing: 'wide', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '快速移动',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_two_shot_tension',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['static_image'],
+        referenceImages: [],
+        durationTargetSec: 4,
+        generationPack: { reference_stack: [] },
+        seedancePromptBlocks: [],
+        qualityIssues: ['missing_scene_pack', 'missing_reference_stack', 'entry_state_missing', 'exit_state_missing'],
+        providerRequestHints: {},
+      }],
+      runMotionEnhancer: async () => [],
+      runShotQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      composeVideo: async () => ({
+        status: 'completed',
+        outputVideo: {
+          uri: path.join(dirs.output, '预检可见性__project_1', '第01集__episode_1', 'final-video.mp4'),
+          format: 'mp4',
+        },
+        report: { warnings: [], blockedReasons: [] },
+      }),
+    });
+
+    const outputPath = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {
+        runAttemptId,
+        startedAt,
+        storeOptions: {
+          baseTempDir: tempRoot,
+        },
+      },
+    });
+
+    const summaryPath = path.join(path.dirname(outputPath), 'delivery-summary.md');
+    const summary = fs.readFileSync(summaryPath, 'utf-8');
+    assert.match(summary, /Preflight Block Count：1/);
+    assert.match(summary, /Preflight Blocked Shots：shot_1/);
+    assert.match(summary, /Preflight Fix Brief Count：1/);
+    assert.match(summary, /Preflight Fix Brief Artifact：runs\/2026-04-14_100000__run_job_preflight_visibility_20260414100000000_deadbeef\/09bc-preflight-qa-agent\/1-outputs\/preflight-fix-brief.md/);
+    const artifactContext = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '预检可见性',
+      scriptId: 'script_1',
+      scriptTitle: '预检可见性',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: runAttemptId,
+      startedAt,
+    });
+    const qaOverview = JSON.parse(fs.readFileSync(artifactContext.qaOverviewJsonPath, 'utf-8'));
+    assert.match(qaOverview.summary, /生成前质检结果：pass 0，warn 0，block 1/);
+    assert.equal(
+      qaOverview.topIssues.some((item) => /Preflight QA Agent: shot_1 block - 场景目标缺失，建议：先把这个分镜要讲清楚的戏剧动作写明/.test(item)),
+      true
+    );
+    assert.equal(
+      qaOverview.topIssues.some((item) => /Preflight Fix Brief: shot_1 应优先回修，先处理场景目标缺失/.test(item)),
+      true
+    );
+    const fixBrief = JSON.parse(
+      fs.readFileSync(path.join(artifactContext.agents.preflightQaAgent.outputsDir, 'preflight-fix-brief.json'), 'utf-8')
+    );
+    assert.equal(fixBrief.entries[0].priority, 'P0');
+    assert.equal(fixBrief.entries[0].ownerSummary, 'Scene Grammar Agent, Seedance Prompt Agent, Director Pack Agent');
+    const reviewedPackages = JSON.parse(
+      fs.readFileSync(path.join(artifactContext.agents.preflightQaAgent.outputsDir, 'preflight-reviewed-packages.json'), 'utf-8')
+    );
+    assert.equal(reviewedPackages[0].preflightDecision, 'block');
+  });
+});
+
+test('runEpisodePipeline surfaces seedance director inference counts in delivery summary and qa overview', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const runAttemptId = 'run_job_seedance_inference_20260414102000000_deadbeef';
+    const startedAt = '2026-04-14T10:20:00.000Z';
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_seedance_inference',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '推断可见性' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '推断可见性',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_1', scene: '走廊', action: '角色短暂停步', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [{
+        scene_id: 'scene_1',
+        scene_goal: '交代角色犹豫。',
+        dramatic_question: '她是否迈出下一步？',
+        start_state: '角色停在走廊口',
+        end_state: '角色仍未行动',
+        location_anchor: '走廊',
+        cast: ['林岚'],
+        delivery_priority: 'narrative_clarity',
+        forbidden_choices: [],
+        action_beats: [{ beat_id: 'beat_01', shot_ids: ['shot_1'], summary: '角色短暂停步' }],
+      }],
+      planDirectorPacks: async () => [{
+        scene_id: 'scene_1',
+        cinematic_intent: '保持克制。',
+        shot_order_plan: [{ beat_id: 'beat_01', coverage: '', emphasis: 'hesitation' }],
+        blocking_map: [{ beat_id: 'beat_01', subject_positions: [], movement_note: 'hold' }],
+        continuity_locks: [],
+      }],
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'slow_dolly',
+        cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '角色短暂停步',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_two_shot_tension',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      runMotionEnhancer: async () => [],
+      runShotQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      composeVideo: async () => ({
+        status: 'completed',
+        outputVideo: {
+          uri: path.join(dirs.output, '推断可见性__project_1', '第01集__episode_1', 'final-video.mp4'),
+          format: 'mp4',
+        },
+        report: { warnings: [], blockedReasons: [] },
+      }),
+    });
+
+    const outputPath = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {
+        runAttemptId,
+        startedAt,
+        storeOptions: {
+          baseTempDir: tempRoot,
+        },
+      },
+    });
+
+    const summary = fs.readFileSync(path.join(path.dirname(outputPath), 'delivery-summary.md'), 'utf-8');
+    assert.match(summary, /Seedance Inferred Coverage Count：1/);
+    assert.match(summary, /Seedance Inferred Blocking Count：1/);
+    assert.match(summary, /Seedance Inferred Continuity Count：1/);
+    assert.match(summary, /Seedance Inferred Shot Count：1/);
+    assert.match(summary, /Seedance Inference Risk：warn/);
+
+    const artifactContext = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '推断可见性',
+      scriptId: 'script_1',
+      scriptTitle: '推断可见性',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: runAttemptId,
+      startedAt,
+    });
+    const qaOverview = JSON.parse(fs.readFileSync(artifactContext.qaOverviewJsonPath, 'utf-8'));
+    assert.equal(qaOverview.status, 'warn');
+    assert.match(qaOverview.headline, /Seedance 输入补全占比过高/);
+    assert.match(qaOverview.summary, /Seedance 输入补全：coverage 1，blocking 1，continuity 1/);
+    assert.equal(
+      qaOverview.topIssues.some((item) => /Seedance Prompt Agent: 有 1 个镜头的 coverage 依赖系统兜底推断/.test(item)),
+      true
+    );
+  });
+});
+
+test('runEpisodePipeline blocks formal delivery when seedance inference risk stays high across multiple shots', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const runAttemptId = 'run_job_seedance_inference_gate_20260414103000000_deadbeef';
+    const startedAt = '2026-04-14T10:30:00.000Z';
+    const savedStates = [];
+    let composeCalled = false;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_seedance_inference_gate',
+      loadJSON: () => null,
+      saveJSON: (_filePath, data) => savedStates.push(structuredClone(data)),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '推断门禁' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '推断门禁',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [
+          { id: 'shot_1', scene: '走廊', action: '角色短暂停步', characters: ['林岚'], duration: 4 },
+          { id: 'shot_2', scene: '走廊', action: '角色继续犹豫', characters: ['林岚'], duration: 4 },
+        ],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'prompt 1', negative_prompt: 'none' },
+        { shotId: 'shot_2', image_prompt: 'prompt 2', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        { shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true },
+        { shotId: 'shot_2', imagePath: '/tmp/shot_2.png', success: true },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [{
+        scene_id: 'scene_1',
+        scene_goal: '交代角色持续犹豫。',
+        dramatic_question: '她是否迈出下一步？',
+        start_state: '角色停在走廊口',
+        end_state: '角色仍未行动',
+        location_anchor: '走廊',
+        cast: ['林岚'],
+        delivery_priority: 'narrative_clarity',
+        forbidden_choices: [],
+        action_beats: [
+          { beat_id: 'beat_01', shot_ids: ['shot_1'], summary: '角色短暂停步' },
+          { beat_id: 'beat_02', shot_ids: ['shot_2'], summary: '角色继续犹豫' },
+        ],
+      }],
+      planDirectorPacks: async () => [{
+        scene_id: 'scene_1',
+        cinematic_intent: '保持克制。',
+        shot_order_plan: [
+          { beat_id: 'beat_01', coverage: '', emphasis: 'hesitation' },
+          { beat_id: 'beat_02', coverage: '', emphasis: 'hesitation' },
+        ],
+        blocking_map: [
+          { beat_id: 'beat_01', subject_positions: [], movement_note: 'hold' },
+          { beat_id: 'beat_02', subject_positions: [], movement_note: 'hold' },
+        ],
+        continuity_locks: [],
+      }],
+      planMotion: async () => [
+        {
+          shotId: 'shot_1',
+          shotType: 'dialogue_medium',
+          durationTargetSec: 4,
+          cameraIntent: 'slow_dolly',
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+          videoGenerationMode: 'seedance_image_to_video',
+          visualGoal: '角色短暂停步',
+        },
+        {
+          shotId: 'shot_2',
+          shotType: 'dialogue_medium',
+          durationTargetSec: 4,
+          cameraIntent: 'slow_dolly',
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+          videoGenerationMode: 'seedance_image_to_video',
+          visualGoal: '角色继续犹豫',
+        },
+      ],
+      planPerformance: async () => [
+        {
+          shotId: 'shot_1',
+          performanceTemplate: 'dialogue_two_shot_tension',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'push_in' },
+          generationTier: 'enhanced',
+          variantCount: 1,
+          enhancementHints: [],
+        },
+        {
+          shotId: 'shot_2',
+          performanceTemplate: 'dialogue_two_shot_tension',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'push_in' },
+          generationTier: 'enhanced',
+          variantCount: 1,
+          enhancementHints: [],
+        },
+      ],
+      runMotionEnhancer: async () => [],
+      runShotQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      composeVideo: async () => {
+        composeCalled = true;
+        return {
+          status: 'completed',
+          outputVideo: {
+            uri: path.join(dirs.output, '推断门禁__project_1', '第01集__episode_1', 'final-video.mp4'),
+            format: 'mp4',
+          },
+          report: { warnings: [], blockedReasons: [] },
+        };
+      },
+    });
+
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {
+          runAttemptId,
+          startedAt,
+          storeOptions: {
+            baseTempDir: tempRoot,
+          },
+        },
+      }),
+      /Seedance 输入补全占比过高，阻止正式交付/
+    );
+
+    assert.equal(composeCalled, true);
+    const artifactContext = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '推断门禁',
+      scriptId: 'script_1',
+      scriptTitle: '推断门禁',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: runAttemptId,
+      startedAt,
+    });
+    const qaOverview = JSON.parse(fs.readFileSync(artifactContext.qaOverviewJsonPath, 'utf-8'));
+    assert.equal(qaOverview.releasable, false);
+    assert.equal(qaOverview.status, 'block');
+    assert.match(qaOverview.summary, /Seedance 输入补全：coverage 2，blocking 2，continuity 2/);
+    const state = savedStates.at(-1);
+    assert.ok(state, 'expected state to be captured before formal delivery was blocked');
+    const summary = fs.readFileSync(state.deliverySummaryPath, 'utf-8');
+    assert.match(summary, /Seedance Inference Delivery Gate：block_formal_delivery/);
+    assert.match(state.previewOutputPath, /final-video\.mp4$/);
+  });
+});
+
+test('runEpisodePipeline passes scenePacks and directorPacks into routeVideoShots', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const routeCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_route_director_layers',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '导演层传递',
+        characters: [{ name: '林岚' }, { name: '阿哲' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [
+          { id: 'shot_1', scene: '仓库主通道', action: '林岚举枪逼近阿哲', dialogue: '把箱子放下。', characters: ['林岚', '阿哲'], duration: 4 },
+        ],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }, { name: '阿哲', basePromptTokens: 'a zhe' }],
+      generateAllPrompts: async (shots) =>
+        shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: 'none' })),
+      generateAllImages: async (prompts) =>
+        prompts.map((prompt) => ({ shotId: prompt.shotId, imagePath: `/tmp/${prompt.shotId}.png`, success: true })),
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async (shots) =>
+        shots.map((shot) => ({
+          shotId: shot.id,
+          shotType: 'dialogue_medium',
+          durationTargetSec: shot.duration,
+          cameraIntent: 'slow_dolly',
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+          videoGenerationMode: 'seedance_image_to_video',
+          visualGoal: shot.scene,
+        })),
+      planPerformance: async (motionPlan) =>
+        motionPlan.map((item) => ({
+          shotId: item.shotId,
+          performanceTemplate: 'dialogue_two_shot_tension',
+          actionBeatList: [],
+          cameraMovePlan: { pattern: 'push_in' },
+          generationTier: 'enhanced',
+          variantCount: 1,
+          enhancementHints: [],
+        })),
+      routeVideoShots: async (shots, motionPlan, imageResults, options) => {
+        routeCalls.push({
+          scenePacks: options.scenePacks,
+          directorPacks: options.directorPacks,
+          shotIds: shots.map((shot) => shot.id),
+        });
+        return shots.map((shot) => ({
+          shotId: shot.id,
+          preferredProvider: 'static_image',
+          fallbackProviders: [],
+          referenceImages: [],
+          providerRequestHints: { shotId: shot.id, hasReferenceImage: false },
+          durationTargetSec: 4,
+          generationPack: {
+            scene_id: options.scenePacks[0].scene_id,
+            shot_id: shot.id,
+          },
+          seedancePromptBlocks: [
+            { key: 'cinematic_intent', text: options.directorPacks[0].cinematic_intent },
+          ],
+        }));
+      },
+      runSeedanceVideo: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runSora2Video: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runMotionEnhancer: async () => [],
+      runShotQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      planBridgeShots: async () => [],
+      routeBridgeShots: async () => [],
+      generateBridgeClips: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runBridgeQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      planActionSequences: async () => [],
+      routeActionSequencePackages: async () => [],
+      generateSequenceClips: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runSequenceQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(routeCalls.length, 1);
+    assert.equal(Array.isArray(routeCalls[0].scenePacks), true);
+    assert.equal(Array.isArray(routeCalls[0].directorPacks), true);
+    assert.equal(routeCalls[0].scenePacks[0].scene_goal.includes('掌控局面'), true);
+    assert.equal(routeCalls[0].directorPacks[0].cinematic_intent.includes('写实'), true);
+  });
+});
+
+test('runEpisodePipeline blocks weak dynamic shots before provider generation and routes them to static fallback', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    let seedanceCalls = 0;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_preflight_block',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '生成前门禁',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '未知空间', action: '快速移动', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: null, success: false }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'whip_pan',
+        cameraSpec: { moveType: 'whip_pan', framing: 'wide', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '快速移动',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_two_shot_tension',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['static_image'],
+        referenceImages: [],
+        durationTargetSec: 4,
+        generationPack: {
+          reference_stack: [],
+        },
+        seedancePromptBlocks: [],
+        qualityIssues: ['missing_scene_pack', 'missing_reference_stack', 'entry_state_missing', 'exit_state_missing'],
+        providerRequestHints: {},
+      }],
+      runSeedanceVideo: async (shotPackages) => {
+        seedanceCalls += 1;
+        assert.equal(shotPackages[0].preferredProvider, 'static_image');
+        return { results: [], report: { status: 'pass', warnings: [], blockers: [] } };
+      },
+      runSora2Video: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runMotionEnhancer: async () => [],
+      runShotQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      planBridgeShots: async () => [],
+      routeBridgeShots: async () => [],
+      generateBridgeClips: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runBridgeQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      planActionSequences: async () => [],
+      routeActionSequencePackages: async () => [],
+      generateSequenceClips: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      runSequenceQa: async () => ({ status: 'pass', entries: [], warnings: [], blockers: [] }),
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(seedanceCalls, 0);
+  });
+});
+
+test('buildBridgeClipBridge drops continuity clips when QA report is missing', () => {
+  const bridgeClips = directorTestables.buildBridgeClipBridge(
+    [{ bridgeId: 'bridge_001', fromShotId: 'shot_001', toShotId: 'shot_002' }],
+    [{ bridgeId: 'bridge_001', status: 'completed', videoPath: '/tmp/bridge.mp4', actualDurationSec: 1.8 }],
+    null
+  );
+
+  assert.deepEqual(bridgeClips, []);
+});
+
+test('assertContinuityDeliveryGate blocks delivery when sequence clips exist without approved QA', () => {
+  assert.throws(
+    () =>
+      directorTestables.assertContinuityDeliveryGate({
+        actionSequencePlan: [{ sequenceId: 'sequence_001', shotIds: ['shot_001', 'shot_002'] }],
+        sequenceClipResults: [{ sequenceId: 'sequence_001', status: 'completed', videoPath: '/tmp/sequence.mp4' }],
+        sequenceQaReport: null,
+      }),
+    /Continuity delivery gate blocked/
+  );
 });

@@ -475,6 +475,46 @@ test('runSequenceQa classifies continuity evaluator failures separately from ffp
   });
 });
 
+test('runSequenceQa does not auto-pass when sequence continuity metadata is weak', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const videoPath = path.join(tempRoot, 'weak-sequence-metadata.mp4');
+    fs.writeFileSync(videoPath, 'sequence-video');
+
+    const [entry] = await __testables.evaluateSequenceClips(
+      [
+        {
+          sequenceId: 'seq_weak_metadata',
+          status: 'completed',
+          provider: 'seedance',
+          videoPath,
+          coveredShotIds: ['shot_001', 'shot_002'],
+          targetDurationSec: 4,
+          actualDurationSec: 4,
+        },
+      ],
+      {
+        probeVideo: async () => ({ durationSec: 4 }),
+        actionSequencePackages: [
+          {
+            sequenceId: 'seq_weak_metadata',
+            sequenceContextSummary: '',
+            motionContinuityTargets: ['weapon_path'],
+            subjectContinuityTargets: [],
+            environmentContinuityTargets: [],
+            entryConstraint: '',
+            exitConstraint: '',
+          },
+        ],
+      }
+    );
+
+    assert.equal(entry.finalDecision, 'fail');
+    assert.equal(entry.entryExitCheck, 'fail');
+    assert.equal(entry.continuityCheck, 'warn');
+    assert.equal(entry.qaFailureCategory, 'entry_exit_mismatch');
+  });
+});
+
 test('runSequenceQa writes report metrics manifest and qa summary artifacts', async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-sequence-qa-artifact-'));
   t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));

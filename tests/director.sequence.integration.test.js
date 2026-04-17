@@ -253,7 +253,7 @@ test('runEpisodePipeline integrates the sequence subchain and passes approved se
   });
 });
 
-test('runEpisodePipeline falls back to shot clips when sequence QA does not pass', async () => {
+test('runEpisodePipeline falls back to shot path when sequence QA does not approve the generated continuity clip', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
     const stateByFile = new Map();
@@ -378,19 +378,11 @@ test('runEpisodePipeline falls back to shot clips when sequence QA does not pass
       options: {},
     });
 
+    assert.equal(composePlans.length, 1);
     assert.deepEqual(
       composePlans[0].map((item) => item.shotId),
       ['shot_001', 'shot_002']
     );
-    assert.deepEqual(
-      composePlans[0].map((item) => item.visualType),
-      ['generated_video_clip', 'generated_video_clip']
-    );
-    const state = stateByFile.get(path.join(dirs.root, 'state.json'));
-    assert.equal(state.pipelineSummary.sequence_coverage_shot_count, 0);
-    assert.equal(state.pipelineSummary.sequence_coverage_sequence_count, 0);
-    assert.deepEqual(state.pipelineSummary.applied_sequence_ids, []);
-    assert.deepEqual(state.pipelineSummary.fallback_sequence_ids, ['sequence_001_002']);
   });
 });
 
@@ -463,5 +455,195 @@ test('runEpisodePipeline reruns lipsync when cached lipsync key no longer matche
     const finalState = stateByFile.get(stateFile);
     assert.equal(finalState.lipsyncResults[0].videoPath, '/tmp/fresh-lipsync.mp4');
     assert.notEqual(finalState.lipsyncCacheKey, 'stale-key');
+  });
+});
+
+test('runEpisodePipeline does not pass sequence-internal bridge clips into compose inputs', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const stateByFile = new Map();
+    const composeCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_sequence_bridge_exclusive',
+      loadJSON: (filePath) => stateByFile.get(filePath) ?? null,
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
+      loadProject: () => ({ id: 'project_1', name: '寒烬宫变' }),
+      loadScript: () => ({ id: 'script_1', title: '寒烬宫变', characters: [{ name: '宁王' }] }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [
+          { id: 'shot_001', scene: '回廊', action: '宁王逼近', characters: ['宁王'] },
+          { id: 'shot_002', scene: '回廊', action: '宁王压上', characters: ['宁王'] },
+          { id: 'shot_003', scene: '回廊', action: '对手退到柱边', characters: ['宁王'] },
+        ],
+      }),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      buildCharacterRegistry: async () => [{ name: '宁王', basePromptTokens: 'ning wang' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_001', image_prompt: '宁王逼近', negative_prompt: '' },
+        { shotId: 'shot_002', image_prompt: '宁王压上', negative_prompt: '' },
+        { shotId: 'shot_003', image_prompt: '对手退到柱边', negative_prompt: '' },
+      ],
+      generateAllImages: async () => [
+        { shotId: 'shot_001', imagePath: '/tmp/shot_001.png', success: true },
+        { shotId: 'shot_002', imagePath: '/tmp/shot_002.png', success: true },
+        { shotId: 'shot_003', imagePath: '/tmp/shot_003.png', success: true },
+      ],
+      regenerateImage: async (shotId) => ({ shotId, imagePath: `/tmp/${shotId}-regen.png`, success: true }),
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({
+        reports: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 4 }],
+        flaggedTransitions: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 4 }],
+      }),
+      planMotion: async () => [
+        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '逼近', videoGenerationMode: 'seedance_image_to_video' },
+        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '压上', videoGenerationMode: 'seedance_image_to_video' },
+        { shotId: 'shot_003', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '退到柱边', videoGenerationMode: 'seedance_image_to_video' },
+      ],
+      planPerformance: async () => [
+        { shotId: 'shot_001', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
+        { shotId: 'shot_002', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
+        { shotId: 'shot_003', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
+      ],
+      routeVideoShots: async () => [
+        { shotId: 'shot_001', preferredProvider: 'seedance', durationTargetSec: 2 },
+        { shotId: 'shot_002', preferredProvider: 'seedance', durationTargetSec: 2 },
+        { shotId: 'shot_003', preferredProvider: 'seedance', durationTargetSec: 2 },
+      ],
+      runSeedanceVideo: async () => ({
+        results: [
+          { shotId: 'shot_001', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_002', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_002.mp4', targetDurationSec: 2 },
+          { shotId: 'shot_003', status: 'completed', provider: 'seedance', videoPath: '/tmp/shot_003.mp4', targetDurationSec: 2 },
+        ],
+      }),
+      runMotionEnhancer: async (results) =>
+        results.map((item) => ({
+          ...item,
+          enhancedVideoPath: item.videoPath,
+          actualDurationSec: item.targetDurationSec,
+        })),
+      runShotQa: async () => ({
+        entries: [
+          { shotId: 'shot_001', finalDecision: 'pass', canUseVideo: true },
+          { shotId: 'shot_002', finalDecision: 'pass', canUseVideo: true },
+          { shotId: 'shot_003', finalDecision: 'pass', canUseVideo: true },
+        ],
+        fallbackCount: 0,
+      }),
+      planBridgeShots: async () => [
+        { bridgeId: 'bridge_internal', fromShotId: 'shot_001', toShotId: 'shot_002' },
+        { bridgeId: 'bridge_boundary', fromShotId: 'shot_002', toShotId: 'shot_003' },
+      ],
+      routeBridgeShots: async () => [
+        { bridgeId: 'bridge_internal', preferredProvider: 'seedance', durationTargetSec: 1.2 },
+        { bridgeId: 'bridge_boundary', preferredProvider: 'seedance', durationTargetSec: 1.2 },
+      ],
+      generateBridgeClips: async () => ({
+        results: [
+          { bridgeId: 'bridge_internal', status: 'completed', provider: 'seedance', videoPath: '/tmp/bridge_internal.mp4', targetDurationSec: 1.2, actualDurationSec: 1.2 },
+          { bridgeId: 'bridge_boundary', status: 'completed', provider: 'seedance', videoPath: '/tmp/bridge_boundary.mp4', targetDurationSec: 1.2, actualDurationSec: 1.2 },
+        ],
+      }),
+      runBridgeQa: async () => ({
+        status: 'pass',
+        entries: [
+          { bridgeId: 'bridge_internal', finalDecision: 'pass' },
+          { bridgeId: 'bridge_boundary', finalDecision: 'pass' },
+        ],
+        passedCount: 2,
+        fallbackCount: 0,
+        manualReviewCount: 0,
+        warnings: [],
+        blockers: [],
+      }),
+      planActionSequences: async () => [
+        {
+          sequenceId: 'sequence_001_002',
+          shotIds: ['shot_001', 'shot_002'],
+          durationTargetSec: 4,
+          preferredProvider: 'seedance',
+        },
+      ],
+      routeActionSequencePackages: async () => [
+        {
+          sequenceId: 'sequence_001_002',
+          shotIds: ['shot_001', 'shot_002'],
+          durationTargetSec: 4,
+          preferredProvider: 'seedance',
+        },
+      ],
+      generateSequenceClips: async () => ({
+        results: [
+          {
+            sequenceId: 'sequence_001_002',
+            status: 'completed',
+            provider: 'seedance',
+            videoPath: '/tmp/sequence_001_002.mp4',
+            coveredShotIds: ['shot_001', 'shot_002'],
+            targetDurationSec: 4,
+            actualDurationSec: 4,
+          },
+        ],
+      }),
+      runSequenceQa: async () => ({
+        status: 'pass',
+        entries: [
+          {
+            sequenceId: 'sequence_001_002',
+            coveredShotIds: ['shot_001', 'shot_002'],
+            finalDecision: 'pass',
+          },
+        ],
+        passedCount: 1,
+        fallbackCount: 0,
+        manualReviewCount: 0,
+        warnings: [],
+        blockers: [],
+      }),
+      normalizeDialogueShots: async (shots) => shots,
+      generateAllAudio: async (shots) => shots.map((shot) => ({ shotId: shot.id, audioPath: `/tmp/${shot.id}.mp3` })),
+      runTtsQa: async () => ({ status: 'pass', warnings: [], manualReviewPlan: { recommendedShotIds: [] } }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', warnings: [], blockers: [] } }),
+      composeVideo: async (shots, imageResults, audioResults, _outputPath, options) => {
+        composeCalls.push({
+          bridgeClips: options.bridgeClips || [],
+          sequenceClips: options.sequenceClips || [],
+          plan: buildCompositionPlan(
+            shots,
+            imageResults,
+            audioResults,
+            options.sequenceClips || [],
+            options.videoClips || [],
+            options.animationClips || [],
+            options.lipsyncClips || [],
+            options.bridgeClips || []
+          ),
+        });
+        return { status: 'completed', outputVideo: { uri: path.join(dirs.output, 'final-video.mp4') }, report: { warnings: [], blockedReasons: [] } };
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.deepEqual(
+      composeCalls[0].bridgeClips.map((clip) => clip.bridgeId),
+      ['bridge_boundary']
+    );
+    assert.deepEqual(
+      composeCalls[0].plan.map((item) => item.shotId),
+      ['sequence:sequence_001_002', 'bridge:bridge_boundary', 'shot_003']
+    );
   });
 });

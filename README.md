@@ -2,29 +2,22 @@
 
 输入剧本文件，或按 `project / script / episode` 定位已有项目数据，自动生成可发布到抖音、视频号、快手、小红书的竖屏漫剧短视频。
 
-当前主链已经升级为“静态分镜 + 动态视频镜头 + bridge shot 补桥 + action sequence 连续动作段 + 音频表演 + 时间线合成”的单 Orchestrator 架构，`Director` 仍是唯一调度中心。
+![系统总览](docs/assets/readme-overview.png)
 
-当前代码已经支持单镜头视频 provider 双路：
+## 一眼看懂
 
-- `Fallback Video`
-- `Seedance 2.0`（火山方舟视频生成 API）
+- `Director` 是唯一调度中心。
+- 生产链路大致是：预生产 -> 视频 -> 音频/口型 -> 合成。
+- `TTS_PROVIDER` 负责 TTS 上层合同，`TTS_TRANSPORT_PROVIDER` 负责具体供应商切换。
+- `VIDEO_PROVIDER=seedance` 是当前主视频口径，`shot / sequence / bridge` 共用同一条底层 client。
 
-默认主视频 provider 已切到 `Seedance`，`fallback video` 作为兼容与 fallback 路径保留，当前内部仍映射到 `sora2` runtime branch。
-
-## README 现在看什么
-
-这个 README 只保留入口信息：
-
-- 项目是干什么的
-- 怎么安装、怎么跑
-- 最常用命令
-- 文档该去哪里看
-
-更细的内容已经拆到：
+## 文档入口
 
 - Agent 设计与输入输出：[docs/agents/README.md](docs/agents/README.md)
 - 运行目录、成果物、断点续跑：[docs/runtime/README.md](docs/runtime/README.md)
 - 排障、验收、接手流程：[docs/sop/README.md](docs/sop/README.md)
+- 测试与 QA 验收：[docs/sop/qa-acceptance.md](docs/sop/qa-acceptance.md)
+- 角色身份统一规范：[docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md](docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md)
 
 ## 运行模式
 
@@ -42,91 +35,53 @@ project
 
 ## 当前系统主流程
 
-当前主流程可以按模块分成 7 层：
+主流程可以理解成 5 段：
 
-- 编排层：
-  - `Director`
-- 文本与视觉预生产层：
-  - `Script Parser`
-  - `Character Registry`
-  - `Prompt Engineer`
-  - `Image Generator`
-  - `Consistency Checker`
-  - `Continuity Checker`
-- 单镜头视频主链：
-  - `Motion Planner`
-  - `Performance Planner`
-  - `Video Router`
-  - `Seedance Video Agent`
-  - `Fallback Video Adapter`
-  - `Motion Enhancer`
-  - `Shot QA Agent`
-- 高风险 cut 补桥子链：
-  - `Bridge Shot Planner`
-  - `Bridge Shot Router`
-  - `Bridge Clip Generator`
-  - `Bridge QA Agent`
-- 连续动作段子链：
-  - `Action Sequence Planner`
-  - `Action Sequence Router`
-  - `Sequence Clip Generator`
-  - `Sequence QA Agent`
+1. `Director`
+   负责整条生产线编排、缓存、断点续跑、QA 汇总和最终交付决策。
+2. `Script Parser`
+   负责把原始剧本拆成 `project / script / episode / shots` 这套可运行结构。
+3. `Character Registry`
+   负责把剧本角色、分集角色、角色圣经合成统一角色视图，并给后续模块提供稳定身份锚点。
+4. `Prompt Engineer`
+   负责把角色、场景、镜头意图转成可执行的图像 prompt。
+5. `Image Generator`
+   负责批量出分镜图和重生成。
+6. `Character Ref Sheet Generator`
+   负责先为每个角色生成三视图参考纸，给后续角色一致性提供硬参考。
+7. `Consistency Checker`
+   负责检查同一角色在不同镜头里的外观是否漂移。
+8. `Continuity Checker`
+   负责检查镜头之间的连贯性，并标记高风险 cut。
+9. `Motion Planner`
+   负责给每个镜头规划镜头类型、时长、运镜和动态目标。
+10. `Performance Planner`
+   负责给每个镜头补表演模板、动作节拍和生成层级。
+11. `Video Router`
+   负责把镜头打包成视频生成请求，并把参考图、连续性约束、provider hint 组织好。
+12. `Seedance Video Agent`
+   负责真正调用视频 provider 生成单镜头视频。
+13. `Bridge Shot Planner / Router / Clip Generator / QA`
+   负责只在高风险 cut 上补桥，并决定 bridge 是否真的可用。
+14. `Action Sequence Planner / Router / Clip Generator / QA`
+   负责识别连续动作段、整段生成 sequence clip，并决定是否覆盖原始 shot timeline。
+15. `Dialogue Normalizer`
+   负责对白标准化、分句和时长预算。
+16. `TTS Agent`
+   负责给说话角色绑定 voice cast / voice preset，并生成对白音频。
+17. `Lip-sync Agent`
+   负责为需要张嘴表演的镜头生成口型片段。
+18. `Video Composer`
+   负责按 `sequence > video > bridge > lipsync > animation > image` 的优先级装配最终成片。
 
-连续动作段子链当前与单镜头视频主链统一跟随 `VIDEO_PROVIDER`；当 `VIDEO_PROVIDER=fallback_video` 时，sequence 也会一起走 `fallback video`，内部仍映射到 `sora2` runtime branch。
+更细的职责说明见 [docs/agents/README.md](docs/agents/README.md)。
 
-- 音频与口型子链：
-  - `Dialogue Normalizer`
-  - `TTS Agent`
-  - `TTS QA Agent`
-  - `Lip-sync Agent`
-- 总装交付层：
-  - `Video Composer`
+当前身份绑定总规则：
 
-```mermaid
-flowchart TD
-    A[输入剧本 / Project-Script-Episode] --> B[Director]
-    B --> C[Script Parser]
-    C --> D[Character Registry]
-    D --> E[Prompt Engineer]
-    E --> F[Image Generator]
-    F --> G[Consistency Checker]
-    G -->|needsRegeneration| B
-    F --> H[Continuity Checker]
-    C --> I[Motion Planner]
-    H --> I
-    I --> J[Performance Planner]
-    J --> K[Video Router]
-    F --> K
-    E --> K
-    K --> L{Video Provider}
-    L --> L1[Seedance Video Agent]
-    L --> L2[Fallback Video Adapter]
-    L1 --> M[Motion Enhancer]
-    L2 --> M
-    M --> N[Shot QA Agent]
-    N --> BS[Bridge Shot Planner]
-    BS --> BR[Bridge Shot Router]
-    BR --> BG[Bridge Clip Generator]
-    BG --> BQ[Bridge QA Agent]
-    BQ --> ASP[Action Sequence Planner]
-    ASP --> ASR[Action Sequence Router]
-    ASR --> ASG[Sequence Clip Generator]
-    ASG --> ASQ[Sequence QA Agent]
-    C --> DN[Dialogue Normalizer]
-    DN --> T[TTS Agent]
-    D --> T
-    T --> U[TTS QA Agent]
-    F --> V[Lip-sync Agent]
-    T --> V
-    N --> W[Video Composer]
-    BQ --> W
-    ASQ --> W
-    U --> W
-    V --> W
-    F --> W
-    C --> W
-    W --> X[output/final-video.mp4]
-```
+- 一律 `ID-first`
+- `id / episodeCharacterId / mainCharacterTemplateId / characterBibleId` 才是绑定键
+- `name` 只能用于展示、日志、prompt 文本、兼容老数据
+- 角色图、三视图、voice cast、视频参考图都不应再按 `name` 作为主关联键
 
 当前 compose 视觉优先级：
 
@@ -152,10 +107,10 @@ Phase 4 的最小增量位置固定为：
 
 关于视频模型路线：
 
-- 当前实现：`Fallback Video Adapter` + `Seedance Video Agent`
-- 当前默认：`Seedance`
-- 可切换兼容：`VIDEO_PROVIDER=fallback_video`
-- 当前口径：`Seedance` 走主视频路径，`fallback video` 承担原先兼容与回退位置，用户侧通过 `VIDEO_PROVIDER=fallback_video` 选择；内部当前仍映射到 `sora2` runtime branch，可接 `laozhang` 或兼容 OpenAI 视频格式的其他供应商
+- 当前默认口径：`VIDEO_PROVIDER=seedance`
+- 当前推荐理解：你只维护一个主视频中转站 / relay，`shot / sequence / bridge` 共用同一套底层 client
+- 兼容别名：`VIDEO_PROVIDER=fallback_video`
+- 当前实现现状：兼容别名仍可用，但它不是第二条视频链路；用户侧应始终按“一个主 provider”来理解
 
 ## 快速开始
 
@@ -177,9 +132,7 @@ cp .env.example .env
 
 - `QWEN_API_KEY`
 - `LAOZHANG_API_KEY`
-- `XFYUN_TTS_APP_ID`
-- `XFYUN_TTS_API_KEY`
-- `XFYUN_TTS_API_SECRET`
+- `MINIMAX_API_KEY`
 
 如果要启用动态镜头主路径，还需要：
 
@@ -189,11 +142,26 @@ cp .env.example .env
 
 - `ARK_API_KEY` 或 `SEEDANCE_API_KEY`
 
+如果要把图像 / 视频请求统一收口到 `Vercel AI Gateway` 适配层，再补这些：
+
+- `VIDEO_TRANSPORT_PROVIDER=vercel_ai_gateway`
+- `IMAGE_TRANSPORT_PROVIDER=vercel_ai_gateway`
+- `VERCEL_AI_GATEWAY_API_KEY` 或 `AI_GATEWAY_API_KEY`
+- `VIDEO_MODEL_SHOT` / `VIDEO_MODEL_SEQUENCE` / `VIDEO_MODEL_BRIDGE`
+
 说明：
 
+- `TTS_PROVIDER` 当前默认是 `minimax`，也可以切到 `openai_compat` 作为统一合同入口
+- `TTS_TRANSPORT_PROVIDER` 用来指定 `openai_compat` 下真正落地的供应商，当前可先填 `minimax`
+- MiniMax 官方 HTTP TTS 常见配置是 `MINIMAX_API_KEY + MINIMAX_GROUP_ID + /v1/t2a_v2`
+- 默认男女声音色可先用 `MINIMAX_TTS_VOICE_FEMALE=Warm_Girl`、`MINIMAX_TTS_VOICE_MALE=Reliable_Executive`
 - `ARK_API_KEY / SEEDANCE_API_KEY` 对应当前默认的火山方舟 `Seedance` provider
-- `VIDEO_FALLBACK_API_KEY + VIDEO_FALLBACK_*` 对应当前兼容视频 provider；若 `VIDEO_FALLBACK_BASE_URL` 指向 `laozhang`，也可继续复用 `LAOZHANG_API_KEY`
+- `VIDEO_FALLBACK_API_KEY + VIDEO_FALLBACK_*` 是沿用的历史变量名，本质上仍是在配置同一个主视频 relay / provider；若 `VIDEO_FALLBACK_BASE_URL` 指向 `laozhang`，也可继续复用 `LAOZHANG_API_KEY`
+- `VIDEO_TRANSPORT_PROVIDER` 是“底层提交通道”，与 `VIDEO_PROVIDER` 这个业务语义口径分离；例如可保持 `VIDEO_PROVIDER=seedance`，但把 transport 切到 `vercel_ai_gateway`
+- `IMAGE_TRANSPORT_PROVIDER` 只影响图像请求怎么提交，不改变 `REALISTIC_IMAGE_MODEL / THREED_IMAGE_MODEL / IMAGE_EDIT_MODEL` 的模型路由语义
+- 当前仓库里的 `VERCEL_AI_GATEWAY_VIDEO_SUBMIT_PATH` / `VERCEL_AI_GATEWAY_IMAGE_SUBMIT_PATH` 是本项目适配层约定，主要用于后续接正式 SDK 或服务端代理前的过渡集成
 - `VIDEO_FALLBACK_SEQUENCE_*` 只作用于连续动作段 sequence 子链，不影响普通单镜头视频请求
+- `VIDEO_FALLBACK_SIZE` 现在是可选覆盖项；默认优先按 `VIDEO_WIDTH / VIDEO_HEIGHT` 自动推断，不用手填
 - 推荐配置项见 [`.env.example`](.env.example)
 
 推荐默认值见 [`.env.example`](.env.example)。
@@ -231,7 +199,7 @@ node scripts/run.js --project=project-example --script=pilot --episode=episode-1
 node scripts/run.js samples/寒烬宫变-pro.txt --skip-consistency
 ```
 
-## 常用命令
+## 运行与恢复命令
 
 完整 production pipeline：
 
@@ -246,15 +214,46 @@ $env:ARK_API_KEY="你的火山方舟Key"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
-切到通用备选视频 provider：
+默认 MiniMax TTS 主链：
 
 ```bash
-$env:VIDEO_PROVIDER="fallback_video"
+$env:TTS_PROVIDER="minimax"
+$env:TTS_TRANSPORT_PROVIDER="minimax"
+$env:MINIMAX_API_KEY="你的MiniMaxKey"
+$env:MINIMAX_GROUP_ID="你的GroupId"
+node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+```
+
+试听样本批量生成：
+
+```bash
+npm run tts:preview -- samples/tts-eval-lines.txt temp/tts-eval-samples
+```
+
+走 Vercel AI Gateway transport，但业务上仍按 `seedance` 理解：
+
+```bash
+$env:VIDEO_PROVIDER="seedance"
+$env:VIDEO_TRANSPORT_PROVIDER="vercel_ai_gateway"
+$env:IMAGE_TRANSPORT_PROVIDER="vercel_ai_gateway"
+$env:VERCEL_AI_GATEWAY_API_KEY="你的GatewayKey"
+$env:VIDEO_MODEL_SHOT="bytedance/seedance-v1.5-pro"
+$env:VIDEO_MODEL_SEQUENCE="bytedance/seedance-v1.5-pro"
+$env:VIDEO_MODEL_BRIDGE="bytedance/seedance-v1.5-pro"
+node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+```
+
+仍要复用旧变量名 / 旧 relay 时：
+
+```bash
+$env:VIDEO_PROVIDER="seedance"
 $env:VIDEO_FALLBACK_API_KEY="你的视频Key"
 $env:VIDEO_FALLBACK_BASE_URL="https://api.laozhang.ai/v1"
 $env:VIDEO_FALLBACK_MODEL="veo-3.0-fast-generate-001"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
+
+如果你只是沿用旧环境变量名，不需要把 `VIDEO_PROVIDER` 改成 `fallback_video`；保留 `seedance` 更符合当前主链口径。
 
 如果是 sequence 真实样本调优，推荐再补这两个可选项：
 
@@ -302,7 +301,19 @@ node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run
 node scripts/resume-from-step.js --step=audio --style=realistic
 ```
 
-单 Agent 生产向测试：
+Seedance 替换旧兼容视频路径的后续实现计划：
+
+- [docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md](docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md)
+
+## 测试与 QA
+
+README 里只保留最常用入口；完整验收标准、排障步骤和交接口径见：
+
+- [docs/sop/qa-acceptance.md](docs/sop/qa-acceptance.md)
+- [docs/sop/runbook.md](docs/sop/runbook.md)
+- [docs/sop/change-checklist.md](docs/sop/change-checklist.md)
+
+### 单 Agent 生产向测试
 
 ```bash
 npm run test:lipsync-agent:prod
@@ -310,40 +321,42 @@ npm run test:video-composer:prod
 npm run test:director:prod
 ```
 
-保留测试成果物：
+### 保留测试成果物
 
 ```bash
 npm run test:video-composer:prod:keep-artifacts
 npm run test:director:prod:keep-artifacts
 ```
 
-串行验证全部主要 Agent：
+### 串行验证主要 Agent
 
 ```bash
 npm run test:agents:prod
 ```
 
-动态镜头与 bridge shot 回归：
+### 动态镜头与 Bridge Shot 回归
 
 ```bash
 node --test tests/bridgeShotPlanner.test.js tests/bridgeShotRouter.test.js tests/bridgeClipGenerator.test.js tests/bridgeQaAgent.test.js tests/director.bridge.integration.test.js tests/videoComposer.bridge.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
 ```
 
-Phase 4 action sequence 收口验收：
+### Phase 4 Action Sequence 收口验收
 
 ```bash
 node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.js tests/sequenceClipGenerator.test.js tests/sequenceQaAgent.test.js tests/videoComposer.sequence.test.js tests/director.sequence.integration.test.js tests/resumeFromStep.test.js tests/runArtifacts.test.js tests/pipeline.acceptance.test.js
 ```
 
-Phase 4 可解释性与覆盖摘要回归：
+### Phase 4 可解释性与覆盖摘要回归
 
 ```bash
 node --test tests/actionSequenceRouter.test.js tests/seedanceVideoApi.test.js tests/sequenceQaAgent.test.js tests/director.sequence.integration.test.js tests/pipeline.acceptance.test.js
 ```
 
-Seedance 替换旧兼容视频路径的后续实现计划：
+### QA 快速查看口
 
-- [docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md](docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md)
+- 优先看 run 根目录的 `qa-overview.md`
+- 看最终 `delivery-summary.md` 判断整轮是否通过、哪些 sequence 回退
+- 做真实样本调优时，配合 [Sequence 调优 Checklist](docs/sop/2026-04-06-phase4-sequence-tuning-checklist.md)
 
 ## 目录总览
 
@@ -408,11 +421,12 @@ output/
 
 当前成片主视觉优先级保持为：
 
-1. `videoResults`
-2. `bridgeClips`
-3. `lipsyncResults`
-4. `animationClips`
-5. `imageResults`
+1. `sequenceClips`
+2. `videoResults`
+3. `bridgeClips`
+4. `lipsyncResults`
+5. `animationClips`
+6. `imageResults`
 
 但 `videoResults` 的内部生成链路已经升级为：
 
@@ -429,7 +443,9 @@ motionPlan
 
 也就是说：
 
-- 配了 `VIDEO_FALLBACK_API_KEY` 且 `VIDEO_PROVIDER=fallback_video` 时，视频镜头通过 `Shot QA v2` 后会优先使用增强后的真实视频镜头
+- 配了同一个视频 relay 的 `VIDEO_FALLBACK_*` 配置后，`shot / sequence / bridge` 都会共用它
+- 即使你沿用 `VIDEO_FALLBACK_*` 这组旧变量名，也仍然是在维护同一个主视频 provider
+- 若 `VIDEO_PROVIDER=fallback_video`，也只是兼容别名切换，不代表你需要再单独维护第二套会员或第二个视频链路
 - `videoComposer` 不直接理解 `rawVideoResults / enhancedVideoResults`，而是消费 `Director` 桥接后的 `videoResults + bridgeClips`
 - 没有视频结果或 QA 不通过时，系统会显式回退到旧的静图/口型/动画路径
 

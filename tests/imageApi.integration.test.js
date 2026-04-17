@@ -37,7 +37,7 @@ test(
     );
 
     assert.equal(savedPath, outputPath);
-    assert.equal(route.provider, 'laozhang');
+    assert.equal(route.provider, 'openai_compat');
     assert.equal(fs.existsSync(outputPath), true);
 
     const stat = fs.statSync(outputPath);

@@ -48,6 +48,8 @@ export function parseCliArgs(args) {
   const style = normalizeId(getFlagValue(args, 'style'));
   const provider = normalizeId(getFlagValue(args, 'provider'));
   const skipConsistencyCheck = args.includes('--skip-consistency');
+  const stopAfterImages = args.includes('--stop-after-images');
+  const stopBeforeVideo = args.includes('--stop-before-video');
 
   const hasProjectModeFlags = projectId || scriptId || episodeId;
   const hasCompleteProjectMode = projectId && scriptId && episodeId;
@@ -73,6 +75,8 @@ export function parseCliArgs(args) {
     projectIdOverride,
     style,
     skipConsistencyCheck,
+    stopAfterImages,
+    stopBeforeVideo,
     provider,
   };
 }
@@ -135,13 +139,23 @@ export function createCli(overrides = {}) {
         return outputPath;
       }
 
-      const outputPath = await deps.runPipeline(deps.resolveScriptPath(parsedArgs.scriptFile), {
+      const result = await deps.runPipeline(deps.resolveScriptPath(parsedArgs.scriptFile), {
         style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
         skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
+        stopAfterImages: parsedArgs.stopAfterImages,
+        stopBeforeVideo: parsedArgs.stopBeforeVideo,
         projectId: parsedArgs.projectIdOverride,
       });
-      deps.writeSuccess(outputPath);
-      return outputPath;
+      if (parsedArgs.stopAfterImages) {
+        deps.logger.info('Main', '已完成到出图阶段，跳过视频生成');
+        return result;
+      }
+      if (parsedArgs.stopBeforeVideo) {
+        deps.logger.info('Main', '已完成到视频前阶段，跳过视频生成');
+        return result;
+      }
+      deps.writeSuccess(result);
+      return result;
     },
 
     async runAndExit(args) {

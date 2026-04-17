@@ -50,9 +50,9 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D质感）' : '写实摄影风
 // 风格基础词库
 export const STYLE_BASE = {
   realistic: {
-    quality: 'cinematic, photorealistic, 8k uhd, hyperdetailed, sharp focus',
+    quality: 'cinematic, photorealistic, 8k uhd, hyperdetailed, sharp focus, absolutely real photography, NOT illustration, NOT animation, NOT cartoon style, NOT anime',
     lighting: 'professional photography, natural lighting, volumetric light',
-    negative: 'cartoon, anime, 3d render, painting, sketch, blurry, low quality, deformed, ugly, watermark',
+    negative: 'cartoon, anime, 3d render, painting, sketch, illustration, animated, cel shading, digital art, blurry, low quality, deformed, ugly, watermark',
   },
   '3d': {
     quality: '3D render, Pixar style, Cinema4D, octane render, 8k, subsurface scattering',
@@ -60,6 +60,33 @@ export const STYLE_BASE = {
     negative: 'photorealistic, photograph, 2D, flat, sketch, blurry, low quality, watermark',
   },
 };
+
+export function buildCharacterRefSheetPrompt(character, style = 'realistic') {
+  const tokens = String(character.basePromptTokens || '').trim();
+  const desc = String(character.visualDescription || '').trim();
+  const identity = tokens || desc || 'a person';
+
+  const styleTokens =
+    style === '3d'
+      ? '3D render, Pixar style, character model sheet'
+      : 'photorealistic, studio photo, fashion catalog';
+
+  const prompt = [
+    `one single ${character.gender === 'female' ? 'female' : 'male'} person, ${identity}`,
+    `character turnaround sheet, 3 views side by side: front | side profile | back`,
+    `full body head to toe, standing pose, centered in each panel, white background`,
+    `same person same outfit in all 3 views, equal spacing`,
+    styleTokens,
+    'high quality, sharp, even lighting',
+  ].join(', ');
+
+  const negative =
+    style === '3d'
+      ? 'photograph, blurry, low quality, watermark, text, labels'
+      : 'cartoon, anime, 3d render, illustration, landscape, scenery, nature, building, multiple people, crowd, blurry, low quality, watermark, text, labels, cropped, cut off';
+
+  return { prompt, negative };
+}
 
 export const CAMERA_KEYWORDS = {
   特写: 'extreme close-up shot, face detail',

@@ -22,37 +22,44 @@ test('style 会映射到新的任务类型', () => {
 
 test('默认路由只返回老张平台模型', () => {
   const realisticRoute = resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE, {
-    PRIMARY_API_PROVIDER: 'laozhang',
+    PRIMARY_API_PROVIDER: 'openai_compat',
     REALISTIC_IMAGE_MODEL: 'flux-kontext-pro',
   });
   const threedRoute = resolveImageRoute(IMAGE_TASK_TYPES.THREED_IMAGE, {
-    PRIMARY_API_PROVIDER: 'laozhang',
+    PRIMARY_API_PROVIDER: 'openai_compat',
     THREED_IMAGE_MODEL: 'gpt-image-1',
   });
 
   assert.deepEqual(realisticRoute, {
-    provider: 'laozhang',
+    provider: 'openai_compat',
     model: 'flux-kontext-pro',
   });
   assert.deepEqual(threedRoute, {
-    provider: 'laozhang',
+    provider: 'openai_compat',
     model: 'gpt-image-1',
   });
 });
 
-test('不允许默认回落到 together', () => {
-  assert.throws(
-    () =>
-      resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE, {
-        PRIMARY_API_PROVIDER: 'together',
-      }),
-    /仅支持 laozhang/
-  );
+test('图像 transport provider 与模型路由解耦', () => {
+  const route = resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE, {
+    PRIMARY_API_PROVIDER: 'openai_compat',
+    REALISTIC_IMAGE_MODEL: 'flux-kontext-pro',
+    IMAGE_TRANSPORT_PROVIDER: 'vercel_ai_gateway',
+  });
+
+  assert.deepEqual(route, {
+    provider: 'openai_compat',
+    model: 'flux-kontext-pro',
+  });
+  assert.equal(__testables.resolveImageTransportProvider({
+    PRIMARY_API_PROVIDER: 'openai_compat',
+    IMAGE_TRANSPORT_PROVIDER: 'vercel_ai_gateway',
+  }), 'vercel_ai_gateway');
 });
 
 test('图像 provider 解析走策略注册表', () => {
   const provider = __testables.resolveImageProvider('laozhang');
-  assert.equal(provider.name, 'laozhang');
+  assert.equal(provider.name, 'openai_compat');
   assert.equal(typeof provider.generate, 'function');
 });
 

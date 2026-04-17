@@ -167,3 +167,65 @@ test('buildBridgeClipReport summarizes completed failed and skipped bridge clips
   assert.equal(report.skippedCount, 1);
   assert.deepEqual(report.providerBreakdown, { sora2: 2, fallback_direct_cut: 1 });
 });
+
+test('toSora2ShotPackage preserves seedance provider intent for bridge packages on the main path', () => {
+  const shotPackage = __testables.toSora2ShotPackage({
+    bridgeId: 'bridge_seedance_main',
+    durationTargetSec: 1.5,
+    preferredProvider: 'seedance',
+    promptDirectives: ['bridge type: momentum_carry'],
+    firstLastFrameMode: 'disabled',
+    fromReferenceImage: '/tmp/shot_seedance.png',
+  });
+
+  assert.equal(shotPackage.shotId, 'bridge_seedance_main');
+  assert.equal(shotPackage.preferredProvider, 'seedance');
+});
+
+test('generateBridgeClips passes both first and last frame references into unified provider bridge packages', async () => {
+  const submissions = [];
+  const run = await generateBridgeClips(
+    [
+      {
+        bridgeId: 'bridge_seedance_refs',
+        fromShotRef: { shotId: 'shot_201' },
+        toShotRef: { shotId: 'shot_202' },
+        fromReferenceImage: '/tmp/shot_201.png',
+        toReferenceImage: '/tmp/shot_202.png',
+        promptDirectives: [
+          'transition brief: carry the forward sword motion into the next defensive beat',
+          'reference binding: image1 is the first frame keyframe. image2 is the target last frame keyframe',
+        ],
+        negativePromptDirectives: ['identity drift'],
+        durationTargetSec: 1.8,
+        providerCapabilityRequirement: 'first_last_keyframe',
+        firstLastFrameMode: 'required',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['sora2', 'direct_cut'],
+      },
+    ],
+    '/tmp/bridge-video',
+    {
+      providerClient: {
+        async submit(bridgePackage) {
+          submissions.push(bridgePackage);
+          return { taskId: 'task_bridge_seedance', provider: 'seedance', model: 'doubao-seedance-2-0-260128' };
+        },
+        async poll() {
+          return { outputUrl: 'https://example.com/bridge-seedance.mp4', actualDurationSec: 1.8 };
+        },
+        async download(_outputUrl, outputPath) {
+          fs.writeFileSync(outputPath, Buffer.from('00000018667479706d703432', 'hex'));
+        },
+      },
+    }
+  );
+
+  assert.equal(run.results[0].status, 'completed');
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0].packageType, 'bridge');
+  assert.equal(submissions[0].referenceImages.length, 2);
+  assert.equal(submissions[0].referenceImages[0].role, 'first_frame');
+  assert.equal(submissions[0].referenceImages[1].role, 'last_frame');
+  assert.match(submissions[0].visualGoal, /reference binding:/i);
+});

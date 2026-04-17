@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { resolveCharacterIdentity } from './characterRegistry.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { createActionSequencePlanEntry } from '../utils/actionSequenceProtocol.js';
@@ -67,7 +68,7 @@ function buildSequenceContextSignalSet(options = {}, shotIds = []) {
 
 function getShotCharacters(shot = {}) {
   return (Array.isArray(shot.characters) ? shot.characters : [])
-    .map((character) => character?.episodeCharacterId || character?.id || character?.name)
+    .map((character) => resolveCharacterIdentity(character))
     .filter(Boolean);
 }
 

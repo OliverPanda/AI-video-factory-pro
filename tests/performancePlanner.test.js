@@ -20,6 +20,10 @@ test('buildPerformancePlanEntry produces the minimum Phase 2 protocol fields', (
     shotId: 'shot_001',
     order: 1,
     performanceTemplate: 'emotion_push_in',
+    storyBeat: null,
+    screenDirection: 'unspecified',
+    spaceAnchor: null,
+    continuityContext: null,
     subjectBlocking: [],
     actionBeatList: [],
     cameraMovePlan: {

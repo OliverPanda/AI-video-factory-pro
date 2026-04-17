@@ -2,6 +2,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __testables, textToSpeech } from '../src/apis/ttsApi.js';
 
+test('MiniMax request builder uses official /v1/t2a_v2 JSON shape and GroupId query', () => {
+  const request = __testables.buildMiniMaxTtsRequest(
+    '你好，世界',
+    {
+      gender: 'female',
+      rate: 65,
+      pitch: 40,
+      volume: 72,
+    },
+    {
+      MINIMAX_API_KEY: 'demo-key',
+      MINIMAX_GROUP_ID: 'group-123',
+      MINIMAX_TTS_BASE_URL: 'https://api.minimax.io',
+      MINIMAX_TTS_REQUEST_PATH: '/v1/t2a_v2',
+      MINIMAX_TTS_MODEL: 'speech-2.5-hd-preview',
+      MINIMAX_TTS_VOICE_FEMALE: 'Warm_Girl',
+    }
+  );
+
+  const url = new URL(request.url);
+  const body = JSON.parse(request.body);
+
+  assert.equal(url.origin, 'https://api.minimax.io');
+  assert.equal(url.pathname, '/v1/t2a_v2');
+  assert.equal(url.searchParams.get('GroupId'), 'group-123');
+  assert.equal(request.headers.Authorization, 'Bearer demo-key');
+  assert.equal(body.model, 'speech-2.5-hd-preview');
+  assert.equal(body.text, '你好，世界');
+  assert.equal(body.voice_setting.voice_id, 'Warm_Girl');
+  assert.equal(body.voice_setting.speed, 1.3);
+  assert.equal(body.audio_setting.format, 'mp3');
+});
+
 test('讯飞鉴权 URL 会生成 authorization/date/host 查询参数', () => {
   const url = new URL(
     __testables.buildXfyunRequestUrl({
@@ -39,6 +72,14 @@ test('讯飞 payload 会按性别选择音色并编码文本', () => {
   assert.equal(Buffer.from(payload.data.text, 'base64').toString(), '你好，世界');
 });
 
+test('resolveTtsProvider defaults to minimax', () => {
+  assert.equal(__testables.resolveTtsProvider({}, {}), 'minimax');
+});
+
+test('resolveTtsTransportProvider defaults to minimax', () => {
+  assert.equal(__testables.resolveTtsTransportProvider({}, {}), 'minimax');
+});
+
 test('TTS provider router resolves placeholder providers explicitly', () => {
   const provider = __testables.resolveTtsProvider({ provider: 'tencent' }, {});
   const handler = __testables.getProviderHandler(provider);
@@ -66,6 +107,64 @@ test('textToSpeech dispatches mock provider through the router', async () => {
   assert.equal(result, 'tmp-output.mp3');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].text, '测试一下');
+});
+
+test('textToSpeech dispatches minimax provider through the router', async () => {
+  const calls = [];
+  const result = await textToSpeech('用 MiniMax 合成', 'minimax-output.mp3', {
+    provider: 'minimax',
+    providerHandlers: {
+      minimax: async (text, outputPath, options) => {
+        calls.push({ text, outputPath, options });
+        return outputPath;
+      },
+    },
+  });
+
+  assert.equal(result, 'minimax-output.mp3');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].text, '用 MiniMax 合成');
+});
+
+test('openai_compat provider delegates to a transport provider', async () => {
+  const calls = [];
+  const compatHandler = __testables.createOpenAICompatHandler({
+    mock: async (text, outputPath, options) => {
+      calls.push({ text, outputPath, options });
+      return outputPath;
+    },
+  });
+
+  const result = await compatHandler('统一合同测试', 'compat-output.mp3', {
+    transportProvider: 'mock',
+    voice: 'demo-voice',
+  });
+
+  assert.equal(result, 'compat-output.mp3');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].text, '统一合同测试');
+  assert.equal(calls[0].options.transportProvider, 'mock');
+  assert.equal(calls[0].options.voice, 'demo-voice');
+});
+
+test('textToSpeech dispatches openai_compat provider through the router', async () => {
+  const calls = [];
+  const result = await textToSpeech('用统一合同合成', 'compat-router.mp3', {
+    provider: 'openai_compat',
+    transportProvider: 'mock',
+    providerHandlers: {
+      openai_compat: __testables.createOpenAICompatHandler({
+        mock: async (text, outputPath, options) => {
+          calls.push({ text, outputPath, options });
+          return outputPath;
+        },
+      }),
+    },
+  });
+
+  assert.equal(result, 'compat-router.mp3');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.transportProvider, 'mock');
 });
 
 test('CosyVoice request builder uses FastAPI sft defaults', async () => {

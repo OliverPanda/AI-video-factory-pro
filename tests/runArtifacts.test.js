@@ -60,6 +60,8 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'lipsyncAgent',
       'motionPlanner',
       'performancePlanner',
+      'seedancePromptAgent',
+      'preflightQaAgent',
       'videoRouter',
       'runwayVideoAgent',
       'sora2VideoAgent',
@@ -79,6 +81,8 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
     ]);
 
     const expectedBridgeDirs = {
+      seedancePromptAgent: '09bb-seedance-prompt-agent',
+      preflightQaAgent: '09bc-preflight-qa-agent',
       bridgeShotPlanner: '09g-bridge-shot-planner',
       bridgeShotRouter: '09h-bridge-shot-router',
       bridgeClipGenerator: '09i-bridge-clip-generator',

@@ -149,8 +149,9 @@ function buildReferenceImages(sequenceShotIds = [], imageResults = []) {
   return sequenceShotIds
     .map((shotId) => pickBestCandidate(imageBuckets.get(shotId) || [], scoreImageCandidate) || null)
     .filter((result) => result?.imagePath)
-    .map((result) => ({
+    .map((result, index) => ({
       type: 'reference_image',
+      role: index === 0 ? 'first_frame' : 'supporting_reference',
       shotId: result.shotId,
       path: result.imagePath,
       provider: result.provider || null,
@@ -165,6 +166,7 @@ function buildReferenceVideos(sequenceShotIds = [], videoResults = []) {
     .filter((result) => result?.videoPath && (result.canUseVideo === true || result.qaStatus === 'pass' || result.qaStatus === 'passed' || result.finalDecision === 'pass' || result.finalDecision === 'pass_with_enhancement'))
     .map((result) => ({
       type: 'qa_passed_video',
+      role: 'motion_reference',
       shotId: result.shotId,
       path: result.videoPath,
       provider: result.provider || null,
@@ -447,7 +449,7 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     sequenceId: planEntry.sequenceId,
     shotIds: sequenceShotIds,
     durationTargetSec: Number.isFinite(durationTargetSec) ? durationTargetSec : 0,
-    referenceImages: referenceTier === 'image' ? referenceImages : [],
+    referenceImages: referenceTier === 'image' ? referenceImages.slice(0, 9) : [],
     referenceVideos: referenceTier === 'video' ? referenceVideos : [],
     bridgeReferences: referenceTier === 'bridge' ? bridgeReferences : [],
     referenceStrategy: buildReferenceStrategy(referenceTier),

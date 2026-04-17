@@ -42,6 +42,7 @@ test('TTS agent resolves speaker voice from voicePresetId and forwards voice tun
 
   await generateAllAudio(shots, characterRegistry, audioDir, {
     projectId: 'project-123',
+    ttsProvider: 'minimax',
     voicePresetLoader,
     textToSpeech,
   });
@@ -51,6 +52,7 @@ test('TTS agent resolves speaker voice from voicePresetId and forwards voice tun
   assert.equal(calls[0].outputPath, path.join(audioDir, 'shot-1.mp3'));
   assert.deepEqual(calls[0].options, {
     gender: 'female',
+    provider: 'minimax',
     voice: 'alice-voice',
     rate: 65,
     pitch: 40,
@@ -74,6 +76,7 @@ test('TTS agent prefers project voice cast over voicePresetId when both are avai
 
   const calls = [];
   await generateAllAudio(shots, characterRegistry, audioDir, {
+    ttsProvider: 'minimax',
     voicePresetLoader: async () => ({
       voice: 'preset-voice',
       rate: 55,
@@ -119,6 +122,7 @@ test('TTS agent forwards cosyvoice-specific voice cast fields for zero-shot synt
 
   const calls = [];
   await generateAllAudio(shots, characterRegistry, audioDir, {
+    ttsProvider: 'minimax',
     voiceCast: [
       {
         characterId: 'ep-alice',
@@ -163,6 +167,7 @@ test('TTS agent forwards fish-speech-specific reference fields from voice cast',
 
   const calls = [];
   await generateAllAudio(shots, characterRegistry, audioDir, {
+    ttsProvider: 'minimax',
     voiceCast: [
       {
         characterId: 'ep-alice',
@@ -208,11 +213,12 @@ test('TTS agent falls back to gender defaults when voicePresetId is missing', as
 
   await generateAllAudio(shots, characterRegistry, audioDir, {
     projectId: 'project-123',
+    ttsProvider: 'minimax',
     textToSpeech,
   });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].options, { gender: 'male' });
+  assert.deepEqual(calls[0].options, { gender: 'male', provider: 'minimax' });
 });
 
 test('TTS agent falls back to gender defaults when a preset cannot be loaded', async (t) => {
@@ -236,6 +242,7 @@ test('TTS agent falls back to gender defaults when a preset cannot be loaded', a
 
   await generateAllAudio(shots, characterRegistry, audioDir, {
     projectId: 'project-123',
+    ttsProvider: 'minimax',
     voicePresetLoader: async () => {
       throw new Error('preset missing');
     },
@@ -243,5 +250,5 @@ test('TTS agent falls back to gender defaults when a preset cannot be loaded', a
   });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].options, { gender: 'female' });
+  assert.deepEqual(calls[0].options, { gender: 'female', provider: 'minimax' });
 });

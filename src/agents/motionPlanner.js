@@ -91,9 +91,62 @@ function buildVisualGoal(shot) {
     .join('，');
 }
 
+function inferStoryBeat(shot = {}, index = 0, shots = []) {
+  const action = normalizeText(shot?.action);
+  const dialogue = normalizeText(shot?.dialogue);
+  const scene = normalizeText(shot?.scene);
+
+  if (action) {
+    return action;
+  }
+  if (dialogue) {
+    return `dialogue:${dialogue.slice(0, 48)}`;
+  }
+  if (scene) {
+    const isFirst = index === 0;
+    const isLast = index === shots.length - 1;
+    if (isFirst) return `establish:${scene}`;
+    if (isLast) return `resolve:${scene}`;
+    return `continue:${scene}`;
+  }
+  return index === 0 ? 'story_open' : 'story_continue';
+}
+
+function inferScreenDirection(shot = {}) {
+  const text = `${normalizeText(shot?.action)} ${normalizeText(shot?.camera)} ${normalizeText(shot?.camera_type || shot?.cameraType)}`.toLowerCase();
+  if (/left|向左|左侧|左移|左进/.test(text)) {
+    return 'left';
+  }
+  if (/right|向右|右侧|右移|右进/.test(text)) {
+    return 'right';
+  }
+  if (/forward|向前|逼近|推进|冲刺|追逐/.test(text)) {
+    return 'forward';
+  }
+  if (/back|后退|撤退|拉开/.test(text)) {
+    return 'backward';
+  }
+  return 'unspecified';
+}
+
+function inferSpaceAnchor(shot = {}) {
+  return normalizeText(shot?.scene || shot?.location || shot?.setting) || 'unanchored_space';
+}
+
+function buildContinuityContext(shot = {}, index = 0, shots = []) {
+  return {
+    storyBeat: inferStoryBeat(shot, index, shots),
+    screenDirection: inferScreenDirection(shot),
+    spaceAnchor: inferSpaceAnchor(shot),
+    previousShotId: index > 0 ? shots[index - 1]?.id || null : null,
+    nextShotId: index < shots.length - 1 ? shots[index + 1]?.id || null : null,
+  };
+}
+
 export function buildMotionPlan(shots = []) {
   return shots.map((shot, index) => {
     const shotType = inferShotType(shot);
+    const continuityContext = buildContinuityContext(shot, index, shots);
     return {
       shotId: shot.id,
       order: index,
@@ -103,6 +156,10 @@ export function buildMotionPlan(shots = []) {
       cameraSpec: buildCameraSpec(shotType),
       videoGenerationMode: buildVideoGenerationMode(shotType),
       visualGoal: buildVisualGoal(shot),
+      storyBeat: continuityContext.storyBeat,
+      screenDirection: continuityContext.screenDirection,
+      spaceAnchor: continuityContext.spaceAnchor,
+      continuityContext,
     };
   });
 }
@@ -149,7 +206,11 @@ export async function planMotion(shots = [], options = {}) {
 
 export const __testables = {
   buildCameraSpec,
+  buildContinuityContext,
   buildMotionPlan,
   buildVideoGenerationMode,
+  inferScreenDirection,
+  inferSpaceAnchor,
+  inferStoryBeat,
   inferShotType,
 };
