@@ -62,6 +62,7 @@ test('buildShotPackages assembles complete shotPackage and prefers configured vi
       action: '对峙',
       hasReferenceImage: true,
       promptSource: 'prompt_list',
+      negativePrompt: '',
       targetModelTier: 'enhanced',
       requestedDurationSec: 4,
       requestedRatio: '9:16',
@@ -101,6 +102,40 @@ test('buildShotPackages assembles complete shotPackage and prefers configured vi
       canFallbackToStaticImage: true,
     },
   });
+});
+
+test('routeVideoShots prefers image_prompt_en for provider-facing visual goal and ignores display_prompt_zh', async () => {
+  const shotPackages = await routeVideoShots(
+    [{ id: 'shot_en_001', scene: 'Warehouse', action: 'Standoff' }],
+    [
+      {
+        shotId: 'shot_en_001',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        visualGoal: 'motion plan fallback goal',
+        cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+      },
+    ],
+    [{ shotId: 'shot_en_001', imagePath: '/tmp/shot_en_001.png', success: true }],
+    {
+      promptList: [
+        {
+          shotId: 'shot_en_001',
+          image_prompt_en: 'english execution prompt',
+          image_prompt: 'legacy execution prompt',
+          negative_prompt_en: 'blurry',
+          negative_prompt: 'legacy blurry',
+          display_prompt_zh: '中文展示提示词，不可用于执行',
+        },
+      ],
+      performancePlan: [],
+    }
+  );
+
+  assert.equal(shotPackages[0].visualGoal, 'english execution prompt');
+  assert.equal(shotPackages[0].providerRequestHints.promptSource, 'prompt_list');
+  assert.equal(shotPackages[0].providerRequestHints.negativePrompt, 'blurry');
+  assert.notEqual(shotPackages[0].visualGoal, '中文展示提示词，不可用于执行');
 });
 
 test('routeVideoShots falls back to static image provider when no reference image is available', async () => {

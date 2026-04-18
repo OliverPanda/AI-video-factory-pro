@@ -203,11 +203,23 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
     );
     assert.equal(prompts.length, 2);
     assert.equal(prompts[0].shotId, 'shot_001');
+    assert.match(prompts[0].image_prompt_en, /warm cafe counter scene/);
+    assert.equal(prompts[0].image_prompt, prompts[0].image_prompt_en);
+    assert.equal(prompts[0].negative_prompt, prompts[0].negative_prompt_en);
+    assert.match(prompts[0].display_prompt_zh, /场景：咖啡馆/);
+    assert.match(prompts[0].display_prompt_zh, /动作：整理咖啡杯/);
+    assert.match(prompts[0].display_negative_prompt_zh, /避免/);
     assert.match(prompts[0].image_prompt, /warm cafe counter scene/);
     assert.match(prompts[0].image_prompt, /warm indoor morning/);
     assert.equal(prompts[1].shotId, 'shot_002');
-    assert.match(prompts[1].image_prompt, /吧台, 抬头微笑/);
+    assert.equal(prompts[1].image_prompt, prompts[1].image_prompt_en);
+    assert.equal(prompts[1].negative_prompt, prompts[1].negative_prompt_en);
+    assert.equal(/[\u3400-\u9FFF]/.test(prompts[1].image_prompt_en), false);
+    assert.match(prompts[1].image_prompt_en, /warm indoor morning/);
     assert.match(prompts[1].image_prompt, /warm indoor morning/);
+    assert.match(prompts[1].display_prompt_zh, /场景：吧台/);
+    assert.match(prompts[1].display_prompt_zh, /动作：抬头微笑/);
+    assert.match(prompts[1].display_negative_prompt_zh, /避免/);
     assert.equal(prompts[1].style_notes, '降级生成（LLM调用失败）');
 
     const promptSources = JSON.parse(
@@ -222,9 +234,15 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
       path.join(ctx.agents.promptEngineer.outputsDir, 'prompts.table.md'),
       'utf-8'
     );
-    assert.match(promptsTable, /\| Shot ID \| Source \| Image Prompt \| Negative Prompt \| Style Notes \|/);
+    assert.match(
+      promptsTable,
+      /\| Shot ID \| Source \| Display Prompt ZH \| Execution Prompt EN \| Negative Prompt EN \| Style Notes \|/
+    );
     assert.match(promptsTable, /\| shot_001 \| llm \|/);
     assert.match(promptsTable, /\| shot_002 \| fallback \|/);
+    assert.match(promptsTable, /场景：咖啡馆/);
+    assert.match(promptsTable, /warm cafe counter scene/);
+    assert.match(promptsTable, /blurry/);
 
     const promptMetrics = JSON.parse(
       fs.readFileSync(path.join(ctx.agents.promptEngineer.metricsDir, 'prompt-metrics.json'), 'utf-8')
@@ -244,7 +262,12 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
     assert.equal(fallbackEvidence.error, 'invalid llm output');
     assert.equal(fallbackEvidence.source, 'fallback');
     assert.equal(fallbackEvidence.fallbackPrompt.shotId, 'shot_002');
-    assert.match(fallbackEvidence.fallbackPrompt.image_prompt, /吧台, 抬头微笑/);
+    assert.equal(/[\u3400-\u9FFF]/.test(fallbackEvidence.fallbackPrompt.image_prompt_en), false);
+    assert.match(fallbackEvidence.fallbackPrompt.display_prompt_zh, /场景：吧台/);
+    assert.equal(
+      fallbackEvidence.fallbackPrompt.image_prompt,
+      fallbackEvidence.fallbackPrompt.image_prompt_en
+    );
 
     const promptManifest = JSON.parse(
       fs.readFileSync(ctx.agents.promptEngineer.manifestPath, 'utf-8')
@@ -255,4 +278,86 @@ test('prompt engineer writes prompt outputs metrics fallback evidence and manife
       outputFiles: ['prompts.json', 'prompt-sources.json', 'prompts.table.md', 'prompt-metrics.json'],
     });
   }, 'prompt-engineer');
+});
+
+test('prompt engineer keeps bilingual LLM fields and legacy aliases together', async () => {
+  const shots = [
+    {
+      id: 'shot_bilingual_001',
+      scene: '仓库门口',
+      action: '抬手示意停下',
+      characters: ['陈默'],
+      camera_type: '近景',
+    },
+  ];
+  const registry = [
+    {
+      id: 'char_chen',
+      episodeCharacterId: 'char_chen',
+      name: '陈默',
+      visualDescription: 'black tactical jacket, stern expression',
+      basePromptTokens: 'black tactical jacket, stern expression',
+    },
+  ];
+
+  const prompts = await generateAllPrompts(shots, registry, 'realistic', {
+    chatJSON: async () => ({
+      image_prompt_en: 'cinematic warehouse gate standoff',
+      negative_prompt_en: 'blurry',
+      display_prompt_zh: '仓库门口对峙，陈默抬手示意停下',
+      display_negative_prompt_zh: '避免模糊、肢体畸形',
+      style_notes: '强调压迫感和紧张停顿',
+    }),
+  });
+
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0].image_prompt_en, /cinematic warehouse gate standoff/);
+  assert.match(prompts[0].negative_prompt_en, /blurry/);
+  assert.equal(prompts[0].display_prompt_zh, '仓库门口对峙，陈默抬手示意停下');
+  assert.equal(prompts[0].display_negative_prompt_zh, '避免模糊、肢体畸形');
+  assert.equal(prompts[0].image_prompt, prompts[0].image_prompt_en);
+  assert.equal(prompts[0].negative_prompt, prompts[0].negative_prompt_en);
+});
+
+test('prompt engineer removes scene-prop identity pollution from generated prompts', async () => {
+  const shots = [
+    {
+      id: 'shot_001',
+      scene: '废弃仓库',
+      action: '阿鬼举刀逼近',
+      characters: ['阿鬼'],
+      camera_type: '近景',
+      continuityState: {
+        sceneLighting: 'dim warehouse night',
+      },
+    },
+  ];
+
+  const registry = [
+    {
+      id: 'char_ghost',
+      episodeCharacterId: 'char_ghost',
+      name: '阿鬼',
+      visualDescription: 'man in gray hoodie standing on a metal ladder',
+      basePromptTokens: 'man, 28, gray hoodie, hood up, three-sided dagger, metal ladder, concrete pillar',
+    },
+  ];
+
+  const prompts = await generateAllPrompts(shots, registry, 'realistic', {
+    chatJSON: async () => ({
+      image_prompt: 'gray hoodie assassin lunging forward, close-up shot, close-up shot',
+      negative_prompt: 'blurry, blurry',
+      style_notes: '强调动作主体',
+    }),
+  });
+
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].image_prompt.includes('metal ladder'), false);
+  assert.equal(prompts[0].image_prompt.includes('concrete pillar'), false);
+  assert.match(prompts[0].image_prompt, /gray hoodie/);
+  assert.match(prompts[0].image_prompt, /single subject emphasis/);
+  assert.equal(prompts[0].image_prompt.includes('close-up shot, close-up shot'), false);
+  assert.equal(prompts[0].negative_prompt.includes('blurry, blurry'), false);
+  assert.match(prompts[0].display_prompt_zh, /场景：废弃仓库/);
+  assert.match(prompts[0].display_prompt_zh, /动作：阿鬼举刀逼近/);
 });

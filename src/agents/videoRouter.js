@@ -13,11 +13,20 @@ function resolvePreferredVideoProvider(options = {}) {
   return rawProvider;
 }
 
+function resolveExecutionPrompt(promptEntry, motionEntry) {
+  return promptEntry?.image_prompt_en || promptEntry?.image_prompt || motionEntry.visualGoal;
+}
+
+function resolveExecutionNegativePrompt(promptEntry) {
+  return promptEntry?.negative_prompt_en || promptEntry?.negative_prompt || '';
+}
+
 function buildProviderRequestHints({
   shot,
   motionEntry,
   imageResult,
   promptEntry,
+  executionNegativePrompt,
   performanceEntry,
   hasReferenceImage,
 }) {
@@ -47,7 +56,8 @@ function buildProviderRequestHints({
     scene: shot.scene || null,
     action: shot.action || null,
     hasReferenceImage,
-    promptSource: promptEntry?.image_prompt ? 'prompt_list' : 'motion_plan',
+    promptSource: (promptEntry?.image_prompt_en || promptEntry?.image_prompt) ? 'prompt_list' : 'motion_plan',
+    negativePrompt: executionNegativePrompt,
     targetModelTier: performanceEntry?.generationTier || 'base',
     requestedDurationSec: motionEntry.durationTargetSec,
     requestedRatio: motionEntry?.cameraSpec?.ratio || null,
@@ -98,6 +108,8 @@ function collectReferenceImages(shot, imageResult, shotIndex, shots, imageResult
 function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options = {}) {
   const hasReferenceImage = Boolean(imageResult?.imagePath);
   const performanceEntry = options.performancePlan?.find((item) => item.shotId === shot.id) || null;
+  const executionPrompt = resolveExecutionPrompt(promptEntry, motionEntry);
+  const executionNegativePrompt = resolveExecutionNegativePrompt(promptEntry);
   const preferredVideoProvider = resolvePreferredVideoProvider(options);
   const preferredProvider = hasReferenceImage ? preferredVideoProvider : 'static_image';
   const fallbackProviders = hasReferenceImage ? ['static_image'] : [];
@@ -115,7 +127,7 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
     shotId: shot.id,
     shotType: motionEntry.shotType,
     durationTargetSec: motionEntry.durationTargetSec,
-    visualGoal: promptEntry?.image_prompt || motionEntry.visualGoal,
+    visualGoal: executionPrompt,
     cameraSpec: motionEntry.cameraSpec,
     referenceImages,
     preferredProvider,
@@ -125,6 +137,7 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
       motionEntry,
       imageResult,
       promptEntry,
+      executionNegativePrompt,
       performanceEntry,
       hasReferenceImage,
     }),
@@ -229,5 +242,7 @@ export const __testables = {
   buildShotPackages,
   buildProviderRequestHints,
   collectReferenceImages,
+  resolveExecutionPrompt,
+  resolveExecutionNegativePrompt,
   resolvePreferredVideoProvider,
 };

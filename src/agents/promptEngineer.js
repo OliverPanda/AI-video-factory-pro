@@ -26,16 +26,34 @@ function writeTextFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
+function mergePromptSegments(segments = []) {
+  return [
+    ...new Set(
+      segments
+        .flatMap((segment) =>
+          String(segment || '')
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        )
+        .filter(Boolean)
+    ),
+  ].join(', ');
+}
+
 function buildPromptsTable(prompts, promptSources) {
   const lines = [
-    '| Shot ID | Source | Image Prompt | Negative Prompt | Style Notes |',
-    '| --- | --- | --- | --- | --- |',
+    '| Shot ID | Source | Display Prompt ZH | Execution Prompt EN | Negative Prompt EN | Style Notes |',
+    '| --- | --- | --- | --- | --- | --- |',
   ];
 
   for (const prompt of prompts) {
     const source = promptSources.find((entry) => entry.shotId === prompt.shotId)?.source || '';
+    const displayPromptZh = prompt.display_prompt_zh || '';
+    const executionPromptEn = prompt.image_prompt_en || prompt.image_prompt || '';
+    const executionNegativePromptEn = prompt.negative_prompt_en || prompt.negative_prompt || '';
     lines.push(
-      `| ${prompt.shotId} | ${source} | ${prompt.image_prompt || ''} | ${prompt.negative_prompt || ''} | ${prompt.style_notes || ''} |`
+      `| ${prompt.shotId} | ${source} | ${displayPromptZh} | ${executionPromptEn} | ${executionNegativePromptEn} | ${prompt.style_notes || ''} |`
     );
   }
 
@@ -58,6 +76,58 @@ function buildContinuityTokens(shot = {}) {
   ];
 
   return tokens.filter(Boolean).join(', ');
+}
+
+function keepAsciiExecutionTokens(value) {
+  return String(value || '')
+    .split(',')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && !/[\u3400-\u9FFF]/.test(segment))
+    .join(', ');
+}
+
+function buildChineseDisplayPrompt(shot = {}) {
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const characterNames =
+    Array.isArray(shot.characters) && shot.characters.length > 0
+      ? `角色：${shot.characters.join('、')}`
+      : null;
+  return [
+    shot.scene ? `场景：${shot.scene}` : null,
+    shot.action ? `动作：${shot.action}` : null,
+    characterNames,
+    shot.emotion ? `情绪：${shot.emotion}` : null,
+    cameraType ? `镜头：${cameraType}` : null,
+  ]
+    .filter(Boolean)
+    .join('；');
+}
+
+function buildChineseDisplayNegativePrompt(style = 'realistic') {
+  if (style === '3d') {
+    return '避免低质量、贴图错误、结构畸形';
+  }
+  return '避免低质量、模糊、卡通感、结构畸形';
+}
+
+function buildEnglishFallbackExecutionPrompt(shot, styleBase) {
+  const cameraType = shot.camera_type || shot.cameraType || null;
+  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
+  const continuityTokens = keepAsciiExecutionTokens(buildContinuityTokens(shot));
+  const sceneHint = keepAsciiExecutionTokens(shot.scene);
+  const actionHint = keepAsciiExecutionTokens(shot.action);
+  const emotionHint = keepAsciiExecutionTokens(shot.emotion);
+
+  return mergePromptSegments([
+    sceneHint ? `scene ${sceneHint}` : null,
+    actionHint ? `action ${actionHint}` : null,
+    emotionHint ? `emotion ${emotionHint}` : null,
+    continuityTokens,
+    cameraKw,
+    'single cinematic frame, clear subject focus',
+    styleBase.lighting,
+    styleBase.quality,
+  ]);
 }
 
 export function applyContinuityRepairHints(basePrompt, report = {}) {
@@ -153,7 +223,7 @@ function writePromptFallbackEvidence(shot, style, error, fallbackResult, artifac
  * @param {Object} shot - 分镜对象
  * @param {Array} characterRegistry - 角色档案列表
  * @param {string} style - 'realistic' | '3d'
- * @returns {Promise<{shotId, image_prompt, negative_prompt, style_notes}>}
+ * @returns {Promise<{shotId, image_prompt_en, negative_prompt_en, display_prompt_zh, display_negative_prompt_zh, image_prompt, negative_prompt, style_notes}>}
  */
 export async function generatePromptForShot(shot, characterRegistry, style = 'realistic', deps = {}) {
   const runChatJSON = deps.chatJSON || chatJSON;
@@ -169,6 +239,8 @@ export async function generatePromptForShot(shot, characterRegistry, style = 're
   ];
 
   const result = await runChatJSON(messages, { temperature: 0.6 });
+  const llmImagePrompt = result.image_prompt_en || result.image_prompt || '';
+  const llmNegativePrompt = result.negative_prompt_en || result.negative_prompt || '';
 
   // 自动增强：注入基础质量词 + 镜头关键词
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
@@ -176,23 +248,26 @@ export async function generatePromptForShot(shot, characterRegistry, style = 're
   const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   const charTokens = getShotCharacterTokens(shot, characterRegistry);
 
-  const enhancedPrompt = [
+  const enhancedPrompt = mergePromptSegments([
     charTokens,
-    result.image_prompt,
+    llmImagePrompt,
     buildContinuityTokens(shot),
     cameraKw,
     styleBase.lighting,
     styleBase.quality,
-  ]
-    .filter(Boolean)
-    .join(', ');
+  ]);
 
-  const fullNegativePrompt = [result.negative_prompt, styleBase.negative]
-    .filter(Boolean)
-    .join(', ');
+  const fullNegativePrompt = mergePromptSegments([llmNegativePrompt, styleBase.negative]);
+  const displayPromptZh = result.display_prompt_zh || buildChineseDisplayPrompt(shotForPrompt);
+  const displayNegativePromptZh =
+    result.display_negative_prompt_zh || buildChineseDisplayNegativePrompt(style);
 
   return {
     shotId: shot.id,
+    image_prompt_en: enhancedPrompt,
+    negative_prompt_en: fullNegativePrompt,
+    display_prompt_zh: displayPromptZh,
+    display_negative_prompt_zh: displayNegativePromptZh,
     image_prompt: enhancedPrompt,
     negative_prompt: fullNegativePrompt,
     style_notes: result.style_notes || '',
@@ -238,13 +313,16 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
 // 降级方案：基于分镜信息直接组装基础Prompt
 function fallbackPrompt(shot, style) {
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const cameraType = shot.camera_type || shot.cameraType || null;
-  const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
+  const fallbackExecutionPrompt = buildEnglishFallbackExecutionPrompt(shot, styleBase);
+  const displayPromptZh = buildChineseDisplayPrompt(shot);
+  const displayNegativePromptZh = buildChineseDisplayNegativePrompt(style);
   return {
     shotId: shot.id,
-    image_prompt: `${shot.scene}, ${shot.action}, ${buildContinuityTokens(shot)}, ${cameraKw}, ${styleBase.quality}`
-      .replace(/,\s*,/g, ', ')
-      .replace(/,\s*$/, ''),
+    image_prompt_en: fallbackExecutionPrompt,
+    negative_prompt_en: styleBase.negative,
+    display_prompt_zh: displayPromptZh,
+    display_negative_prompt_zh: displayNegativePromptZh,
+    image_prompt: fallbackExecutionPrompt,
     negative_prompt: styleBase.negative,
     style_notes: '降级生成（LLM调用失败）',
   };

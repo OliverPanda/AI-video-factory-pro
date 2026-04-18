@@ -153,7 +153,7 @@ flowchart LR
 | Director | `scriptFilePath` 或 `projectId/scriptId/episodeId` | `outputPath`、`RunJob`、`AgentTaskRun`、`qa-overview` | `temp/<jobId>/state.json`、`temp/projects/.../run-jobs/`、`runs/<runId>/` | 全局编排 |
 | Script Parser | `scriptText` | `title / characters / shots` | `01-script-parser/` | Character Registry、TTS、Video Composer |
 | Character Registry | `characters + scriptContext + style` | `characterRegistry` | `02-character-registry/` | Prompt Engineer、Consistency Checker、TTS |
-| Prompt Engineer | `shots + characterRegistry + style` | `prompts` | `03-prompt-engineer/` | Image Generator |
+| Prompt Engineer | `shots + characterRegistry + style` | `prompts（execution + display 双语字段）` | `03-prompt-engineer/` | Image Generator |
 | Image Generator | `prompts + style + provider route` | `imageResults / KeyframeAsset refs` | `04-image-generator/` | Consistency Checker、Continuity Checker、Lip-sync、Video Composer |
 | Consistency Checker | `characterRegistry + imageResults` | `reports + needsRegeneration` | `05-consistency-checker/` | Director |
 | Continuity Checker | `shots + imageResults` | `reports + flaggedTransitions` | `06-continuity-checker/` | Director、Video Composer |
@@ -324,6 +324,12 @@ Director 会在 run 根目录再汇总一层：
 
 - `prompts`
 - `promptSources`
+
+`prompts` 字段语义（双语）：
+
+- `image_prompt_en` / `negative_prompt_en`：模型/provider 执行字段（下游调用优先使用）。
+- `display_prompt_zh` / `display_negative_prompt_zh`：UI、QA、审计成果物展示字段。
+- `image_prompt` / `negative_prompt`：迁移期兼容别名，当前等同于 English execution 字段。
 
 关键落盘：
 

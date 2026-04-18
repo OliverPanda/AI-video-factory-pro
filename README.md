@@ -74,6 +74,12 @@ project
 18. `Video Composer`
    负责按 `sequence > video > bridge > lipsync > animation > image` 的优先级装配最终成片。
 
+Prompt Engineer 的双语字段约定（用于 UI 展示与模型执行解耦）：
+
+- `image_prompt_en` / `negative_prompt_en`：模型与 provider 执行字段（Image/Video 调用应优先使用它们）。
+- `display_prompt_zh` / `display_negative_prompt_zh`：UI、QA、成果物浏览字段。
+- `image_prompt` / `negative_prompt`：迁移期兼容别名，当前与对应的 English execution 字段保持一致。
+
 更细的职责说明见 [docs/agents/README.md](docs/agents/README.md)。
 
 当前身份绑定总规则：
