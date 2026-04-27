@@ -390,6 +390,90 @@ test('legacy runPipeline passes inputFormat to parseScript and compatibility sta
   });
 });
 
+test('legacy runPipeline reparses when inputFormat changes for the same script file', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const legacyRoot = path.join(tempRoot, 'legacy-job');
+    const scriptFilePath = path.join(tempRoot, 'same-script.txt');
+    const stateByFile = new Map();
+    const projects = new Map();
+    const scripts = new Map();
+    const episodes = new Map();
+    const receivedFormats = [];
+
+    fs.writeFileSync(scriptFilePath, '第1集《开端》\n【画面1】\n全景。', 'utf-8');
+
+    const director = createDirector({
+      initDirs: () => createDirs(legacyRoot),
+      readTextFile: () => fs.readFileSync(scriptFilePath, 'utf-8'),
+      loadJSON: (filePath) => stateByFile.get(filePath) ?? null,
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
+      parseScript: async (_scriptText, deps) => {
+        receivedFormats.push(deps.inputFormat);
+        return {
+          title: deps.inputFormat === 'raw-novel' ? '小说解析' : '专业剧本解析',
+          totalDuration: 3,
+          characters: [],
+          shots: [
+            {
+              id: 'shot_001',
+              scene: deps.inputFormat,
+              characters: [],
+              action: '全景。',
+              dialogue: '',
+              speaker: '',
+              duration: 3,
+            },
+          ],
+        };
+      },
+      loadProject: (projectId) => projects.get(projectId) ?? null,
+      saveProject: (project) => projects.set(project.id, structuredClone(project)),
+      loadScript: (projectId, scriptId) => scripts.get(`${projectId}:${scriptId}`) ?? null,
+      saveScript: (projectId, script) =>
+        scripts.set(`${projectId}:${script.id}`, structuredClone({ ...script, projectId })),
+      loadEpisode: (projectId, scriptId, episodeId) =>
+        episodes.get(`${projectId}:${scriptId}:${episodeId}`) ?? null,
+      saveEpisode: (projectId, scriptId, episode) =>
+        episodes.set(
+          `${projectId}:${scriptId}:${episode.id}`,
+          structuredClone({ ...episode, projectId, scriptId })
+        ),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      buildCharacterRegistry: async () => [],
+      generateCharacterRefSheets: async () => [],
+      generateAllPrompts: async () => [],
+      generateAllImages: async () => [],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [],
+      planDirectorPacks: async () => [],
+      planMotion: async () => [],
+      planPerformance: async () => [],
+      routeVideoShots: async () => [],
+      runPreflightQa: async () => ({ reviewedPackages: [], report: { entries: [] } }),
+    });
+
+    await director.runPipeline(scriptFilePath, {
+      inputFormat: 'professional-script',
+      stopBeforeVideo: true,
+      storeOptions: { baseTempDir: tempRoot },
+    });
+    await director.runPipeline(scriptFilePath, {
+      inputFormat: 'raw-novel',
+      stopBeforeVideo: true,
+      storeOptions: { baseTempDir: tempRoot },
+    });
+
+    assert.deepEqual(receivedFormats, ['professional-script', 'raw-novel']);
+    const stateEntry = [...stateByFile.entries()].find(([filePath]) => filePath.endsWith('state.json'));
+    assert.ok(stateEntry, 'expected a compatibility state file to be written');
+    assert.equal(stateEntry[1].compatibility.inputFormat, 'raw-novel');
+    assert.equal(stateEntry[1].scriptData.title, '小说解析');
+  });
+});
+
 test('runPipeline compatibility mode invalidates cached script data when file content changes', async () => {
   await withTempRoot(async (tempRoot) => {
     const scriptFilePath = path.join(tempRoot, 'legacy-script.txt');
