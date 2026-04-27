@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON as defaultChatJSON } from '../llm/client.js';
+import { parseProfessionalScript } from './professionalScriptParser.js';
 import {
   SCRIPT_DECOMPOSITION_SYSTEM,
   SCRIPT_DECOMPOSITION_USER,
@@ -14,6 +15,28 @@ import {
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
+
+export const INPUT_FORMATS = Object.freeze({
+  PROFESSIONAL_SCRIPT: 'professional-script',
+  RAW_NOVEL: 'raw-novel',
+  AUTO: 'auto',
+});
+
+export function resolveInputFormat(inputFormat = INPUT_FORMATS.PROFESSIONAL_SCRIPT) {
+  const normalized = typeof inputFormat === 'string' && inputFormat.trim()
+    ? inputFormat.trim()
+    : INPUT_FORMATS.PROFESSIONAL_SCRIPT;
+  if (!Object.values(INPUT_FORMATS).includes(normalized)) {
+    throw new Error(`未知 inputFormat：${normalized}`);
+  }
+  return normalized;
+}
+
+export function detectInputFormat(scriptText) {
+  return /【画面\s*\d+】/.test(scriptText) || /^第\s*\d+\s*集/m.test(scriptText)
+    ? INPUT_FORMATS.PROFESSIONAL_SCRIPT
+    : INPUT_FORMATS.RAW_NOVEL;
+}
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -167,7 +190,7 @@ export async function parseEpisodeToShots(episodeTextOrSummary, deps = {}) {
  * @param {{ chatJSON?: Function }} deps
  * @returns {Promise<{title, totalDuration, characters, shots}>}
  */
-export async function parseScript(scriptText, deps = {}) {
+export async function parseRawNovelScript(scriptText, deps = {}) {
   logger.info('ScriptParser', '开始解析剧本...');
 
   const episodeData = await decomposeScriptToEpisodes(scriptText, deps);
@@ -189,6 +212,32 @@ export async function parseScript(scriptText, deps = {}) {
   writeParserArtifacts(scriptText, result, deps.artifactContext);
   logger.info('ScriptParser', `解析完成：${result.shots.length} 个分镜，共 ${result.characters.length} 个角色`);
   return result;
+}
+
+/**
+ * 兼容旧接口：返回扁平 shots
+ * @param {string} scriptText - 原始剧本文本
+ * @param {{ chatJSON?: Function, inputFormat?: string }} deps
+ * @returns {Promise<{title, totalDuration, characters, shots}>}
+ */
+export async function parseScript(scriptText, deps = {}) {
+  const requestedFormat = resolveInputFormat(deps.inputFormat);
+  const inputFormat =
+    requestedFormat === INPUT_FORMATS.AUTO ? detectInputFormat(scriptText) : requestedFormat;
+
+  if (inputFormat === INPUT_FORMATS.PROFESSIONAL_SCRIPT) {
+    logger.info('ScriptParser', '开始解析专业剧本...');
+    const result = parseProfessionalScript(scriptText, deps);
+    validateLegacyScriptData(result);
+    writeParserArtifacts(scriptText, result, deps.artifactContext);
+    logger.info('ScriptParser', `专业剧本解析完成：${result.shots.length} 个分镜，共 ${result.characters.length} 个角色`);
+    return result;
+  }
+
+  return parseRawNovelScript(scriptText, {
+    ...deps,
+    resolvedInputFormat: INPUT_FORMATS.RAW_NOVEL,
+  });
 }
 
 /**

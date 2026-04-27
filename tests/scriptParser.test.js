@@ -46,7 +46,7 @@ test('parseScript compatibility bridge flattens episode shots into legacy shape'
     };
   };
 
-  const result = await parseScript('测试剧本', { chatJSON: fakeChatJSON });
+  const result = await parseScript('测试剧本', { inputFormat: 'raw-novel', chatJSON: fakeChatJSON });
 
   assert.equal(result.title, '宫墙疑云');
   assert.equal(result.totalDuration, 12);
@@ -59,6 +59,65 @@ test('parseScript compatibility bridge flattens episode shots into legacy shape'
   assert.equal(result.shots[0].speaker, '');
   assert.equal(result.shots[1].id, 'custom_shot');
   assert.equal(result.shots[2].id, 'shot_003');
+});
+
+test('parseScript defaults to professional-script and does not call chatJSON', async () => {
+  const professionalText = `
+《通用剧本》
+第1集《开端》
+【场景】 控制室·夜
+【画面1】
+全景。警报灯亮起。
+SFX：警报声。
+【画面2】
+林澈：开始。
+`;
+
+  let called = false;
+  const result = await parseScript(professionalText, {
+    chatJSON: async () => {
+      called = true;
+      throw new Error('should not call llm');
+    },
+  });
+
+  assert.equal(called, false);
+  assert.equal(result.title, '通用剧本');
+  assert.equal(result.shots.length, 2);
+});
+
+test('parseScript raw-novel uses existing llm decomposition flow', async () => {
+  let callCount = 0;
+  const result = await parseScript('散文式文本', {
+    inputFormat: 'raw-novel',
+    chatJSON: async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          title: '旧流程',
+          totalDuration: 3,
+          characters: [],
+          episodes: [{ episodeNo: 1, title: '第一集', summary: '概述' }],
+        };
+      }
+      return { shots: [{ scene: '街角', action: '抬头' }] };
+    },
+  });
+
+  assert.equal(callCount, 2);
+  assert.equal(result.title, '旧流程');
+  assert.equal(result.shots.length, 1);
+});
+
+test('parseScript auto detects professional picture markers', async () => {
+  const result = await parseScript('第1集《开端》\n【场景】 房间\n【画面1】\n特写。门开了。', {
+    inputFormat: 'auto',
+    chatJSON: async () => {
+      throw new Error('should not call llm for professional markers');
+    },
+  });
+
+  assert.equal(result.shots.length, 1);
 });
 
 test('parseEpisodeToShots normalizes defaults and generates sequential ids', async () => {
