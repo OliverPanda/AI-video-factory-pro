@@ -236,6 +236,7 @@ export async function parseRawNovelScript(scriptText, deps = {}) {
     parserMetadata: {
       inputFormat: INPUT_FORMATS.RAW_NOVEL,
       parserMode: 'llm-raw-novel',
+      ...(deps.detectedFormat ? { detectedFormat: deps.detectedFormat } : {}),
       fallbackUsed: false,
       llmRewriteUsed: true,
       metrics: {
@@ -270,6 +271,12 @@ export async function parseScript(scriptText, deps = {}) {
   if (inputFormat === INPUT_FORMATS.PROFESSIONAL_SCRIPT) {
     logger.info('ScriptParser', '开始解析专业剧本...');
     const result = parseProfessionalScript(scriptText, deps);
+    if (requestedFormat === INPUT_FORMATS.AUTO) {
+      result.parserMetadata = {
+        ...(result.parserMetadata || {}),
+        detectedFormat: inputFormat,
+      };
+    }
     validateLegacyScriptData(result);
     writeParserArtifacts(scriptText, result, deps.artifactContext);
     logger.info('ScriptParser', `专业剧本解析完成：${result.shots.length} 个分镜，共 ${result.characters.length} 个角色`);
@@ -279,6 +286,7 @@ export async function parseScript(scriptText, deps = {}) {
   return parseRawNovelScript(scriptText, {
     ...deps,
     resolvedInputFormat: INPUT_FORMATS.RAW_NOVEL,
+    detectedFormat: requestedFormat === INPUT_FORMATS.AUTO ? inputFormat : undefined,
   });
 }
 

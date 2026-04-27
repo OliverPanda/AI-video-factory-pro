@@ -193,6 +193,87 @@ test('professional script parser artifacts record structure metrics', async (t) 
   }, 'professional-script-parser');
 });
 
+test('auto professional script parser artifact records detected format', async (t) => {
+  await withManagedTempRoot(t, 'aivf-auto-professional-script-artifacts', async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_auto_professional',
+      projectName: '自动专业剧本',
+      scriptId: 'script_auto_professional',
+      scriptTitle: '自动专业剧本',
+      episodeId: 'episode_001',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: 'run_auto_professional_parser',
+      startedAt: '2026-04-27T10:00:00.000Z',
+    });
+
+    await parseScript(
+      [
+        '第1集《开场》',
+        '【场景】 天台·夜',
+        '【画面1】',
+        '远景。城市灯光闪烁。',
+      ].join('\n'),
+      {
+        inputFormat: 'auto',
+        artifactContext: ctx.agents.scriptParser,
+      }
+    );
+
+    const parserConfig = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.scriptParser.inputsDir, 'parser-config.json'), 'utf-8')
+    );
+    assert.equal(parserConfig.inputFormat, 'professional-script');
+    assert.equal(parserConfig.detectedFormat, 'professional-script');
+  }, 'auto-professional-script-parser');
+});
+
+test('auto raw novel parser artifact records detected format', async (t) => {
+  await withManagedTempRoot(t, 'aivf-auto-raw-novel-artifacts', async (tempRoot) => {
+    let parserCallCount = 0;
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_auto_raw',
+      projectName: '自动原始小说',
+      scriptId: 'script_auto_raw',
+      scriptTitle: '自动原始小说',
+      episodeId: 'episode_001',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: 'run_auto_raw_parser',
+      startedAt: '2026-04-27T10:30:00.000Z',
+    });
+
+    await parseScript('第1集\n沈砚走进雪夜，想起旧约。', {
+      inputFormat: 'auto',
+      artifactContext: ctx.agents.scriptParser,
+      chatJSON: async () => {
+        parserCallCount += 1;
+        if (parserCallCount === 1) {
+          return {
+            title: '雪夜旧约',
+            totalDuration: 3,
+            characters: [],
+            episodes: [{ episodeNo: 1, title: '第一集', summary: '沈砚走进雪夜。' }],
+          };
+        }
+
+        return {
+          shots: [{ scene: '雪夜', characters: [], action: '沈砚走进雪夜', duration: 3 }],
+        };
+      },
+    });
+
+    const parserConfig = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.scriptParser.inputsDir, 'parser-config.json'), 'utf-8')
+    );
+    assert.equal(parserConfig.inputFormat, 'raw-novel');
+    assert.equal(parserConfig.detectedFormat, 'raw-novel');
+    assert.equal(parserCallCount, 2);
+  }, 'auto-raw-novel-parser');
+});
+
 test('legacy runPipeline keeps parser artifacts in the final parsed-title run package', async (t) => {
   await withManagedTempRoot(t, 'aivf-script-parser-legacy-run', async (tempRoot) => {
     const legacyRoot = path.join(tempRoot, 'legacy-job');
