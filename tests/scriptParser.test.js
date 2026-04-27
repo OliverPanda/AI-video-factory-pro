@@ -120,6 +120,29 @@ test('parseScript auto detects professional picture markers', async () => {
   assert.equal(result.shots.length, 1);
 });
 
+test('parseScript auto keeps episode-heading prose in raw-novel flow', async () => {
+  let callCount = 0;
+  const result = await parseScript('第1集\n沈砚走进雪夜，想起旧约。', {
+    inputFormat: 'auto',
+    chatJSON: async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          title: '雪夜旧约',
+          totalDuration: 4,
+          characters: [],
+          episodes: [{ episodeNo: 1, title: '第1集', summary: '沈砚走进雪夜' }],
+        };
+      }
+      return { shots: [{ scene: '雪夜', action: '走进旧约回忆' }] };
+    },
+  });
+
+  assert.equal(callCount, 2);
+  assert.equal(result.title, '雪夜旧约');
+  assert.equal(result.shots.length, 1);
+});
+
 test('parseEpisodeToShots normalizes defaults and generates sequential ids', async () => {
   const result = await parseEpisodeToShots(
     { summary: '测试分集' },

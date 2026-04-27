@@ -33,7 +33,7 @@ export function resolveInputFormat(inputFormat = INPUT_FORMATS.PROFESSIONAL_SCRI
 }
 
 export function detectInputFormat(scriptText) {
-  return /【画面\s*\d+】/.test(scriptText) || /^第\s*\d+\s*集/m.test(scriptText)
+  return /【画面\s*\d+】/.test(scriptText)
     ? INPUT_FORMATS.PROFESSIONAL_SCRIPT
     : INPUT_FORMATS.RAW_NOVEL;
 }
