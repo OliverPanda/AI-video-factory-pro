@@ -60,7 +60,19 @@ function buildShotsTable(shots) {
 
 function buildParserMetrics(result) {
   const shots = Array.isArray(result?.shots) ? result.shots : [];
+  const metadata = result?.parserMetadata || {};
+  const metadataMetrics = metadata.metrics || {};
   return {
+    input_format: metadata.inputFormat || 'raw-novel',
+    parser_mode: metadata.parserMode || 'llm-raw-novel',
+    episode_count: metadataMetrics.episode_count ?? 0,
+    picture_block_count: metadataMetrics.picture_block_count ?? 0,
+    preserved_picture_count: metadataMetrics.preserved_picture_count ?? 0,
+    sfx_count: metadataMetrics.sfx_count ?? 0,
+    system_voice_count: metadataMetrics.system_voice_count ?? 0,
+    subtitle_count: metadataMetrics.subtitle_count ?? 0,
+    black_screen_count: metadataMetrics.black_screen_count ?? 0,
+    llm_rewrite_used: metadata.llmRewriteUsed ?? true,
     shot_count: shots.length,
     dialogue_shot_count: shots.filter((shot) => shot.dialogue).length,
     silent_shot_count: shots.filter((shot) => !shot.dialogue).length,
@@ -79,23 +91,38 @@ function writeParserArtifacts(scriptText, result, artifactContext) {
   }
 
   writeTextFile(path.join(artifactContext.inputsDir, 'source-script.txt'), scriptText);
+  const metadata = result?.parserMetadata || {};
+  const inputFormat = metadata.inputFormat || 'raw-novel';
   saveJSON(path.join(artifactContext.inputsDir, 'parser-config.json'), {
-    mode: 'legacy-flat-parse',
-    decompositionPrompt: 'script_decomposition',
-    storyboardPrompt: 'episode_storyboard',
+    inputFormat,
+    parserMode: metadata.parserMode || 'llm-raw-novel',
+    detectedFormat: metadata.detectedFormat || null,
+    fallbackUsed: metadata.fallbackUsed === true,
+    decompositionPrompt: inputFormat === INPUT_FORMATS.PROFESSIONAL_SCRIPT ? null : 'script_decomposition',
+    storyboardPrompt: inputFormat === INPUT_FORMATS.PROFESSIONAL_SCRIPT ? null : 'episode_storyboard',
   });
   saveJSON(path.join(artifactContext.outputsDir, 'shots.flat.json'), result.shots);
   writeTextFile(path.join(artifactContext.outputsDir, 'shots.table.md'), buildShotsTable(result.shots));
   saveJSON(path.join(artifactContext.outputsDir, 'characters.extracted.json'), result.characters);
+  if (result.professionalStructure) {
+    saveJSON(
+      path.join(artifactContext.outputsDir, 'professional-script-structure.json'),
+      result.professionalStructure
+    );
+  }
   saveJSON(path.join(artifactContext.metricsDir, 'parser-metrics.json'), buildParserMetrics(result));
+  const outputFiles = [
+    'characters.extracted.json',
+    'shots.flat.json',
+    'shots.table.md',
+    'parser-metrics.json',
+  ];
+  if (result.professionalStructure) {
+    outputFiles.push('professional-script-structure.json');
+  }
   saveJSON(artifactContext.manifestPath, {
     status: 'completed',
-    outputFiles: [
-      'characters.extracted.json',
-      'shots.flat.json',
-      'shots.table.md',
-      'parser-metrics.json',
-    ],
+    outputFiles,
     shotCount: result.shots.length,
     characterCount: result.characters.length,
   });
@@ -206,6 +233,21 @@ export async function parseRawNovelScript(scriptText, deps = {}) {
     totalDuration: episodeData.totalDuration || shots.reduce((sum, shot) => sum + shot.duration, 0),
     characters: episodeData.characters,
     shots,
+    parserMetadata: {
+      inputFormat: INPUT_FORMATS.RAW_NOVEL,
+      parserMode: 'llm-raw-novel',
+      fallbackUsed: false,
+      llmRewriteUsed: true,
+      metrics: {
+        episode_count: episodeData.episodes.length,
+        picture_block_count: 0,
+        preserved_picture_count: 0,
+        sfx_count: 0,
+        system_voice_count: 0,
+        subtitle_count: 0,
+        black_screen_count: 0,
+      },
+    },
   };
 
   validateLegacyScriptData(result);

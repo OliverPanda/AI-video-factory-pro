@@ -55,6 +55,7 @@ test('script parser writes source script shot table and parser metrics', async (
     });
 
     await parseScript('原始剧本文本', {
+      inputFormat: 'raw-novel',
       chatJSON: fakeChatJSON,
       artifactContext: ctx.agents.scriptParser,
     });
@@ -79,7 +80,10 @@ test('script parser writes source script shot table and parser metrics', async (
 
     const parserConfig = JSON.parse(fs.readFileSync(parserConfigPath, 'utf-8'));
     assert.deepEqual(parserConfig, {
-      mode: 'legacy-flat-parse',
+      inputFormat: 'raw-novel',
+      parserMode: 'llm-raw-novel',
+      detectedFormat: null,
+      fallbackUsed: false,
       decompositionPrompt: 'script_decomposition',
       storyboardPrompt: 'episode_storyboard',
     });
@@ -98,6 +102,16 @@ test('script parser writes source script shot table and parser metrics', async (
 
     const parserMetrics = JSON.parse(fs.readFileSync(metricsPath, 'utf-8'));
     assert.deepEqual(parserMetrics, {
+      input_format: 'raw-novel',
+      parser_mode: 'llm-raw-novel',
+      episode_count: 1,
+      picture_block_count: 0,
+      preserved_picture_count: 0,
+      sfx_count: 0,
+      system_voice_count: 0,
+      subtitle_count: 0,
+      black_screen_count: 0,
+      llm_rewrite_used: true,
       shot_count: 2,
       dialogue_shot_count: 1,
       silent_shot_count: 1,
@@ -124,6 +138,59 @@ test('script parser writes source script shot table and parser metrics', async (
 
     assert.equal(parserCallCount, 2);
   }, 'script-parser');
+});
+
+test('professional script parser artifacts record structure metrics', async (t) => {
+  await withManagedTempRoot(t, 'aivf-professional-script-artifacts', async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_professional',
+      projectName: '专业剧本',
+      scriptId: 'script_professional',
+      scriptTitle: '专业剧本',
+      episodeId: 'episode_001',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: 'run_professional_parser',
+      startedAt: '2026-04-27T09:00:00.000Z',
+    });
+
+    await parseScript(
+      [
+        '《通用短剧》',
+        '第1集《开场》',
+        '【场景】 天台·夜',
+        '【画面1】',
+        '远景。城市灯光闪烁。',
+        'SFX：风声。',
+        '【画面2】',
+        '黑屏。',
+        '字幕浮现：第1集·开场 完。',
+      ].join('\n'),
+      { artifactContext: ctx.agents.scriptParser }
+    );
+
+    const parserConfig = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.scriptParser.inputsDir, 'parser-config.json'), 'utf-8')
+    );
+    assert.equal(parserConfig.inputFormat, 'professional-script');
+    assert.equal(parserConfig.parserMode, 'deterministic-professional-script');
+
+    const metrics = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.scriptParser.metricsDir, 'parser-metrics.json'), 'utf-8')
+    );
+    assert.equal(metrics.picture_block_count, 2);
+    assert.equal(metrics.preserved_picture_count, 2);
+    assert.equal(metrics.sfx_count, 1);
+    assert.equal(metrics.subtitle_count, 1);
+    assert.equal(metrics.black_screen_count, 1);
+    assert.equal(metrics.llm_rewrite_used, false);
+
+    assert.equal(
+      fs.existsSync(path.join(ctx.agents.scriptParser.outputsDir, 'professional-script-structure.json')),
+      true
+    );
+  }, 'professional-script-parser');
 });
 
 test('legacy runPipeline keeps parser artifacts in the final parsed-title run package', async (t) => {
@@ -164,6 +231,7 @@ test('legacy runPipeline keeps parser artifacts in the final parsed-title run pa
       startedAt: '2026-04-01T09:00:00.000Z',
       storeOptions: { baseTempDir: tempRoot },
       parseScriptDeps: {
+        inputFormat: 'raw-novel',
         chatJSON: async () => {
           parserCallCount += 1;
           if (parserCallCount === 1) {
