@@ -96,20 +96,31 @@ function isCloseUpDialogueShot(shot) {
 
 function buildManualReviewPlan(shots, voiceResolution = []) {
   const dialogueShots = (shots || []).filter((shot) => Boolean(shot?.dialogue && shot.dialogue.trim() !== ''));
-  const speakerByShotId = new Map(
-    (voiceResolution || []).map((entry) => [entry.shotId, entry?.speakerName || ''])
-  );
+  const speakersByShotId = groupVoiceResolutionByShotId(voiceResolution);
 
   const speakerBuckets = new Map();
   for (const shot of dialogueShots) {
-    const speakerName = speakerByShotId.get(shot.id) || shot.speaker || '';
-    if (!speakerName) {
+    const speakerNames = Array.from(
+      new Set(
+        (speakersByShotId.get(shot.id) || [])
+          .map((entry) => entry?.speakerName || '')
+          .filter(Boolean)
+      )
+    );
+    if (speakerNames.length === 0 && shot.speaker) {
+      speakerNames.push(shot.speaker);
+    }
+    if (speakerNames.length === 0) {
       continue;
     }
 
-    const bucket = speakerBuckets.get(speakerName) || [];
-    bucket.push(shot.id);
-    speakerBuckets.set(speakerName, bucket);
+    for (const speakerName of speakerNames) {
+      const bucket = speakerBuckets.get(speakerName) || [];
+      if (!bucket.includes(shot.id)) {
+        bucket.push(shot.id);
+      }
+      speakerBuckets.set(speakerName, bucket);
+    }
   }
 
   const rankedSpeakers = Array.from(speakerBuckets.entries()).sort((left, right) => right[1].length - left[1].length);
@@ -136,6 +147,55 @@ function buildManualReviewPlan(shots, voiceResolution = []) {
       closeUpLipsyncShots,
     },
     recommendedShotIds,
+  };
+}
+
+function groupVoiceResolutionByShotId(voiceResolution = []) {
+  const grouped = new Map();
+  for (const entry of voiceResolution || []) {
+    if (!entry?.shotId) {
+      continue;
+    }
+
+    const entries = grouped.get(entry.shotId) || [];
+    entries.push(entry);
+    grouped.set(entry.shotId, entries);
+  }
+  return grouped;
+}
+
+function joinUniqueValues(values) {
+  return Array.from(new Set(values.filter(Boolean))).join(' / ');
+}
+
+function summarizeVoiceResolutionForShot(resolutions = []) {
+  if (resolutions.length === 0) {
+    return null;
+  }
+  if (resolutions.length === 1) {
+    return resolutions[0];
+  }
+
+  return {
+    shotId: resolutions[0].shotId,
+    hasDialogue: resolutions.some((entry) => entry.hasDialogue),
+    dialogue: resolutions.map((entry) => entry.dialogue || '').filter(Boolean).join('\n'),
+    speakerName: joinUniqueValues(resolutions.map((entry) => entry.speakerName || '')),
+    voiceSource: joinUniqueValues(resolutions.map((entry) => entry.voiceSource || '')),
+    ttsOptions: {
+      provider: joinUniqueValues(resolutions.map((entry) => entry.ttsOptions?.provider || '')),
+      voice: joinUniqueValues(resolutions.map((entry) => entry.ttsOptions?.voice || '')),
+    },
+    usedDefaultVoiceFallback: resolutions.some((entry) => entry.usedDefaultVoiceFallback),
+    segments: resolutions.map((entry) => ({
+      segmentId: entry.segmentId || null,
+      speakerName: entry.speakerName || '',
+      voiceSource: entry.voiceSource || '',
+      provider: entry.ttsOptions?.provider || '',
+      voice: entry.ttsOptions?.voice || '',
+      usedDefaultVoiceFallback: Boolean(entry.usedDefaultVoiceFallback),
+      dialogue: entry.dialogue || '',
+    })),
   };
 }
 
@@ -235,7 +295,7 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
   } = options;
 
   const audioResultByShotId = new Map((audioResults || []).map((entry) => [entry.shotId, entry]));
-  const voiceResolutionByShotId = new Map((voiceResolution || []).map((entry) => [entry.shotId, entry]));
+  const voiceResolutionsByShotId = groupVoiceResolutionByShotId(voiceResolution);
 
   const blockers = [];
   const warnings = [];
@@ -255,7 +315,8 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
 
     dialogueShotCount += 1;
     const audioResult = audioResultByShotId.get(shot.id) || null;
-    const resolution = voiceResolutionByShotId.get(shot.id) || null;
+    const segmentResolutions = voiceResolutionsByShotId.get(shot.id) || [];
+    const resolution = summarizeVoiceResolutionForShot(segmentResolutions);
     const budgetMs = getDialogueBudgetMs(shot);
     let audioDurationMs = null;
     let durationDeltaMs = null;
@@ -317,6 +378,7 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
       transcript,
       asrCharacterErrorRate,
       status: entryStatus,
+      ...(resolution?.segments ? { segments: resolution.segments } : {}),
     });
 
     asrEntries.push({
@@ -327,12 +389,14 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
       status: entryStatus,
     });
 
-    const speakerName = resolution?.speakerName || '';
-    const voiceFingerprint = getVoiceFingerprint(resolution);
-    if (speakerName && voiceFingerprint) {
-      const knownFingerprints = speakerVoiceFingerprints.get(speakerName) || new Set();
-      knownFingerprints.add(voiceFingerprint);
-      speakerVoiceFingerprints.set(speakerName, knownFingerprints);
+    for (const segmentResolution of segmentResolutions.length > 0 ? segmentResolutions : [resolution]) {
+      const speakerName = segmentResolution?.speakerName || '';
+      const voiceFingerprint = getVoiceFingerprint(segmentResolution);
+      if (speakerName && voiceFingerprint) {
+        const knownFingerprints = speakerVoiceFingerprints.get(speakerName) || new Set();
+        knownFingerprints.add(voiceFingerprint);
+        speakerVoiceFingerprints.set(speakerName, knownFingerprints);
+      }
     }
   }
 
@@ -376,6 +440,8 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
 }
 
 export const __testables = {
+  groupVoiceResolutionByShotId,
+  summarizeVoiceResolutionForShot,
   calculateCharacterErrorRate,
   normalizeForComparison,
   buildManualReviewPlan,

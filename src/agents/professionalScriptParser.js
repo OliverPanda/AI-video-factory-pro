@@ -7,6 +7,30 @@ const SUBTITLE_RE = /^字幕(?:浮现)?[:：]\s*(.+)$/;
 const SPEAKER_RE = /^([^：:（）()\s]{1,20})(?:[（(]([^）)]+)[）)])?[:：]\s*(.+)$/;
 const CAMERA_PREFIX_RE = /^(特写|近景|中景|全景|远景|俯拍|航拍|推镜|拉镜|摇镜|跟拍)[。\.、,，]?\s*/;
 const RESERVED_SPEAKERS = new Set(['系统音', '旁白', '字幕', 'SFX', '音效']);
+const NON_DIALOGUE_LABELS = new Set([
+  '屏幕',
+  '手机屏幕',
+  '电脑屏幕',
+  '电视',
+  '电视画面',
+  '公告牌',
+  '墙上字迹',
+  '墙面字迹',
+  '窗外',
+  '终端',
+  '界面',
+  'UI',
+  '画面',
+  '镜头',
+  '监控',
+  '监控画面',
+  '黑屏',
+  '字幕',
+  '标题',
+  '门外',
+  '门内',
+  '广播',
+]);
 
 function normalizeScriptText(scriptText) {
   return String(scriptText || '').replace(/\r\n?/g, '\n');
@@ -132,7 +156,12 @@ function parseSpeakerCue(line) {
   }
 
   const speaker = speakerMatch[1].trim();
-  if (speaker === 'SFX' || speaker === '音效' || speaker.startsWith('字幕')) {
+  if (
+    speaker === 'SFX' ||
+    speaker === '音效' ||
+    speaker.startsWith('字幕') ||
+    NON_DIALOGUE_LABELS.has(speaker)
+  ) {
     return null;
   }
 

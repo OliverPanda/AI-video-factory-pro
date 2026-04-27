@@ -106,6 +106,30 @@ test('parseProfessionalScript keeps compatibility dialogue tts-safe for multiple
   );
 });
 
+test('parseProfessionalScript keeps visual colon cues out of tts dialogue', () => {
+  const result = parseProfessionalScript(`
+第1集《倒计时》
+【场景】 控制室·夜
+
+【画面1】
+特写。林澈盯着终端。
+手机屏幕：倒计时归零。
+林澈：开始。
+`);
+  const shot = result.shots[0];
+
+  assert.equal(shot.dialogue, '开始。');
+  assert.equal(shot.speaker, '林澈');
+  assert.deepEqual(shot.audioCues, [
+    { type: 'dialogue', speaker: '林澈', performance: undefined, text: '开始。' },
+  ]);
+  assert.match(shot.action, /手机屏幕：倒计时归零。/);
+  assert.deepEqual(
+    result.characters.map((character) => character.name),
+    ['林澈']
+  );
+});
+
 test('parseProfessionalScript extracts generic character names from dialogue and action', () => {
   const result = parseProfessionalScript(GENERIC_SCRIPT);
 

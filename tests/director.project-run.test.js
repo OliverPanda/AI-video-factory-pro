@@ -569,6 +569,188 @@ test('legacy runPipeline reparses persisted records with mixed inputFormat metad
   });
 });
 
+test('legacy runPipeline reparses persisted records with missing inputFormat metadata', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const legacyRoot = path.join(tempRoot, 'legacy-job');
+    const scriptFilePath = path.join(tempRoot, 'missing-metadata.txt');
+    const stateByFile = new Map();
+    const projects = new Map();
+    const scripts = new Map();
+    const episodes = new Map();
+    let parseCalls = 0;
+
+    fs.writeFileSync(scriptFilePath, '第1集《开端》\n【画面1】\n全景。', 'utf-8');
+
+    const director = createDirector({
+      initDirs: () => createDirs(legacyRoot),
+      readTextFile: () => fs.readFileSync(scriptFilePath, 'utf-8'),
+      loadJSON: (filePath) => stateByFile.get(filePath) ?? null,
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
+      parseScript: async (_scriptText, deps) => {
+        parseCalls += 1;
+        return {
+          title: `重新解析:${deps.inputFormat}`,
+          totalDuration: 3,
+          characters: [],
+          shots: [
+            {
+              id: 'shot_001',
+              scene: 'fresh parse',
+              characters: [],
+              action: '全景。',
+              dialogue: '',
+              speaker: '',
+              duration: 3,
+            },
+          ],
+        };
+      },
+      loadProject: (projectId) => projects.get(projectId) ?? null,
+      saveProject: (project) => projects.set(project.id, structuredClone(project)),
+      loadScript: (projectId, scriptId) => scripts.get(`${projectId}:${scriptId}`) ?? null,
+      saveScript: (projectId, script) =>
+        scripts.set(`${projectId}:${script.id}`, structuredClone({ ...script, projectId })),
+      loadEpisode: (projectId, scriptId, episodeId) =>
+        episodes.get(`${projectId}:${scriptId}:${episodeId}`) ?? null,
+      saveEpisode: (projectId, scriptId, episode) =>
+        episodes.set(
+          `${projectId}:${scriptId}:${episode.id}`,
+          structuredClone({ ...episode, projectId, scriptId })
+        ),
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      buildCharacterRegistry: async () => [],
+      generateCharacterRefSheets: async () => [],
+      generateAllPrompts: async () => [],
+      generateAllImages: async () => [],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [],
+      planDirectorPacks: async () => [],
+      planMotion: async () => [],
+      planPerformance: async () => [],
+      routeVideoShots: async () => [],
+      runPreflightQa: async () => ({ reviewedPackages: [], report: { entries: [] } }),
+    });
+
+    const legacy = directorTestables.buildLegacyBridgeIdentity(scriptFilePath);
+    scripts.set(`${legacy.projectId}:${legacy.scriptId}`, {
+      id: legacy.scriptId,
+      projectId: legacy.projectId,
+      title: '旧缓存脚本',
+      sourceText: fs.readFileSync(scriptFilePath, 'utf-8'),
+      characters: [],
+    });
+    episodes.set(`${legacy.projectId}:${legacy.scriptId}:${legacy.episodeId}`, {
+      id: legacy.episodeId,
+      projectId: legacy.projectId,
+      scriptId: legacy.scriptId,
+      title: '旧缓存分集',
+      shots: [{ id: 'shot_cached', scene: 'cached stale parse', characters: [] }],
+    });
+
+    await director.runPipeline(scriptFilePath, {
+      inputFormat: 'professional-script',
+      stopBeforeVideo: true,
+      storeOptions: { baseTempDir: tempRoot },
+    });
+
+    assert.equal(parseCalls, 1);
+    const stateEntry = [...stateByFile.entries()].find(([filePath]) => filePath.endsWith('state.json'));
+    assert.ok(stateEntry, 'expected a compatibility state file to be written');
+    assert.equal(stateEntry[1].scriptData.title, '重新解析:professional-script');
+  });
+});
+
+test('legacy runPipeline clears compatibility state missing inputFormat before reuse', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const legacyRoot = path.join(tempRoot, 'legacy-job');
+    const scriptFilePath = path.join(tempRoot, 'old-state.txt');
+    const stateByFile = new Map();
+    let parseCalls = 0;
+
+    fs.writeFileSync(scriptFilePath, '第1集《开端》\n【画面1】\n全景。', 'utf-8');
+
+    const director = createDirector({
+      initDirs: () => createDirs(legacyRoot),
+      readTextFile: () => fs.readFileSync(scriptFilePath, 'utf-8'),
+      loadJSON: (filePath) => {
+        if (stateByFile.has(filePath)) {
+          return stateByFile.get(filePath);
+        }
+        if (filePath.endsWith('state.json')) {
+          return {
+            compatibility: {
+              mode: 'legacy-script-file',
+              scriptFilePath,
+            },
+            scriptData: {
+              title: '旧 state 脚本',
+              characters: [],
+              shots: [{ id: 'shot_cached', scene: 'cached stale parse', characters: [] }],
+            },
+          };
+        }
+        return null;
+      },
+      saveJSON: (filePath, data) => stateByFile.set(filePath, structuredClone(data)),
+      parseScript: async (_scriptText, deps) => {
+        parseCalls += 1;
+        return {
+          title: `重新解析:${deps.inputFormat}`,
+          totalDuration: 3,
+          characters: [],
+          shots: [
+            {
+              id: 'shot_001',
+              scene: 'fresh parse',
+              characters: [],
+              action: '全景。',
+              dialogue: '',
+              speaker: '',
+              duration: 3,
+            },
+          ],
+        };
+      },
+      loadProject: () => null,
+      saveProject: () => {},
+      loadScript: () => null,
+      saveScript: () => {},
+      loadEpisode: () => null,
+      saveEpisode: () => {},
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      buildCharacterRegistry: async () => [],
+      generateCharacterRefSheets: async () => [],
+      generateAllPrompts: async () => [],
+      generateAllImages: async () => [],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [],
+      planDirectorPacks: async () => [],
+      planMotion: async () => [],
+      planPerformance: async () => [],
+      routeVideoShots: async () => [],
+      runPreflightQa: async () => ({ reviewedPackages: [], report: { entries: [] } }),
+    });
+
+    await director.runPipeline(scriptFilePath, {
+      inputFormat: 'professional-script',
+      stopBeforeVideo: true,
+      storeOptions: { baseTempDir: tempRoot },
+    });
+
+    assert.equal(parseCalls, 1);
+    const stateEntry = [...stateByFile.entries()].find(([filePath]) => filePath.endsWith('state.json'));
+    assert.ok(stateEntry, 'expected a compatibility state file to be written');
+    assert.equal(stateEntry[1].scriptData.title, '重新解析:professional-script');
+    assert.equal(stateEntry[1].compatibility.inputFormat, 'professional-script');
+  });
+});
+
 test('runPipeline compatibility mode invalidates cached script data when file content changes', async () => {
   await withTempRoot(async (tempRoot) => {
     const scriptFilePath = path.join(tempRoot, 'legacy-script.txt');

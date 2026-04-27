@@ -110,7 +110,7 @@ function canReuseExistingParsedLegacyData(existingScript, existingEpisode, selec
     );
   }
 
-  return selectedInputFormat === LEGACY_DEFAULT_INPUT_FORMAT;
+  return false;
 }
 
 function initializePhase4SequenceState(state = {}) {
@@ -2551,8 +2551,7 @@ export function createDirector(overrides = {}) {
           state.compatibility.inputFormat !== selectedInputFormat;
         const missingInputFormatMetadataNeedsReparse =
           state.compatibility &&
-          !hasCompatibilityInputFormat &&
-          selectedInputFormat !== LEGACY_DEFAULT_INPUT_FORMAT;
+          !hasCompatibilityInputFormat;
 
         if (contentChanged || inputFormatChanged || missingInputFormatMetadataNeedsReparse) {
           for (const key of Object.keys(state)) {

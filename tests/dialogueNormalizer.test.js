@@ -81,3 +81,37 @@ test('dialogue normalizer splits long dialogue into sentence-level segments and 
   assert.equal(normalized[1].dialogueDurationMs, null);
   assert.deepEqual(normalized[1].dialogueSegments, []);
 });
+
+test('dialogue normalizer preserves speaker metadata from professional audio cues', () => {
+  const normalized = normalizeDialogueShots([
+    {
+      id: 'shot_multi_speaker',
+      dialogue: '  你好。 \n 我一直在等你。 ',
+      speaker: '沈砚',
+      audioCues: [
+        { type: 'dialogue', speaker: '沈砚', performance: '低声', text: '  你好。 ' },
+        { type: 'dialogue', speaker: '洛迟', text: ' 我一直在等你。 ' },
+      ],
+    },
+  ]);
+
+  assert.equal(normalized[0].dialogue, '你好。\n我一直在等你。');
+  assert.deepEqual(normalized[0].dialogueSegments, [
+    {
+      id: 'shot_multi_speaker_dialogue_01',
+      speaker: '沈砚',
+      performance: '低声',
+      text: '你好。',
+      dialogueDurationMs: normalized[0].dialogueSegments[0].dialogueDurationMs,
+    },
+    {
+      id: 'shot_multi_speaker_dialogue_02',
+      speaker: '洛迟',
+      performance: undefined,
+      text: '我一直在等你。',
+      dialogueDurationMs: normalized[0].dialogueSegments[1].dialogueDurationMs,
+    },
+  ]);
+  assert.equal(normalized[0].dialogueSegments[0].dialogueDurationMs > 0, true);
+  assert.equal(normalized[0].dialogueSegments[1].dialogueDurationMs > 0, true);
+});

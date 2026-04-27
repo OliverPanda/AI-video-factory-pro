@@ -193,6 +193,68 @@ test('TTS agent forwards fish-speech-specific reference fields from voice cast',
   assert.equal(calls[0].options.referenceText, '你好，我是 Alice。');
 });
 
+test('TTS agent synthesizes professional dialogue segments with per-speaker voices', async (t) => {
+  const audioDir = makeTempDir(t);
+  const calls = [];
+  const combineCalls = [];
+  const shots = [
+    {
+      id: 'shot_multi',
+      dialogue: '你好。\n我一直在等你。',
+      speaker: 'Alice',
+      characters: ['Alice', 'Bob'],
+      dialogueSegments: [
+        { id: 'shot_multi_dialogue_01', speaker: 'Alice', text: '你好。' },
+        { id: 'shot_multi_dialogue_02', speaker: 'Bob', text: '我一直在等你。' },
+      ],
+    },
+  ];
+  const characterRegistry = [
+    { name: 'Alice', gender: 'female', voicePresetId: 'preset-alice' },
+    { name: 'Bob', gender: 'male', voicePresetId: 'preset-bob' },
+  ];
+
+  const audioResults = await generateAllAudio(shots, characterRegistry, audioDir, {
+    projectId: 'project-123',
+    ttsProvider: 'minimax',
+    voicePresetLoader: async (voicePresetId) => ({
+      voice: voicePresetId === 'preset-alice' ? 'alice-voice' : 'bob-voice',
+    }),
+    textToSpeech: async (text, outputPath, options) => {
+      calls.push({ text, outputPath, options });
+      return outputPath;
+    },
+    combineAudioSegments: async (segmentPaths, outputPath, context) => {
+      combineCalls.push({ segmentPaths, outputPath, context });
+      return outputPath;
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(
+    calls.map((call) => [call.text, call.options.gender, call.options.voice]),
+    [
+      ['你好。', 'female', 'alice-voice'],
+      ['我一直在等你。', 'male', 'bob-voice'],
+    ]
+  );
+  assert.equal(combineCalls.length, 1);
+  assert.deepEqual(combineCalls[0].segmentPaths, [
+    path.join(audioDir, 'shot_multi_dialogue_01.mp3'),
+    path.join(audioDir, 'shot_multi_dialogue_02.mp3'),
+  ]);
+  assert.equal(audioResults[0].audioPath, path.join(audioDir, 'shot_multi.mp3'));
+  assert.equal(audioResults[0].audioSegments.length, 2);
+  assert.equal(audioResults.voiceResolution.length, 2);
+  assert.deepEqual(
+    audioResults.voiceResolution.map((entry) => [entry.segmentId, entry.speakerName, entry.dialogue]),
+    [
+      ['shot_multi_dialogue_01', 'Alice', '你好。'],
+      ['shot_multi_dialogue_02', 'Bob', '我一直在等你。'],
+    ]
+  );
+});
+
 test('TTS agent falls back to gender defaults when voicePresetId is missing', async (t) => {
   const audioDir = makeTempDir(t);
   const calls = [];

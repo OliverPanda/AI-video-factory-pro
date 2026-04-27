@@ -88,6 +88,59 @@ test('tts QA returns warn when fallback voices are used but delivery is still co
   }, 'tts-qa');
 });
 
+test('tts QA evaluates every voice segment for multi-speaker shots', async (t) => {
+  await withManagedTempRoot(t, 'aivf-tts-qa', async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '验收项目',
+      scriptId: 'script_1',
+      scriptTitle: '第一卷',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: 'run_tts_qa_segments',
+      startedAt: '2026-04-03T12:00:00.000Z',
+    });
+
+    const result = await runTtsQa(
+      [{ id: 'shot_multi', dialogue: '你好。\n我一直在等你。', duration: 4 }],
+      [{ shotId: 'shot_multi', audioPath: '/tmp/shot_multi.mp3', hasDialogue: true }],
+      [
+        {
+          shotId: 'shot_multi',
+          segmentId: 'shot_multi_dialogue_01',
+          hasDialogue: true,
+          usedDefaultVoiceFallback: false,
+          speakerName: '沈清',
+          voiceSource: 'voice_cast',
+          ttsOptions: { provider: 'minimax', voice: 'shen-voice' },
+        },
+        {
+          shotId: 'shot_multi',
+          segmentId: 'shot_multi_dialogue_02',
+          hasDialogue: true,
+          usedDefaultVoiceFallback: true,
+          speakerName: '洛迟',
+          voiceSource: 'gender_fallback',
+          ttsOptions: { provider: 'minimax' },
+        },
+      ],
+      {
+        artifactContext: ctx.agents.ttsQaAgent,
+        getAudioDurationMs: async () => 4000,
+      }
+    );
+
+    assert.equal(result.status, 'warn');
+    assert.equal(result.fallbackCount, 1);
+    assert.match(result.warnings.join('\n'), /shot_multi.*fallback voice/);
+    assert.equal(result.entries[0].speakerName, '沈清 / 洛迟');
+    assert.equal(result.entries[0].segments.length, 2);
+    assert.deepEqual(result.manualReviewPlan.recommendedShotIds, ['shot_multi']);
+  }, 'tts-qa');
+});
+
 test('tts QA returns block when a dialogue shot is missing audio', async (t) => {
   await withManagedTempRoot(t, 'aivf-tts-qa', async (tempRoot) => {
     const ctx = createRunArtifactContext({

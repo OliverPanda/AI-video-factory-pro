@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
 import { textToSpeech } from '../apis/ttsApi.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
@@ -39,6 +40,87 @@ function findVoiceCastEntry(speaker, voiceCast = []) {
   ) || null;
 }
 
+function normalizeTtsDialogueSegments(shot) {
+  if (Array.isArray(shot?.dialogueSegments) && shot.dialogueSegments.length > 0) {
+    return shot.dialogueSegments
+      .map((segment, index) => {
+        if (typeof segment === 'string') {
+          return {
+            id: `${shot.id || 'shot'}_dialogue_${String(index + 1).padStart(2, '0')}`,
+            speaker: shot?.speaker || '',
+            text: segment.trim(),
+          };
+        }
+
+        return {
+          id: segment?.id || `${shot.id || 'shot'}_dialogue_${String(index + 1).padStart(2, '0')}`,
+          speaker: segment?.speaker || shot?.speaker || '',
+          performance: segment?.performance,
+          text: String(segment?.text || '').trim(),
+        };
+      })
+      .filter((segment) => segment.text);
+  }
+
+  const dialogueCues = Array.isArray(shot?.audioCues)
+    ? shot.audioCues.filter((cue) => cue?.type === 'dialogue' && cue?.text)
+    : [];
+  if (dialogueCues.length > 0) {
+    return dialogueCues.map((cue, index) => ({
+      id: `${shot.id || 'shot'}_dialogue_${String(index + 1).padStart(2, '0')}`,
+      speaker: cue.speaker || shot?.speaker || '',
+      performance: cue.performance,
+      text: String(cue.text || '').trim(),
+    })).filter((segment) => segment.text);
+  }
+
+  const dialogue = String(shot?.dialogue || '').trim();
+  return dialogue
+    ? [{ id: `${shot.id || 'shot'}_dialogue_01`, speaker: shot?.speaker || '', text: dialogue }]
+    : [];
+}
+
+function buildSegmentOutputPath(audioDir, shotId, segment, index, segmentCount) {
+  if (segmentCount === 1) {
+    return path.join(audioDir, `${shotId}.mp3`);
+  }
+
+  const segmentId = String(segment?.id || `${shotId}_segment_${index + 1}`).replace(/[^\w.-]/g, '_');
+  return path.join(audioDir, `${segmentId}.mp3`);
+}
+
+function escapeConcatPath(filePath) {
+  return path.resolve(filePath).replace(/\\/g, '/').replace(/'/g, "'\\''");
+}
+
+export function combineAudioSegmentFiles(segmentPaths, outputPath) {
+  const paths = segmentPaths.filter(Boolean);
+  if (paths.length === 0) {
+    return Promise.resolve(null);
+  }
+  if (paths.length === 1) {
+    return Promise.resolve(paths[0]);
+  }
+
+  ensureDir(path.dirname(outputPath));
+  const listPath = path.join(path.dirname(outputPath), `${path.basename(outputPath, path.extname(outputPath))}.concat.txt`);
+  fs.writeFileSync(
+    listPath,
+    paths.map((filePath) => `file '${escapeConcatPath(filePath)}'`).join('\n') + '\n',
+    'utf-8'
+  );
+
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(listPath)
+      .inputOptions(['-f concat', '-safe 0'])
+      .outputOptions(['-c copy'])
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .save(outputPath);
+  });
+}
+
 function writeTtsArtifacts(results, voiceResolution, artifactContext) {
   if (!artifactContext) {
     return;
@@ -46,7 +128,7 @@ function writeTtsArtifacts(results, voiceResolution, artifactContext) {
 
   const orderedResults = [...results].sort((left, right) => left.shotId.localeCompare(right.shotId));
   const orderedVoiceResolution = [...voiceResolution].sort((left, right) =>
-    left.shotId.localeCompare(right.shotId)
+    left.shotId.localeCompare(right.shotId) || String(left.segmentId || '').localeCompare(String(right.segmentId || ''))
   );
 
   saveJSON(path.join(artifactContext.inputsDir, 'voice-resolution.json'), orderedVoiceResolution);
@@ -62,7 +144,9 @@ function writeTtsArtifacts(results, voiceResolution, artifactContext) {
     ].join('\n') + '\n'
   );
 
-  const dialogueShotCount = orderedVoiceResolution.filter((entry) => entry.hasDialogue).length;
+  const dialogueShotCount = new Set(
+    orderedVoiceResolution.filter((entry) => entry.hasDialogue).map((entry) => entry.shotId)
+  ).size;
   const synthesizedCount = orderedResults.filter((entry) => entry.audioPath).length;
   const skippedCount = orderedVoiceResolution.filter((entry) => !entry.hasDialogue).length;
   const failureCount = orderedResults.filter((entry) => entry.error).length;
@@ -159,6 +243,7 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
     projectId,
     voiceCast = [],
     textToSpeech: runTextToSpeech = textToSpeech,
+    combineAudioSegments = combineAudioSegmentFiles,
   } = options;
   const defaultTtsProvider = resolveDefaultTtsProvider(options);
   logger.info('TTSAgent', `开始为 ${shots.length} 个分镜生成配音...`);
@@ -169,7 +254,8 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
       queueWithRetry(
         ttsQueue,
         async () => {
-          const hasDialogue = shot.dialogue && shot.dialogue.trim() !== '';
+          const dialogueSegments = normalizeTtsDialogueSegments(shot);
+          const hasDialogue = dialogueSegments.length > 0;
           const outputPath = path.join(audioDir, `${shot.id}.mp3`);
 
           if (!hasDialogue) {
@@ -189,82 +275,119 @@ export async function generateAllAudio(shots, characterRegistry, audioDir, optio
             return { shotId: shot.id, audioPath: null, hasDialogue: false };
           }
 
-          const participants = resolveShotParticipants(shot, characterRegistry);
-          const speaker = resolveShotSpeaker(shot, characterRegistry);
-          const speakerName = speaker?.name || '';
-          const gender = speaker?.character?.gender || 'female';
-          const speakerCard = speaker?.character || null;
-          const ttsOptions = { gender, provider: defaultTtsProvider };
-          let usedDefaultVoiceFallback = true;
-          let voiceSource = 'gender_fallback';
-          const voiceCastEntry = findVoiceCastEntry(speaker, voiceCast);
-          const voiceProfile = voiceCastEntry?.voiceProfile || null;
-
-          if (!speaker?.relation?.isSpeaker && !shot.speaker && participants.length > 1) {
-            logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${participants.length} 个角色出场）`);
-          }
-
-          if (voiceProfile) {
-            for (const [sourceKey, targetKey] of [
-              ['provider', 'provider'],
-              ['voice', 'voice'],
-              ['voiceId', 'voice'],
-              ['mode', 'mode'],
-              ['rate', 'rate'],
-              ['pitch', 'pitch'],
-              ['volume', 'volume'],
-              ['referenceAudio', 'referenceAudio'],
-              ['referenceId', 'referenceId'],
-              ['referenceText', 'referenceText'],
-              ['promptText', 'promptText'],
-              ['instructText', 'instructText'],
-              ['zeroShotSpeakerId', 'zeroShotSpeakerId'],
-            ]) {
-              if (voiceProfile[sourceKey] !== undefined) {
-                ttsOptions[targetKey] = voiceProfile[sourceKey];
-              }
-            }
-            usedDefaultVoiceFallback = false;
-            voiceSource = 'voice_cast';
-          } else if (speakerCard?.voicePresetId && voicePresetLoader) {
-            try {
-              const preset = await voicePresetLoader(speakerCard.voicePresetId, {
-                projectId,
-                shot,
-                speakerName,
-                speakerCard,
-              });
-              if (preset) {
-                for (const key of ['provider', 'voice', 'rate', 'pitch', 'volume']) {
-                  if (preset[key] !== undefined) ttsOptions[key] = preset[key];
-                }
-                usedDefaultVoiceFallback = false;
-                voiceSource = 'voice_preset';
-              }
-            } catch (err) {
-              logger.warn('TTSAgent', `${shot.id} 加载语音预设失败，回退性别默认值：${err.message}`);
-              usedDefaultVoiceFallback = true;
-              voiceSource = 'gender_fallback';
-            }
-          }
-
           logger.step(i + 1, shots.length, `TTS: ${shot.id}`);
-          const audioPath = await runTextToSpeech(shot.dialogue, outputPath, ttsOptions);
+          const audioSegments = [];
+
+          for (const [segmentIndex, segment] of dialogueSegments.entries()) {
+            const segmentShot = {
+              ...shot,
+              dialogue: segment.text,
+              speaker: segment.speaker || shot.speaker || '',
+            };
+            const participants = resolveShotParticipants(segmentShot, characterRegistry);
+            const speaker = resolveShotSpeaker(segmentShot, characterRegistry);
+            const speakerName = speaker?.name || segment.speaker || '';
+            const gender = speaker?.character?.gender || 'female';
+            const speakerCard = speaker?.character || null;
+            const ttsOptions = { gender, provider: defaultTtsProvider };
+            let usedDefaultVoiceFallback = true;
+            let voiceSource = 'gender_fallback';
+            const voiceCastEntry = findVoiceCastEntry(speaker, voiceCast);
+            const voiceProfile = voiceCastEntry?.voiceProfile || null;
+
+            if (!speaker?.relation?.isSpeaker && !segmentShot.speaker && participants.length > 1) {
+              logger.debug('TTSAgent', `${shot.id} 未指定说话者，默认使用 ${speakerName}（共 ${participants.length} 个角色出场）`);
+            }
+
+            if (voiceProfile) {
+              for (const [sourceKey, targetKey] of [
+                ['provider', 'provider'],
+                ['voice', 'voice'],
+                ['voiceId', 'voice'],
+                ['mode', 'mode'],
+                ['rate', 'rate'],
+                ['pitch', 'pitch'],
+                ['volume', 'volume'],
+                ['referenceAudio', 'referenceAudio'],
+                ['referenceId', 'referenceId'],
+                ['referenceText', 'referenceText'],
+                ['promptText', 'promptText'],
+                ['instructText', 'instructText'],
+                ['zeroShotSpeakerId', 'zeroShotSpeakerId'],
+              ]) {
+                if (voiceProfile[sourceKey] !== undefined) {
+                  ttsOptions[targetKey] = voiceProfile[sourceKey];
+                }
+              }
+              usedDefaultVoiceFallback = false;
+              voiceSource = 'voice_cast';
+            } else if (speakerCard?.voicePresetId && voicePresetLoader) {
+              try {
+                const preset = await voicePresetLoader(speakerCard.voicePresetId, {
+                  projectId,
+                  shot: segmentShot,
+                  speakerName,
+                  speakerCard,
+                });
+                if (preset) {
+                  for (const key of ['provider', 'voice', 'rate', 'pitch', 'volume']) {
+                    if (preset[key] !== undefined) ttsOptions[key] = preset[key];
+                  }
+                  usedDefaultVoiceFallback = false;
+                  voiceSource = 'voice_preset';
+                }
+              } catch (err) {
+                logger.warn('TTSAgent', `${shot.id} 加载语音预设失败，回退性别默认值：${err.message}`);
+                usedDefaultVoiceFallback = true;
+                voiceSource = 'gender_fallback';
+              }
+            }
+
+            const segmentOutputPath = buildSegmentOutputPath(
+              audioDir,
+              shot.id,
+              segment,
+              segmentIndex,
+              dialogueSegments.length
+            );
+            const segmentAudioPath = await runTextToSpeech(segment.text, segmentOutputPath, ttsOptions);
+            audioSegments.push({
+              segmentId: segment.id,
+              speakerName,
+              dialogue: segment.text,
+              audioPath: segmentAudioPath,
+              ttsOptions: { ...ttsOptions },
+              voicePresetId: speakerCard?.voicePresetId || null,
+              voiceSource,
+            });
             voiceResolution.push({
               shotId: shot.id,
+              ...(dialogueSegments.length > 1 ? { segmentId: segment.id } : {}),
               hasDialogue: true,
-              dialogue: shot.dialogue,
+              dialogue: segment.text,
               speakerName,
               resolvedGender: gender,
               ttsOptions: { ...ttsOptions },
               usedDefaultVoiceFallback,
               status: 'synthesized',
-              audioPath,
+              audioPath: segmentAudioPath,
               voicePresetId: speakerCard?.voicePresetId || null,
               voiceSource,
             });
+          }
 
-          return { shotId: shot.id, audioPath, hasDialogue: true };
+          const audioPath = await combineAudioSegments(
+            audioSegments.map((segment) => segment.audioPath),
+            outputPath,
+            { shot, dialogueSegments, audioSegments }
+          );
+
+          return {
+            shotId: shot.id,
+            audioPath,
+            hasDialogue: true,
+            ...(dialogueSegments.length > 1 ? { audioSegments } : {}),
+          };
         },
         3,
         shot.id

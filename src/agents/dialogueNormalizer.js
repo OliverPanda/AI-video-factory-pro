@@ -78,6 +78,41 @@ export function estimateDialogueDurationMs(text, options = {}) {
   return estimatedMs > 0 ? estimatedMs : null;
 }
 
+function normalizeDialogueCueSegments(shot, options = {}) {
+  const cues = Array.isArray(shot?.audioCues)
+    ? shot.audioCues.filter((cue) => cue?.type === 'dialogue' && cue?.text)
+    : [];
+
+  if (cues.length === 0) {
+    return null;
+  }
+
+  return cues
+    .map((cue, index) => {
+      const text = normalizeDialogueText(cue.text, options);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        id: `${shot?.id || 'shot'}_dialogue_${String(index + 1).padStart(2, '0')}`,
+        speaker: cue.speaker || shot?.speaker || '',
+        performance: cue.performance,
+        text,
+        dialogueDurationMs: estimateDialogueDurationMs(text, options),
+      };
+    })
+    .filter(Boolean);
+}
+
+function formatDialogueSegment(segment) {
+  if (typeof segment === 'string') {
+    return segment;
+  }
+
+  return [segment?.speaker, segment?.text].filter(Boolean).join(': ');
+}
+
 function writeArtifacts(normalizedShots, pronunciationLexicon, artifactContext) {
   if (!artifactContext) {
     return;
@@ -100,7 +135,7 @@ function writeArtifacts(normalizedShots, pronunciationLexicon, artifactContext) 
       '| Shot ID | Original | Normalized | Duration Budget (ms) | Segments |',
       '| --- | --- | --- | --- | --- |',
       ...normalizedShots.map((shot) =>
-        `| ${shot.id} | ${shot.dialogueOriginal || ''} | ${shot.dialogue || ''} | ${shot.dialogueDurationMs ?? ''} | ${(shot.dialogueSegments || []).join(' / ')} |`
+        `| ${shot.id} | ${shot.dialogueOriginal || ''} | ${shot.dialogue || ''} | ${shot.dialogueDurationMs ?? ''} | ${(shot.dialogueSegments || []).map(formatDialogueSegment).join(' / ')} |`
       ),
     ].join('\n') + '\n'
   );
@@ -113,8 +148,11 @@ export function normalizeDialogueShots(shots = [], options = {}) {
 
   const normalizedShots = shots.map((shot) => {
     const dialogueOriginal = shot?.dialogue ?? '';
-    const dialogue = normalizeDialogueText(dialogueOriginal, { pronunciationLexicon });
-    const dialogueSegments = splitDialogueSegments(dialogue, options);
+    const cueSegments = normalizeDialogueCueSegments(shot, { ...options, pronunciationLexicon });
+    const dialogue = cueSegments
+      ? cueSegments.map((segment) => segment.text).join('\n')
+      : normalizeDialogueText(dialogueOriginal, { pronunciationLexicon });
+    const dialogueSegments = cueSegments || splitDialogueSegments(dialogue, options);
     const estimatedDurationMs = estimateDialogueDurationMs(dialogue, options);
 
     return {
@@ -132,6 +170,7 @@ export function normalizeDialogueShots(shots = [], options = {}) {
 
 export const __testables = {
   applyPronunciationLexicon,
+  formatDialogueSegment,
   normalizeWhitespace,
   splitDialogueSegments,
 };
