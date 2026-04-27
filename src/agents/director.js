@@ -91,6 +91,28 @@ function readLegacyInputFormatMetadata(entity) {
     null;
 }
 
+function canReuseExistingParsedLegacyData(existingScript, existingEpisode, selectedInputFormat) {
+  if (!existingScript || !existingEpisode) {
+    return false;
+  }
+
+  const scriptInputFormat = readLegacyInputFormatMetadata(existingScript);
+  const episodeInputFormat = readLegacyInputFormatMetadata(existingEpisode);
+  const scriptHasInputFormat = Boolean(scriptInputFormat);
+  const episodeHasInputFormat = Boolean(episodeInputFormat);
+
+  if (scriptHasInputFormat || episodeHasInputFormat) {
+    return (
+      scriptHasInputFormat &&
+      episodeHasInputFormat &&
+      scriptInputFormat === selectedInputFormat &&
+      episodeInputFormat === selectedInputFormat
+    );
+  }
+
+  return selectedInputFormat === LEGACY_DEFAULT_INPUT_FORMAT;
+}
+
 function initializePhase4SequenceState(state = {}) {
   return {
     actionSequencePlan: Array.isArray(state.actionSequencePlan)
@@ -2543,25 +2565,15 @@ export function createDirector(overrides = {}) {
         const existingEpisode =
           deps.loadEpisode(legacy.projectId, legacy.scriptId, legacy.episodeId, options.storeOptions) ||
           null;
-        const existingScriptInputFormat = readLegacyInputFormatMetadata(existingScript);
-        const existingEpisodeInputFormat = readLegacyInputFormatMetadata(existingEpisode);
-        const existingParsedInputFormats =
-          [existingScriptInputFormat, existingEpisodeInputFormat].filter(Boolean);
-        // Older persisted legacy script/episode records may not have parser metadata.
-        // Trust them only for the historical default; non-default formats reparse.
-        const canReuseExistingParsedLegacyData =
+        const canReuseExistingParsedLegacyDataFromStore =
           existingScript &&
           existingEpisode &&
           existingScript.sourceText === scriptText &&
-          (existingParsedInputFormats.length > 0
-            ? existingParsedInputFormats.every((inputFormat) => inputFormat === selectedInputFormat)
-            : selectedInputFormat === LEGACY_DEFAULT_INPUT_FORMAT &&
-              !inputFormatChanged &&
-              !missingInputFormatMetadataNeedsReparse);
+          canReuseExistingParsedLegacyData(existingScript, existingEpisode, selectedInputFormat);
 
         let scriptData = state.scriptData;
         if (!scriptData) {
-          if (canReuseExistingParsedLegacyData) {
+          if (canReuseExistingParsedLegacyDataFromStore) {
             scriptData = {
               title: existingScript.title,
               characters: existingScript.characters || [],
@@ -2631,7 +2643,7 @@ export function createDirector(overrides = {}) {
           !existingScript ||
           !existingEpisode ||
           existingScript.sourceText !== scriptText ||
-          !canReuseExistingParsedLegacyData
+          !canReuseExistingParsedLegacyDataFromStore
         ) {
           const project = createProject({
             id: legacy.projectId,
@@ -2706,6 +2718,7 @@ export function createRunPipeline(overrides = {}) {
 }
 
 export const __testables = {
+  buildLegacyBridgeIdentity,
   collectRunQaOverview,
   initializePhase4SequenceState,
   buildShotQaInputs,
