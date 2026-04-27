@@ -52,7 +52,7 @@ test('parseProfessionalScript preserves scene and authored order', () => {
   assert.equal(result.shots[2].blackScreen, true);
   assert.equal(result.shots[3].scene, '雪都长街·夜');
   assert.equal(result.shots[3].speaker, '洛迟');
-  assert.equal(result.shots[3].dialogue, '洛迟：你不该来。');
+  assert.equal(result.shots[3].dialogue, '你不该来。');
 });
 
 test('parseProfessionalScript preserves audio cues, sfx, subtitles, and raw block', () => {
@@ -80,7 +80,7 @@ test('parseProfessionalScript preserves authored picture marker spacing in raw b
   assert.match(result.shots[0].source.rawBlock, /【画面 1】/);
 });
 
-test('parseProfessionalScript keeps multiple dialogue cues in compatibility dialogue', () => {
+test('parseProfessionalScript keeps compatibility dialogue tts-safe for multiple cues', () => {
   const result = parseProfessionalScript(`
 第1集《对峙》
 【场景】 雪都长街·夜
@@ -96,7 +96,9 @@ test('parseProfessionalScript keeps multiple dialogue cues in compatibility dial
     { type: 'dialogue', speaker: '沈砚', performance: '低声', text: '你终于来了。' },
     { type: 'dialogue', speaker: '洛迟', performance: undefined, text: '我一直在等你。' },
   ]);
-  assert.equal(shot.dialogue, '沈砚（低声）：你终于来了。\n洛迟：我一直在等你。');
+  assert.equal(shot.dialogue, '你终于来了。\n我一直在等你。');
+  assert.doesNotMatch(shot.dialogue, /[：:]/);
+  assert.doesNotMatch(shot.dialogue, /沈砚|洛迟|低声/);
   assert.equal(shot.speaker, '沈砚');
   assert.deepEqual(
     result.characters.map((character) => character.name),

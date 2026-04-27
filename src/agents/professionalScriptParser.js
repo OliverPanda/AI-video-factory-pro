@@ -217,7 +217,7 @@ export function parsePictureBlock(block, options = {}) {
   const systemCue = shot.audioCues.find((cue) => cue.type === 'system_voice');
   if (dialogueCues.length > 0) {
     shot.speaker = dialogueCues[0].speaker;
-    shot.dialogue = dialogueCues.map(formatDialogueCue).join('\n');
+    shot.dialogue = dialogueCues.map((cue) => cue.text).join('\n');
   } else if (systemCue) {
     shot.speaker = systemCue.speaker;
     shot.dialogue = systemCue.text;
@@ -228,11 +228,6 @@ export function parsePictureBlock(block, options = {}) {
   shot.duration = clampDuration(3 + dialogueSeconds);
 
   return shot;
-}
-
-function formatDialogueCue(cue) {
-  const performance = cue.performance ? `（${cue.performance}）` : '';
-  return `${cue.speaker}${performance}：${cue.text}`;
 }
 
 export function extractCharacters(shots) {
