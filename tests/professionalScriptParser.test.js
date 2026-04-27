@@ -52,7 +52,7 @@ test('parseProfessionalScript preserves scene and authored order', () => {
   assert.equal(result.shots[2].blackScreen, true);
   assert.equal(result.shots[3].scene, '雪都长街·夜');
   assert.equal(result.shots[3].speaker, '洛迟');
-  assert.equal(result.shots[3].dialogue, '你不该来。');
+  assert.equal(result.shots[3].dialogue, '洛迟：你不该来。');
 });
 
 test('parseProfessionalScript preserves audio cues, sfx, subtitles, and raw block', () => {
@@ -66,6 +66,42 @@ test('parseProfessionalScript preserves audio cues, sfx, subtitles, and raw bloc
   assert.equal(result.shots[0].sfx[0].text, '风雪呼啸。');
   assert.equal(result.shots[2].subtitle, '第1集·雪门 完。');
   assert.match(shot.source.rawBlock, /【画面2】/);
+});
+
+test('parseProfessionalScript preserves authored picture marker spacing in raw block', () => {
+  const result = parseProfessionalScript(`
+第1集《空镜》
+【场景】 长廊·夜
+
+【画面 1】
+远景。烛火摇晃。
+`);
+
+  assert.match(result.shots[0].source.rawBlock, /【画面 1】/);
+});
+
+test('parseProfessionalScript keeps multiple dialogue cues in compatibility dialogue', () => {
+  const result = parseProfessionalScript(`
+第1集《对峙》
+【场景】 雪都长街·夜
+
+【画面1】
+中景。沈砚与洛迟在风雪中对峙。
+沈砚（低声）：你终于来了。
+洛迟：我一直在等你。
+`);
+  const shot = result.shots[0];
+
+  assert.deepEqual(shot.audioCues, [
+    { type: 'dialogue', speaker: '沈砚', performance: '低声', text: '你终于来了。' },
+    { type: 'dialogue', speaker: '洛迟', performance: undefined, text: '我一直在等你。' },
+  ]);
+  assert.equal(shot.dialogue, '沈砚（低声）：你终于来了。\n洛迟：我一直在等你。');
+  assert.equal(shot.speaker, '沈砚');
+  assert.deepEqual(
+    result.characters.map((character) => character.name),
+    ['沈砚', '洛迟']
+  );
 });
 
 test('parseProfessionalScript extracts generic character names from dialogue and action', () => {

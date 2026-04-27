@@ -76,7 +76,7 @@ function splitEpisodePictureBlocks(episode) {
 
   function finishBlock() {
     if (currentBlock) {
-      currentBlock.rawBlock = [`【画面${currentBlock.pictureNo}】`, ...currentBlock.lines].join('\n');
+      currentBlock.rawBlock = [currentBlock.markerLine, ...currentBlock.lines].join('\n');
       blocks.push(currentBlock);
       currentBlock = null;
     }
@@ -99,6 +99,7 @@ function splitEpisodePictureBlocks(episode) {
         episodeNo: episode.episodeNo,
         episodeTitle: episode.title,
         pictureNo: Number(pictureMatch[1]),
+        markerLine: line,
         scene: currentScene,
         lines: [],
         rawBlock: '',
@@ -212,22 +213,26 @@ export function parsePictureBlock(block, options = {}) {
 
   shot.action = actionLines.join('\n');
 
-  const preferredCue =
-    shot.audioCues.find((cue) => cue.type === 'dialogue') ||
-    shot.audioCues.find((cue) => cue.type === 'system_voice');
-  if (preferredCue) {
-    shot.speaker = preferredCue.speaker;
-    shot.dialogue = preferredCue.text;
+  const dialogueCues = shot.audioCues.filter((cue) => cue.type === 'dialogue');
+  const systemCue = shot.audioCues.find((cue) => cue.type === 'system_voice');
+  if (dialogueCues.length > 0) {
+    shot.speaker = dialogueCues[0].speaker;
+    shot.dialogue = dialogueCues.map(formatDialogueCue).join('\n');
+  } else if (systemCue) {
+    shot.speaker = systemCue.speaker;
+    shot.dialogue = systemCue.text;
   }
 
-  const dialogueText = shot.audioCues
-    .filter((cue) => cue.type === 'dialogue')
-    .map((cue) => cue.text)
-    .join('');
+  const dialogueText = dialogueCues.map((cue) => cue.text).join('');
   const dialogueSeconds = dialogueText ? Math.ceil(dialogueText.length / 12) : 0;
   shot.duration = clampDuration(3 + dialogueSeconds);
 
   return shot;
+}
+
+function formatDialogueCue(cue) {
+  const performance = cue.performance ? `（${cue.performance}）` : '';
+  return `${cue.speaker}${performance}：${cue.text}`;
 }
 
 export function extractCharacters(shots) {
