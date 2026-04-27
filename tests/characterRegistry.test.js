@@ -5,6 +5,7 @@ import {
   __testables,
   buildCharacterRegistry,
   getCharacterTokens,
+  getSanitizedCharacterTokens,
   resolveShotParticipants,
   resolveShotSpeaker,
 } from '../src/agents/characterRegistry.js';
@@ -51,6 +52,21 @@ test('buildCharacterRegistry merges Chinese source names with English generated 
   assert.equal(registry[2].aliases.includes('Lin Shuang'), true);
   assert.equal(getCharacterTokens('陈默', registry), 'short black hair, black tactical suit');
   assert.equal(getCharacterTokens('Chen Mo', registry), 'short black hair, black tactical suit');
+});
+
+test('getSanitizedCharacterTokens returns character identity tokens without scene props', () => {
+  assert.equal(
+    getSanitizedCharacterTokens({
+      basePromptTokens: 'short black hair, black tactical suit, metal ladder, concrete pillar, corridor wall',
+      visualDescription: 'fallback should not be used',
+    }),
+    'short black hair, black tactical suit'
+  );
+  assert.equal(
+    getSanitizedCharacterTokens({ visualDescription: 'young woman, pale hanfu, wooden door' }),
+    'young woman, pale hanfu'
+  );
+  assert.equal(getSanitizedCharacterTokens({}), '');
 });
 
 test('resolveShotParticipants and speaker resolution stay ID-first when duplicate display names exist', () => {

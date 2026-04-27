@@ -50,6 +50,17 @@ function normalizeAliasList(values = []) {
   return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
+const CHARACTER_TOKEN_BLOCKLIST_RE =
+  /\b(?:ladder|stairs?|staircase|rack|shelf|shelves|pillar|column|wall|door|window|room|corridor|hallway|building|architecture|background|furniture|table|chair|desk|sofa|bed|street|road|car|vehicle)\b/i;
+
+function sanitizeTokenParts(value) {
+  return String(value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !CHARACTER_TOKEN_BLOCKLIST_RE.test(part));
+}
+
 export function buildCharacterIdentityCandidates(character = {}) {
   return [
     character?.episodeCharacterId,
@@ -312,6 +323,11 @@ export function getCharacterTokens(characterName, registry) {
   return card ? card.basePromptTokens : '';
 }
 
+export function getSanitizedCharacterTokens(character = {}) {
+  const sourceTokens = character?.basePromptTokens || character?.visualDescription || '';
+  return sanitizeTokenParts(sourceTokens).join(', ');
+}
+
 function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) {
   const consumedSourceIndices = new Set();
   const mergedCharacters = generatedCharacters.map((character, index) => {
@@ -556,7 +572,8 @@ export function resolveShotSpeaker(shot, registry = []) {
  */
 export function getShotCharacterTokens(shot, registry) {
   return getShotCharacterNames(shot, registry)
-    .map((name) => getCharacterTokens(name, registry))
+    .map((name) => findCharacterByName(registry, name))
+    .map((card) => getSanitizedCharacterTokens(card))
     .filter(Boolean)
     .join(', ');
 }

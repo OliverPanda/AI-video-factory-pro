@@ -305,6 +305,7 @@ test('legacy runPipeline keeps parser artifacts in the final parsed-title run pa
       generateAllImages: async () => [],
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
       generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [], manualReviewPlan: { recommendedShotIds: [] } }),
       composeVideo: async () => {},
     });
 
