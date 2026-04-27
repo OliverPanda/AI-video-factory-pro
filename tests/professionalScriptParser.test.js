@@ -117,6 +117,31 @@ test('parseProfessionalScript extracts generic character names from dialogue and
   assert.deepEqual(result.shots[3].characters, ['洛迟', '沈砚']);
 });
 
+test('professional parser preserves ten authored picture beats', () => {
+  const pictureBlocks = Array.from({ length: 10 }, (_, index) =>
+    [
+      `【画面${index + 1}】`,
+      index === 9 ? '黑屏。' : `中景。角色在第${index + 1}个画面行动。`,
+    ].join('\n')
+  );
+  const result = parseProfessionalScript(
+    [
+      '《十画面测试》',
+      '第1集《链接》',
+      '【场景】 登录空间·蓝光',
+      ...pictureBlocks,
+    ].join('\n')
+  );
+
+  assert.equal(result.shots.length, 10);
+  assert.deepEqual(
+    result.shots.map((shot) => shot.source.pictureNo),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  );
+  assert.equal(result.parserMetadata.metrics.picture_block_count, 10);
+  assert.equal(result.parserMetadata.metrics.preserved_picture_count, 10);
+});
+
 test('parseProfessionalScript blocks professional input with no picture blocks', () => {
   assert.throws(
     () => parseProfessionalScript('第1集《空镜》\n【场景】 空房间'),
