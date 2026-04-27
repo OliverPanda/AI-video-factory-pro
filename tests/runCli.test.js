@@ -12,10 +12,36 @@ test('parseCliArgs keeps legacy single-script mode intact', () => {
     projectId: null,
     scriptId: null,
     episodeId: null,
+    projectIdOverride: null,
     style: '3d',
     skipConsistencyCheck: true,
+    stopAfterImages: false,
+    stopBeforeVideo: false,
     provider: null,
+    inputFormat: 'professional-script',
   });
+});
+
+test('parseCliArgs defaults inputFormat to professional-script', () => {
+  const result = parseCliArgs(['samples/test_script.txt']);
+  assert.equal(result.inputFormat, 'professional-script');
+});
+
+test('parseCliArgs accepts raw-novel input format', () => {
+  const result = parseCliArgs(['samples/test_script.txt', '--input-format=raw-novel']);
+  assert.equal(result.inputFormat, 'raw-novel');
+});
+
+test('parseCliArgs accepts auto input format', () => {
+  const result = parseCliArgs(['samples/test_script.txt', '--input-format=auto']);
+  assert.equal(result.inputFormat, 'auto');
+});
+
+test('parseCliArgs rejects invalid input format', () => {
+  assert.throws(
+    () => parseCliArgs(['samples/test_script.txt', '--input-format=wild']),
+    /--input-format 必须是 professional-script、raw-novel 或 auto/
+  );
 });
 
 test('parseCliArgs accepts project mode identifiers', () => {
@@ -32,9 +58,13 @@ test('parseCliArgs accepts project mode identifiers', () => {
     projectId: 'demo-project',
     scriptId: 'pilot-script',
     episodeId: 'episode-01',
+    projectIdOverride: null,
     style: null,
     skipConsistencyCheck: false,
+    stopAfterImages: false,
+    stopBeforeVideo: false,
     provider: 'qwen',
+    inputFormat: 'professional-script',
   });
 });
 
@@ -77,9 +107,39 @@ test('createCli dispatches legacy mode to runPipeline', async () => {
     {
       type: 'legacy',
       scriptPath: 'samples/test_script.txt',
-      options: { style: '3d', skipConsistencyCheck: true },
+      options: {
+        style: '3d',
+        skipConsistencyCheck: true,
+        stopAfterImages: false,
+        stopBeforeVideo: false,
+        projectId: null,
+        inputFormat: 'professional-script',
+      },
     },
   ]);
+});
+
+test('createCli passes explicit raw-novel input format to runPipeline', async () => {
+  const calls = [];
+  const cli = createCli({
+    runPipeline: async (scriptPath, options) => {
+      calls.push({ scriptPath, options });
+      return '/tmp/raw-novel.mp4';
+    },
+    runEpisodePipeline: async () => {
+      throw new Error('should not run project mode');
+    },
+    exit: () => {
+      throw new Error('exit should not be called');
+    },
+    resolveScriptPath: (scriptPath) => scriptPath,
+    writeBanner: () => {},
+    writeSuccess: () => {},
+  });
+
+  await cli.run(['samples/test_script.txt', '--input-format=raw-novel']);
+
+  assert.equal(calls[0].options.inputFormat, 'raw-novel');
 });
 
 test('createCli dispatches project mode to runEpisodePipeline', async () => {
@@ -113,7 +173,11 @@ test('createCli dispatches project mode to runEpisodePipeline', async () => {
       projectId: 'demo-project',
       scriptId: 'pilot-script',
       episodeId: 'episode-01',
-      options: { style: 'realistic', skipConsistencyCheck: true },
+      options: {
+        style: 'realistic',
+        skipConsistencyCheck: true,
+        inputFormat: 'professional-script',
+      },
     },
   ]);
 });

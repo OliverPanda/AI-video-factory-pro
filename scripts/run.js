@@ -21,6 +21,8 @@ const USAGE = `
   --skip-consistency        跳过一致性验证（加速测试）
   --provider=qwen|deepseek|claude  LLM提供商（覆盖.env设置）
   --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
+  --input-format=professional-script|raw-novel|auto
+                             输入文本类型（默认：professional-script）
 
 示例：
   node scripts/run.js samples/test_script.txt
@@ -39,6 +41,16 @@ function normalizeId(value) {
   return trimmed ? trimmed : null;
 }
 
+const INPUT_FORMATS = new Set(['professional-script', 'raw-novel', 'auto']);
+
+function normalizeInputFormat(value) {
+  const normalized = normalizeId(value) || 'professional-script';
+  if (!INPUT_FORMATS.has(normalized)) {
+    throw new Error('--input-format 必须是 professional-script、raw-novel 或 auto。');
+  }
+  return normalized;
+}
+
 export function parseCliArgs(args) {
   const scriptFile = args.find((arg) => !arg.startsWith('--')) ?? null;
   const projectId = normalizeId(getFlagValue(args, 'project'));
@@ -50,6 +62,7 @@ export function parseCliArgs(args) {
   const skipConsistencyCheck = args.includes('--skip-consistency');
   const stopAfterImages = args.includes('--stop-after-images');
   const stopBeforeVideo = args.includes('--stop-before-video');
+  const inputFormat = normalizeInputFormat(getFlagValue(args, 'input-format'));
 
   const hasProjectModeFlags = projectId || scriptId || episodeId;
   const hasCompleteProjectMode = projectId && scriptId && episodeId;
@@ -78,6 +91,7 @@ export function parseCliArgs(args) {
     stopAfterImages,
     stopBeforeVideo,
     provider,
+    inputFormat,
   };
 }
 
@@ -133,6 +147,7 @@ export function createCli(overrides = {}) {
           options: {
             style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
             skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
+            inputFormat: parsedArgs.inputFormat,
           },
         });
         deps.writeSuccess(outputPath);
@@ -145,6 +160,7 @@ export function createCli(overrides = {}) {
         stopAfterImages: parsedArgs.stopAfterImages,
         stopBeforeVideo: parsedArgs.stopBeforeVideo,
         projectId: parsedArgs.projectIdOverride,
+        inputFormat: parsedArgs.inputFormat,
       });
       if (parsedArgs.stopAfterImages) {
         deps.logger.info('Main', '已完成到出图阶段，跳过视频生成');
