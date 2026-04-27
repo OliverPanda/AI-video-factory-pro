@@ -193,6 +193,24 @@ ffprobe -version
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
+CLI 默认把输入当作 `professional-script`：适合已经写成分集、场景、`【画面N】`、台词、SFX、字幕的专业短剧 / 漫剧剧本。上面的命令等价于：
+
+```bash
+node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic --input-format=professional-script
+```
+
+如果输入是野生小说文本、散文章节或故事大纲，需要显式启用改编模式：
+
+```bash
+node scripts/run.js samples/source.txt --style=realistic --input-format=raw-novel
+```
+
+不确定输入结构时可以用自动检测；只有包含 `【画面N】` 的文本会走专业剧本解析，否则按原始小说改编：
+
+```bash
+node scripts/run.js samples/source.txt --style=realistic --input-format=auto
+```
+
 项目模式：
 
 ```bash
