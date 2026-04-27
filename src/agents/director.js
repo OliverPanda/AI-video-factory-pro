@@ -2504,6 +2504,7 @@ export function createDirector(overrides = {}) {
         const legacyScriptTitle =
           path.basename(scriptFilePath, path.extname(scriptFilePath)) || legacy.scriptId;
         const scriptContentHash = hashContent(scriptText);
+        const selectedInputFormat = options.inputFormat || options.parseScriptDeps?.inputFormat;
         let bootstrapParserArtifactContext = null;
         const contentChanged =
           state.compatibility?.scriptContentHash &&
@@ -2548,6 +2549,7 @@ export function createDirector(overrides = {}) {
             }).agents.scriptParser;
             scriptData = await deps.parseScript(scriptText, {
               ...options.parseScriptDeps,
+              inputFormat: selectedInputFormat,
               artifactContext: bootstrapParserArtifactContext,
             });
           }
@@ -2587,6 +2589,7 @@ export function createDirector(overrides = {}) {
             projectId: legacy.projectId,
             scriptId: legacy.scriptId,
             episodeId: legacy.episodeId,
+            inputFormat: selectedInputFormat || 'professional-script',
           },
           scriptData,
         });
