@@ -31,8 +31,10 @@ function buildRegistryMarkdown(cards) {
         `- Gender: ${card.gender || ''}\n` +
         `- Age: ${card.age || ''}\n` +
         `- Visual: ${card.visualDescription || ''}\n` +
+        `- Identity Anchor: ${card.identityAnchor || ''}\n` +
         `- Tokens: ${card.basePromptTokens || ''}\n` +
         `- Negative Drift Tokens: ${card.negativeDriftTokens || ''}\n` +
+        `- Forbidden Identity Tokens: ${card.forbiddenIdentityTokens || ''}\n` +
         `- Personality: ${card.personality || ''}\n`
     )
     .join('\n')}\n`;
@@ -50,15 +52,83 @@ function normalizeAliasList(values = []) {
   return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
-const CHARACTER_TOKEN_BLOCKLIST_RE =
-  /\b(?:ladder|stairs?|staircase|rack|shelf|shelves|pillar|column|wall|door|window|room|corridor|hallway|building|architecture|background|furniture|table|chair|desk|sofa|bed|street|road|car|vehicle)\b/i;
+const IDENTITY_SCENE_PROP_PATTERNS = [
+  /\bconcrete pillar\b/i,
+  /\bmetal ladder\b/i,
+  /\bmetal rack\b/i,
+  /\bladder\b/i,
+  /\brack\b/i,
+  /\bpillar\b/i,
+  /\bwarehouse\b/i,
+  /\bwall\b/i,
+  /\bdoor\b/i,
+  /\bstair(?:case|s)?\b/i,
+  /\bstairs?\b/i,
+  /\bshelves\b/i,
+  /\bcolumn\b/i,
+  /\bwindow\b/i,
+  /\broom\b/i,
+  /\bcorridor\b/i,
+  /\bhallway\b/i,
+  /\bbuilding\b/i,
+  /\barchitecture\b/i,
+  /\bfurniture\b/i,
+  /\btable\b/i,
+  /\bchair\b/i,
+  /\bdesk\b/i,
+  /\bsofa\b/i,
+  /\bbed\b/i,
+  /\bstreet\b/i,
+  /\broad\b/i,
+  /\bcar\b/i,
+  /\bvehicle\b/i,
+  /\bbackground\b/i,
+];
 
-function sanitizeTokenParts(value) {
+function splitPromptTokenString(value = '') {
   return String(value || '')
     .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !CHARACTER_TOKEN_BLOCKLIST_RE.test(part));
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function sanitizeIdentityToken(token = '') {
+  const normalized = String(token || '').trim();
+  if (!normalized) return null;
+  if (IDENTITY_SCENE_PROP_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return null;
+  }
+
+  return normalized;
+}
+
+export function sanitizeCharacterIdentityTokens(value = '') {
+  return [...new Set(splitPromptTokenString(value).map(sanitizeIdentityToken).filter(Boolean))].join(', ');
+}
+
+export function getSanitizedCharacterTokens(character = {}) {
+  return sanitizeCharacterIdentityTokens(character?.basePromptTokens || character?.visualDescription || '');
+}
+
+export function getCharacterIdentityAnchor(character = {}) {
+  return sanitizeCharacterIdentityTokens(
+    character?.identityAnchor ||
+      character?.basePromptTokens ||
+      character?.visualDescription ||
+      ''
+  );
+}
+
+export function getCharacterForbiddenIdentityTokens(character = {}) {
+  return sanitizeCharacterIdentityTokens(
+    character?.forbiddenIdentityTokens ||
+      character?.negativeDriftTokens ||
+      ''
+  );
+}
+
+function joinUniquePromptTokens(values = []) {
+  return [...new Set(values.flatMap((value) => splitPromptTokenString(value)).filter(Boolean))].join(', ');
 }
 
 export function buildCharacterIdentityCandidates(character = {}) {
@@ -320,29 +390,48 @@ ${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（
  */
 export function getCharacterTokens(characterName, registry) {
   const card = findCharacterByName(registry, characterName);
-  return card ? card.basePromptTokens : '';
-}
-
-export function getSanitizedCharacterTokens(character = {}) {
-  const sourceTokens = character?.basePromptTokens || character?.visualDescription || '';
-  return sanitizeTokenParts(sourceTokens).join(', ');
+  return card ? getSanitizedCharacterTokens(card) : '';
 }
 
 function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) {
   const consumedSourceIndices = new Set();
-  const mergedCharacters = generatedCharacters.map((character, index) => {
+  const allowPositionalFallback =
+    generatedCharacters.length === sourceCharacters.length &&
+    generatedCharacters.every(
+      (character) =>
+        sourceCharacters.findIndex(
+          (source) => normalizeNameKey(source?.name) === normalizeNameKey(character?.name)
+        ) < 0
+    );
+  const mergedCharacters = generatedCharacters.map((character) => {
     const exactMatchIndex = sourceCharacters.findIndex(
       (source, sourceIndex) =>
         !consumedSourceIndices.has(sourceIndex) &&
         normalizeNameKey(source?.name) === normalizeNameKey(character?.name)
     );
-    const sourceIndex = exactMatchIndex >= 0 ? exactMatchIndex : index;
-    const source = sourceCharacters[sourceIndex] ?? null;
+    const fallbackIndex =
+      allowPositionalFallback
+        ? sourceCharacters.findIndex((_, sourceIndex) => !consumedSourceIndices.has(sourceIndex))
+        : -1;
+    const sourceIndex = exactMatchIndex >= 0 ? exactMatchIndex : fallbackIndex;
+    const source = sourceIndex >= 0 ? (sourceCharacters[sourceIndex] ?? null) : null;
     if (source) {
       consumedSourceIndices.add(sourceIndex);
     }
 
-    if (!source) return character;
+    if (!source) {
+      return {
+        ...character,
+        characterBibleId: character?.characterBibleId ?? null,
+        priority: character?.priority ?? 'support',
+        referenceImages: Array.isArray(character?.referenceImages) ? character.referenceImages : [],
+        negativeDriftTokens: character?.negativeDriftTokens ?? null,
+        identityAnchor: getCharacterIdentityAnchor(character),
+        styleFamily: character?.styleFamily ?? null,
+        forbiddenIdentityTokens: getCharacterForbiddenIdentityTokens(character),
+        basePromptTokens: sanitizeCharacterIdentityTokens(character?.basePromptTokens ?? ''),
+      };
+    }
     const aliasCandidates = normalizeAliasList([
       ...(Array.isArray(source.aliases) ? source.aliases : []),
       ...(character?.name && character.name !== source.name ? [character.name] : []),
@@ -357,9 +446,21 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
       characterBibleId: source.characterBibleId ?? character.characterBibleId ?? null,
       mainCharacterTemplateId:
         source.mainCharacterTemplateId ?? character.mainCharacterTemplateId ?? null,
+      priority: source.priority ?? character.priority ?? 'support',
+      referenceImages: Array.isArray(source.referenceImages)
+        ? source.referenceImages
+        : (Array.isArray(character?.referenceImages) ? character.referenceImages : []),
+      negativeDriftTokens: source.negativeDriftTokens ?? character.negativeDriftTokens ?? null,
+      identityAnchor: source.identityAnchor ?? character.identityAnchor ?? getCharacterIdentityAnchor(character),
+      styleFamily: source.styleFamily ?? character.styleFamily ?? null,
+      forbiddenIdentityTokens:
+        source.forbiddenIdentityTokens ?? character.forbiddenIdentityTokens ?? getCharacterForbiddenIdentityTokens(character),
       name: source.name ?? character.name ?? '',
       aliases: aliasCandidates.length > 0 ? aliasCandidates : undefined,
       generatedName: character.name ?? null,
+      basePromptTokens: sanitizeCharacterIdentityTokens(
+        source.basePromptTokens ?? character.basePromptTokens ?? ''
+      ),
     };
   });
 
@@ -371,7 +472,14 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
       episodeCharacterId: source.episodeCharacterId ?? source.id ?? null,
       characterBibleId: source.characterBibleId ?? null,
       mainCharacterTemplateId: source.mainCharacterTemplateId ?? null,
+      priority: source.priority ?? 'support',
+      referenceImages: Array.isArray(source.referenceImages) ? source.referenceImages : [],
+      negativeDriftTokens: source.negativeDriftTokens ?? null,
+      identityAnchor: getCharacterIdentityAnchor(source),
+      styleFamily: source.styleFamily ?? null,
+      forbiddenIdentityTokens: getCharacterForbiddenIdentityTokens(source),
       aliases: normalizeAliasList(source.aliases || []),
+      basePromptTokens: sanitizeCharacterIdentityTokens(source.basePromptTokens ?? ''),
     }));
 
   return [...mergedCharacters, ...fallbackCharacters];
@@ -392,6 +500,12 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
     episodeCharacterId: episodeCharacter.id,
     characterBibleId: episodeCharacter.characterBibleId ?? characterBible?.id ?? null,
     mainCharacterTemplateId: episodeCharacter.mainCharacterTemplateId ?? mainTemplate.id ?? null,
+    priority:
+      episodeCharacter.priority ??
+      episodeCharacter.characterPriority ??
+      characterBible?.priority ??
+      characterBible?.characterPriority ??
+      'support',
     name: episodeCharacter.name ?? mainTemplate.name ?? '',
     gender: episodeCharacter.gender ?? mainTemplate.gender ?? null,
     age: episodeCharacter.age ?? mainTemplate.age ?? null,
@@ -402,11 +516,22 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
       (visualAnchorParts.join(', ') || null) ??
       mainTemplate.visualDescription ??
       null,
-    basePromptTokens:
+    identityAnchor: sanitizeCharacterIdentityTokens(
+      episodeCharacter.identityAnchor ??
+        characterBible?.identityAnchor ??
+        mainTemplate.identityAnchor ??
+        episodeCharacter.basePromptTokens ??
+        characterBible?.basePromptTokens ??
+        mainTemplate.basePromptTokens ??
+        null
+    ),
+    styleFamily: episodeCharacter.styleFamily ?? characterBible?.styleFamily ?? mainTemplate.styleFamily ?? null,
+    basePromptTokens: sanitizeCharacterIdentityTokens(
       episodeCharacter.basePromptTokens ??
-      characterBible?.basePromptTokens ??
-      mainTemplate.basePromptTokens ??
-      null,
+        characterBible?.basePromptTokens ??
+        mainTemplate.basePromptTokens ??
+        null
+    ),
     personality:
       episodeCharacter.personalityOverride ??
       episodeCharacter.personality ??
@@ -418,9 +543,16 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
       mainTemplate.defaultVoiceProfile ??
       null,
     negativeDriftTokens: characterBible?.negativeDriftTokens ?? null,
+    forbiddenIdentityTokens: sanitizeCharacterIdentityTokens(
+      episodeCharacter.forbiddenIdentityTokens ??
+        characterBible?.forbiddenIdentityTokens ??
+        characterBible?.negativeDriftTokens ??
+        mainTemplate.forbiddenIdentityTokens ??
+        null
+    ),
     lightingAnchor: characterBible?.lightingAnchor ?? {},
     wardrobeAnchor: characterBible?.wardrobeAnchor ?? {},
-    referenceImages: characterBible?.referenceImages ?? [],
+    referenceImages: Array.isArray(characterBible?.referenceImages) ? characterBible.referenceImages : [],
     coreTraits: characterBible?.coreTraits ?? {},
     characterBible: characterBible ?? null,
     mainCharacterTemplate: mainTemplate || null,
@@ -571,11 +703,32 @@ export function resolveShotSpeaker(shot, registry = []) {
  * 获取分镜中所有角色的 Prompt 组合
  */
 export function getShotCharacterTokens(shot, registry) {
-  return getShotCharacterNames(shot, registry)
-    .map((name) => findCharacterByName(registry, name))
-    .map((card) => getSanitizedCharacterTokens(card))
+  return resolveShotParticipants(shot, registry)
+    .map((participant) => {
+      if (participant.character) {
+        return getSanitizedCharacterTokens(participant.character);
+      }
+
+      return sanitizeCharacterIdentityTokens(getCharacterTokens(participant.name, registry));
+    })
     .filter(Boolean)
     .join(', ');
+}
+
+export function getShotCharacterIdentityAnchors(shot, registry = []) {
+  return joinUniquePromptTokens(
+    resolveShotParticipants(shot, registry).map((participant) =>
+      participant.character ? getCharacterIdentityAnchor(participant.character) : null
+    )
+  );
+}
+
+export function getShotForbiddenIdentityTokens(shot, registry = []) {
+  return joinUniquePromptTokens(
+    resolveShotParticipants(shot, registry).map((participant) =>
+      participant.character ? getCharacterForbiddenIdentityTokens(participant.character) : null
+    )
+  );
 }
 
 export const __testables = {
@@ -584,4 +737,6 @@ export const __testables = {
   findCharacterByIdentityOrName,
   mergeCharacterSources,
   findCharacterByName,
+  joinUniquePromptTokens,
+  sanitizeCharacterIdentityTokens,
 };

@@ -43,6 +43,56 @@ test('evaluateShotPackage rewrites warn packages instead of sending weak prompts
   assert.equal(result.reviewedPackage.generationPack.quality_target, 'narrative_clarity');
 });
 
+test('evaluateShotPackage marks anatomy/reference hard issues as preflight hard block', () => {
+  const result = __testables.evaluateShotPackage({
+    shotId: 'shot_hard_block',
+    preferredProvider: 'seedance',
+    qualityIssues: ['anatomy_structure_invalid', 'reference_sheet_background_invalid'],
+    generationPack: { reference_stack: [{ path: '/tmp/ref.png' }] },
+    seedancePromptBlocks: [{ key: 'cinematic_intent', text: 'keep it grounded' }],
+    providerRequestHints: {},
+  });
+
+  assert.equal(result.decision, 'block');
+  assert.equal(result.reviewedPackage.providerRequestHints.preflightBlocked, true);
+  assert.equal(result.reviewedPackage.providerRequestHints.preflightHardBlock, true);
+  assert.deepEqual(result.reviewedPackage.providerRequestHints.preflightHardBlockReasons, [
+    'anatomy_structure_invalid',
+    'reference_sheet_background_invalid',
+  ]);
+});
+
+test('evaluateShotPackage adds repair guidance for prop anchor drift', () => {
+  const result = __testables.evaluateShotPackage({
+    shotId: 'shot_prop_anchor',
+    preferredProvider: 'seedance',
+    qualityIssues: ['prop_anchor_drift', 'forbidden_body_anchor'],
+    generationPack: {
+      reference_stack: [{ path: '/tmp/ref.png' }],
+      camera_plan: { coverage_role: 'anchor_master' },
+      actor_blocking: ['first character foreground', 'second character midground'],
+      negative_rules: [],
+      quality_target: 'narrative_clarity',
+    },
+    seedancePromptBlocks: [
+      { key: 'cinematic_intent', text: 'Keep the binding readable.' },
+      { key: 'entry_exit', text: 'entry: chain taut; exit: chain endpoint visible' },
+      { key: 'blocking', text: 'first character foreground, second character midground' },
+      { key: 'continuity_locks', text: 'preserve core prop anchors' },
+      { key: 'camera_plan', text: 'coverage: anchor_master' },
+    ],
+    providerRequestHints: {},
+  });
+
+  assert.equal(result.decision, 'warn');
+  assert.match(result.reviewedPackage.providerRequestHints.preflightFixBrief.suggestions.join(' '), /手腕|端点|anchorType/);
+  assert.deepEqual(result.reviewedPackage.providerRequestHints.preflightOwnerAgents, [
+    'promptEngineer',
+    'continuityChecker',
+    'seedancePromptAgent',
+  ]);
+});
+
 test('runPreflightQa writes report and reviewed packages artifacts', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-preflight-qa-'));
 

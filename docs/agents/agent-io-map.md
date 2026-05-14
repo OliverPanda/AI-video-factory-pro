@@ -374,6 +374,30 @@ Director 会在 run 根目录再汇总一层：
 - `reports`
 - `needsRegeneration`
 
+核心 schema 补充：
+
+- `reports[*]`
+  - `character`
+  - `overallScore`
+  - `characterPriority`
+  - `shotConsistencyClass`
+  - `identityDriftTags`
+  - `hardFailureReasons`
+  - `softRiskTags`
+  - `qaDecision.status`
+  - `qaDecision.threshold`
+  - `qaDecision.regenStrategy`
+  - `regenStrategy`
+  - `problematicImageIndices`
+  - `suggestion`
+- `needsRegeneration[*]`
+  - `shotId`
+  - `reason`
+  - `regenStrategy`
+  - `hardFailureReasons`
+  - `softRiskTags`
+  - `suggestion`
+
 关键落盘：
 
 - `05-consistency-checker/1-outputs/consistency-report.json`
@@ -387,6 +411,10 @@ Director 会在 run 根目录再汇总一层：
 
 - 当前这层只负责“角色外观一致性”
 - 不负责完整时序连贯性
+- 当前采用“角色优先级 × 镜头复杂度”的双轴 QA，不再只是单阈值分数线
+- `Director` 会消费 `regenStrategy`：
+  - `prompt_tighten`：收紧 prompt
+  - `reanchor_regenerate`：带参考图回锚重生
 
 ### 7. Continuity Checker
 

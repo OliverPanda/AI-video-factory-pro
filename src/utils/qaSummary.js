@@ -117,6 +117,9 @@ export function writeRunQaOverview(overview, artifactContext) {
   lines.push(`- 重试步骤: ${runDebug.retriedSteps.length > 0 ? runDebug.retriedSteps.join('，') : '无'}`);
   lines.push(`- 人工复核步骤: ${runDebug.manualReviewSteps.length > 0 ? runDebug.manualReviewSteps.join('，') : '无'}`);
   lines.push(`- 失败步骤: ${runDebug.failedSteps.length > 0 ? runDebug.failedSteps.join('，') : '无'}`);
+  lines.push(`- 视觉阻断镜头: ${runDebug.visualBlockedShotIds.length > 0 ? runDebug.visualBlockedShotIds.join('，') : '无'}`);
+  lines.push(`- 上游失败镜头: ${runDebug.upstreamFailureShotIds.length > 0 ? runDebug.upstreamFailureShotIds.join('，') : '无'}`);
+  lines.push(`- 案例记忆: ${runDebug.caseMemoryFindings.length > 0 ? runDebug.caseMemoryFindings.join('；') : '无'}`);
   lines.push(`- 提前停止时间: ${runDebug.stoppedBeforeVideoAt || '无'}`);
   lines.push(`- 预览输出: ${runDebug.previewOutputPath || '无'}`);
   lines.push(`- 完成时间: ${runDebug.completedAt || '无'}`);

@@ -1,0 +1,10 @@
+{
+  "status": "running",
+  "releasable": false,
+  "headline": "仍在执行中",
+  "summary": "等待更多产物",
+  "passCount": 0,
+  "warnCount": 0,
+  "blockCount": 0,
+  "agentSummaries": []
+}

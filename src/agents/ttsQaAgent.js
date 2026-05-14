@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { saveJSON, ensureDir } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
+import { classifyArtifactReadiness } from '../utils/rootCauseClassifier.js';
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -199,12 +200,129 @@ function summarizeVoiceResolutionForShot(resolutions = []) {
   };
 }
 
+function buildTtsRootCauseView(report, audioResults = [], voiceResolution = []) {
+  const audioByShotId = new Map((audioResults || []).map((entry) => [entry.shotId, entry]));
+  const resolutionsByShotId = groupVoiceResolutionByShotId(voiceResolution);
+  const rootCauseEntries = [];
+
+  for (const entry of report.entries || []) {
+    const audioResult = audioByShotId.get(entry.shotId) || {};
+    const segmentResolutions = resolutionsByShotId.get(entry.shotId) || [];
+    const resolution = summarizeVoiceResolutionForShot(segmentResolutions) || {};
+
+    if (!audioResult?.audioPath) {
+      const readiness = classifyArtifactReadiness(audioResult, {
+        assetPathField: 'audioPath',
+        successField: 'hasDialogue',
+        errorFields: ['error', 'reason'],
+        readyCode: 'ready',
+        readyLabel: '音频已就绪',
+        timeoutCode: 'tts_generation_timeout',
+        timeoutLabel: 'TTS 生成超时',
+        failureCode: 'tts_generation_failed',
+        failureLabel: 'TTS 生成失败',
+        missingCode: 'audio_result_missing',
+        missingLabel: '音频结果缺失',
+        missingReasonCode: 'missing_audio_asset',
+        timeoutReasonCode: 'tts_generation_timeout',
+        failureReasonCode: 'tts_generation_failed',
+        missingEvidenceWithoutPath: 'missing_audio_result',
+        missingEvidenceWithPath: 'missing_audio_success_flag',
+      });
+
+      rootCauseEntries.push({
+        shotId: entry.shotId,
+        severity: 'block',
+        symptomCode: 'missing_audio',
+        symptomLabel: '音频缺失',
+        rootCauseCode: readiness.rootCauseCode,
+        rootCauseLabel: readiness.rootCauseLabel,
+        evidence: readiness.evidenceSummary,
+        conclusion: `镜头 ${entry.shotId} 缺少可交付音频，应优先排查上游 TTS 生成链路。`,
+      });
+    }
+
+    for (const segmentResolution of segmentResolutions.length > 0 ? segmentResolutions : [resolution]) {
+      if (segmentResolution?.usedDefaultVoiceFallback) {
+        rootCauseEntries.push({
+          shotId: entry.shotId,
+          segmentId: segmentResolution.segmentId || null,
+          severity: entry.status === 'block' ? 'block' : 'warn',
+          symptomCode: 'fallback_voice_used',
+          symptomLabel: '使用 fallback voice',
+          rootCauseCode: 'voice_binding_missing_or_unbound',
+          rootCauseLabel: '角色未绑定稳定音色',
+          evidence: segmentResolution?.voiceSource || 'gender_fallback',
+          conclusion: `镜头 ${entry.shotId}${segmentResolution.segmentId ? `/${segmentResolution.segmentId}` : ''} 使用了 fallback voice，应优先补齐角色级语音绑定。`,
+        });
+      }
+    }
+
+    if (Number.isFinite(entry.asrCharacterErrorRate) && entry.asrCharacterErrorRate > 0.03) {
+      rootCauseEntries.push({
+        shotId: entry.shotId,
+        severity: entry.asrCharacterErrorRate > 0.2 ? 'block' : 'warn',
+        symptomCode: 'asr_text_drift',
+        symptomLabel: 'ASR 转写偏差',
+        rootCauseCode: 'tts_content_or_pronunciation_drift',
+        rootCauseLabel: 'TTS 内容或发音漂移',
+        evidence: `cer=${entry.asrCharacterErrorRate}`,
+        conclusion: `镜头 ${entry.shotId} 的文本回写偏差较大，应优先排查发音、停连或文本送入是否漂移。`,
+      });
+    }
+  }
+
+  for (const warning of report.warnings || []) {
+    const match = /角色\s+(.+?)\s+存在音色漂移/.exec(String(warning));
+    if (!match) continue;
+    rootCauseEntries.push({
+      shotId: null,
+      severity: 'warn',
+      symptomCode: 'speaker_voice_drift',
+      symptomLabel: '角色音色漂移',
+      rootCauseCode: 'voice_binding_inconsistent',
+      rootCauseLabel: '同角色音色绑定不一致',
+      evidence: warning,
+      conclusion: `角色 ${match[1]} 在多个镜头间使用了不同音色，应优先统一项目级声音绑定。`,
+    });
+  }
+
+  const counts = rootCauseEntries.reduce((acc, item) => {
+    acc[item.rootCauseCode] = (acc[item.rootCauseCode] || 0) + 1;
+    return acc;
+  }, {});
+  const topRootCauses = Object.entries(counts)
+    .sort((left, right) => right[1] - left[1])
+    .map(([code, count]) => ({ code, count }))
+    .slice(0, 5);
+
+  return {
+    entries: rootCauseEntries,
+    topRootCauses,
+    learnedPatterns: [
+      rootCauseEntries.some((item) => item.symptomCode === 'missing_audio')
+        ? 'TTS QA 出现“音频缺失”时，应先回看上游 TTS 生成结果，而不是只在 QA 层重试。'
+        : '',
+      rootCauseEntries.some((item) => item.symptomCode === 'fallback_voice_used')
+        ? 'TTS QA 出现 fallback voice 时，应优先补角色级声音绑定，再看供应商效果。'
+        : '',
+      rootCauseEntries.some((item) => item.symptomCode === 'speaker_voice_drift')
+        ? '同角色跨镜头音色漂移通常是绑定不一致，而不是单条音频偶发问题。'
+        : '',
+    ].filter(Boolean),
+  };
+}
+
 function writeArtifacts(report, artifactContext) {
   if (!artifactContext) {
     return;
   }
 
   saveJSON(path.join(artifactContext.metricsDir, 'tts-qa.json'), report);
+  saveJSON(
+    path.join(artifactContext.metricsDir, 'tts-root-cause.json'),
+    report.rootCauseView || { entries: [], topRootCauses: [], learnedPatterns: [] }
+  );
   saveJSON(
     path.join(artifactContext.metricsDir, 'asr-report.json'),
     report.asrReport || { status: 'not_run', entries: [] }
@@ -232,12 +350,36 @@ function writeArtifacts(report, artifactContext) {
       '',
     ].join('\n')
   );
+  writeTextFile(
+    path.join(artifactContext.outputsDir, 'tts-root-cause.md'),
+    [
+      '# TTS Root Cause View',
+      '',
+      '## Top Root Causes',
+      ...(report.rootCauseView?.topRootCauses?.length
+        ? report.rootCauseView.topRootCauses.map((item) => `- ${item.code}: ${item.count}`)
+        : ['- 无']),
+      '',
+      '## Symptom Links',
+      ...(report.rootCauseView?.entries?.length
+        ? report.rootCauseView.entries.map((item) =>
+            `- ${item.shotId || 'project_level'} | ${item.symptomLabel} -> ${item.rootCauseLabel} | ${item.conclusion}`
+          )
+        : ['- 无']),
+      '',
+      '## Learned Patterns',
+      ...(report.rootCauseView?.learnedPatterns?.length
+        ? report.rootCauseView.learnedPatterns.map((item) => `- ${item}`)
+        : ['- 无']),
+      '',
+    ].join('\n')
+  );
 
   saveJSON(artifactContext.manifestPath, {
     status: report.status,
     blockers: report.blockers.length,
     warnings: report.warnings.length,
-    outputFiles: ['tts-qa.json', 'asr-report.json', 'voice-cast-report.md', 'manual-review-sample.md'],
+    outputFiles: ['tts-qa.json', 'tts-root-cause.json', 'asr-report.json', 'voice-cast-report.md', 'manual-review-sample.md', 'tts-root-cause.md'],
   });
   writeAgentQaSummary(
     {
@@ -252,10 +394,10 @@ function writeArtifacts(report, artifactContext) {
             : `配音被阻断，有 ${report.blockers.length} 个关键问题`,
       summary:
         report.status === 'pass'
-          ? '音频存在、时长预算和文本回写都在可接受范围内。'
+          ? `音频存在、时长预算和文本回写都在可接受范围内。${report.rootCauseView?.learnedPatterns?.length ? ` 当前沉淀 ${report.rootCauseView.learnedPatterns.length} 条 TTS 根因经验。` : ''}`
           : report.status === 'warn'
-            ? '主链路可继续，但建议先处理或记录这些风险后再交付。'
-            : '当前配音结果不满足最小交付要求，需要先修复阻断项。',
+            ? `主链路可继续，但建议先处理或记录这些风险后再交付。${report.rootCauseView?.entries?.length ? ' 可优先查看 tts-root-cause 了解症状与主因。' : ''}`
+            : `当前配音结果不满足最小交付要求，需要先修复阻断项。${report.rootCauseView?.entries?.length ? ' 可优先查看 tts-root-cause 了解症状与主因。' : ''}`,
       passItems: [
         `对白镜头数：${report.dialogueShotCount}`,
         `预算通过率：${((report.budgetPassRate || 0) * 100).toFixed(1)}%`,
@@ -270,15 +412,18 @@ function writeArtifacts(report, artifactContext) {
             : '先修复阻断镜头，再重新运行配音链路。',
       evidenceFiles: [
         '2-metrics/tts-qa.json',
+        '2-metrics/tts-root-cause.json',
         '2-metrics/asr-report.json',
         '1-outputs/voice-cast-report.md',
         '1-outputs/manual-review-sample.md',
+        '1-outputs/tts-root-cause.md',
       ],
       metrics: {
         dialogueShotCount: report.dialogueShotCount,
         fallbackCount: report.fallbackCount,
         fallbackRate: report.fallbackRate,
         budgetPassRate: report.budgetPassRate,
+        rootCauseCount: report.rootCauseView?.entries?.length || 0,
       },
     },
     artifactContext
@@ -434,6 +579,7 @@ export async function runTtsQa(shots, audioResults, voiceResolution = [], option
     manualReviewPlan,
     entries,
   };
+  report.rootCauseView = buildTtsRootCauseView(report, audioResults, voiceResolution);
 
   writeArtifacts(report, artifactContext);
   return report;

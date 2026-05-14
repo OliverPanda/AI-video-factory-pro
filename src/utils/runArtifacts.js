@@ -1,13 +1,9 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { ensureDir, saveJSON } from './fileHelper.js';
-import {
-  buildEpisodeDirName,
-  buildProjectDirName,
-  buildRunDirName,
-  buildScriptDirName,
-} from './naming.js';
+import { formatRunTimestamp, normalizeReadableSegment } from './naming.js';
 
 export const AGENT_ARTIFACT_LAYOUT = {
   scriptParser: '01-script-parser',
@@ -58,6 +54,39 @@ function createAgentContext(runDir, agentDirName) {
     metricsDir,
     errorsDir,
   };
+}
+
+function buildArtifactHash(...parts) {
+  return createHash('sha1')
+    .update(parts.filter(Boolean).map((part) => String(part)).join('::'))
+    .digest('hex')
+    .slice(0, 10);
+}
+
+function buildReadableArtifactSegment(value, maxLength = 48) {
+  const readable = normalizeReadableSegment(value || 'untitled');
+  return readable.length > maxLength ? readable.slice(0, maxLength) : readable;
+}
+
+function buildArtifactProjectDirName(input) {
+  return `p_${buildArtifactHash(input?.projectId, input?.projectName)}_${buildReadableArtifactSegment(input?.projectName)}`;
+}
+
+function buildArtifactScriptDirName(input) {
+  return `s_${buildArtifactHash(input?.scriptId, input?.scriptTitle)}_${buildReadableArtifactSegment(input?.scriptTitle)}`;
+}
+
+function buildArtifactEpisodeDirName(input) {
+  const numericEpisodeNo = Number(input?.episodeNo);
+  const episodeNo =
+    Number.isFinite(numericEpisodeNo) && numericEpisodeNo > 0
+      ? String(Math.floor(numericEpisodeNo)).padStart(2, '0')
+      : '01';
+  return `e${episodeNo}_${buildArtifactHash(input?.episodeId, input?.episodeTitle)}_${buildReadableArtifactSegment(input?.episodeTitle)}`;
+}
+
+function buildArtifactRunDirName(input) {
+  return `r_${formatRunTimestamp(input?.startedAt)}_${buildArtifactHash(input?.runJobId)}`;
 }
 
 function normalizeText(value) {
@@ -182,27 +211,20 @@ export function normalizeHarnessRunDebug(runDebug = {}) {
     retriedSteps: normalizeStepList(runDebug.retriedSteps),
     manualReviewSteps: normalizeStepList(runDebug.manualReviewSteps),
     failedSteps: normalizeStepList(runDebug.failedSteps),
+    visualBlockedShotIds: normalizeList(runDebug.visualBlockedShotIds),
+    upstreamFailureShotIds: normalizeList(runDebug.upstreamFailureShotIds),
+    caseMemoryFindings: normalizeList(runDebug.caseMemoryFindings),
     retriedCount: Number(runDebug.retriedCount || 0),
   };
 }
 
 export function createRunArtifactContext(input) {
   const baseTempDir = input?.baseTempDir || './temp';
-  const projectDir = ensureDir(
-    path.join(baseTempDir, 'projects', buildProjectDirName(input?.projectName, input?.projectId))
-  );
-  const scriptDir = ensureDir(
-    path.join(projectDir, 'scripts', buildScriptDirName(input?.scriptTitle, input?.scriptId))
-  );
-  const episodeDir = ensureDir(
-    path.join(
-      scriptDir,
-      'episodes',
-      buildEpisodeDirName({ episodeNo: input?.episodeNo, id: input?.episodeId })
-    )
-  );
+  const projectDir = ensureDir(path.join(baseTempDir, 'projects', buildArtifactProjectDirName(input)));
+  const scriptDir = ensureDir(path.join(projectDir, 'scripts', buildArtifactScriptDirName(input)));
+  const episodeDir = ensureDir(path.join(scriptDir, 'episodes', buildArtifactEpisodeDirName(input)));
   const runsDir = ensureDir(path.join(episodeDir, 'runs'));
-  const runDir = ensureDir(path.join(runsDir, buildRunDirName(input?.runJobId, input?.startedAt)));
+  const runDir = ensureDir(path.join(runsDir, buildArtifactRunDirName(input)));
 
   const sora2VideoAgent = createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sora2VideoAgent);
 

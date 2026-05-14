@@ -1,0 +1,13 @@
+{
+  "id": "pilot",
+  "projectId": "project-example",
+  "title": "试播集",
+  "sourceText": "第1集《试播集》",
+  "characters": [
+    {
+      "id": "char-shenqing",
+      "name": "沈清",
+      "gender": "female"
+    }
+  ]
+}

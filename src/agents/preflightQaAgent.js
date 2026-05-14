@@ -10,6 +10,14 @@ function normalizeStringArray(value) {
     : [];
 }
 
+const HARD_VISUAL_BLOCK_ISSUES = new Set([
+  'anatomy_structure_invalid',
+  'anatomy_pose_invalid',
+  'limb_structure_invalid',
+  'character_identity_corrupted',
+  'reference_sheet_background_invalid',
+]);
+
 const ISSUE_GUIDANCE = {
   missing_scene_pack: {
     label: '场景目标缺失',
@@ -43,6 +51,34 @@ const ISSUE_GUIDANCE = {
     label: '导演意图缺失',
     suggestion: '补镜头情绪、摄影策略和写实约束，告诉模型这镜到底要克制、压迫还是观察。',
   },
+  anatomy_structure_invalid: {
+    label: '人体结构异常',
+    suggestion: '先重做角色/镜头参考图，明确肢体数量、关节朝向、受力姿态和完整站姿，不要带病进入后续视频链路。',
+  },
+  anatomy_pose_invalid: {
+    label: '人体姿态异常',
+    suggestion: '先把起手动作、关节弯折方向和身体重心写清楚，必要时重做参考图，不要让模型继续脑补。',
+  },
+  limb_structure_invalid: {
+    label: '四肢结构异常',
+    suggestion: '先修正手脚数量、长度比例和连接关系，确认不是多手多脚或肢体粘连后再继续。',
+  },
+  character_identity_corrupted: {
+    label: '角色形体已崩坏',
+    suggestion: '先回到角色参考资产，重新绑定稳定角色形象，再继续镜头生成。',
+  },
+  reference_sheet_background_invalid: {
+    label: '参考图背景不合格',
+    suggestion: '三视图或角色参考图必须是干净纯底，先去掉楼梯、道具和环境干扰，再继续后续链路。',
+  },
+  prop_anchor_drift: {
+    label: '道具锚点漂移',
+    suggestion: '按当前剧本的 corePropRegistry 修正道具锚点，画面需要露出必需手腕端点，禁止漂移到 forbiddenAnchors。',
+  },
+  forbidden_body_anchor: {
+    label: '禁用身体锚点',
+    suggestion: '把 forbiddenAnchors 从生成语义中排除，并重申 placementPolicy 指定的 anchorType。',
+  },
 };
 
 const ISSUE_OWNER_MAP = {
@@ -54,11 +90,20 @@ const ISSUE_OWNER_MAP = {
   blocking_missing: ['directorPackAgent'],
   continuity_locks_missing: ['directorPackAgent', 'seedancePromptAgent'],
   missing_director_pack: ['directorPackAgent'],
+  anatomy_structure_invalid: ['directorPackAgent', 'seedancePromptAgent'],
+  anatomy_pose_invalid: ['directorPackAgent', 'seedancePromptAgent'],
+  limb_structure_invalid: ['directorPackAgent', 'seedancePromptAgent'],
+  character_identity_corrupted: ['directorPackAgent', 'seedancePromptAgent'],
+  reference_sheet_background_invalid: ['sceneGrammarAgent', 'directorPackAgent'],
+  prop_anchor_drift: ['promptEngineer', 'continuityChecker', 'seedancePromptAgent'],
+  forbidden_body_anchor: ['promptEngineer', 'continuityChecker', 'seedancePromptAgent'],
 };
 
 const OWNER_LABELS = {
   sceneGrammarAgent: 'Scene Grammar Agent',
   directorPackAgent: 'Director Pack Agent',
+  promptEngineer: 'Prompt Engineer',
+  continuityChecker: 'Continuity Checker',
   seedancePromptAgent: 'Seedance Prompt Agent',
 };
 
@@ -148,6 +193,11 @@ function buildScores(shotPackage = {}) {
 
 function inferDecision(scores, shotPackage = {}) {
   const qualityIssues = normalizeStringArray(shotPackage.qualityIssues);
+  const hardVisualBlock = qualityIssues.some((issue) => HARD_VISUAL_BLOCK_ISSUES.has(issue));
+  if (hardVisualBlock) {
+    return 'block';
+  }
+
   const hardBlock = qualityIssues.some((issue) =>
     ['missing_scene_pack', 'missing_reference_stack', 'entry_state_missing', 'exit_state_missing'].includes(issue)
   );
@@ -156,7 +206,14 @@ function inferDecision(scores, shotPackage = {}) {
   }
 
   const weakCoverage = qualityIssues.some((issue) =>
-    ['coverage_role_missing', 'blocking_missing', 'continuity_locks_missing', 'missing_director_pack'].includes(issue)
+    [
+      'coverage_role_missing',
+      'blocking_missing',
+      'continuity_locks_missing',
+      'missing_director_pack',
+      'prop_anchor_drift',
+      'forbidden_body_anchor',
+    ].includes(issue)
   );
   if (weakCoverage) {
     return 'warn';
@@ -263,6 +320,7 @@ export function evaluateShotPackage(shotPackage = {}) {
     reviewedPackage = rewriteWarnPackage(reviewedPackage);
   }
   if (decision === 'block') {
+    const hardBlockReasons = reasons.filter((reason) => HARD_VISUAL_BLOCK_ISSUES.has(reason));
     reviewedPackage = {
       ...reviewedPackage,
       preferredProvider: 'static_image',
@@ -270,6 +328,8 @@ export function evaluateShotPackage(shotPackage = {}) {
       providerRequestHints: {
         ...reviewedPackage.providerRequestHints,
         preflightBlocked: true,
+        preflightHardBlock: hardBlockReasons.length > 0,
+        preflightHardBlockReasons: hardBlockReasons,
       },
     };
   }
@@ -410,6 +470,7 @@ export async function runPreflightQa(shotPackages = [], options = {}) {
 }
 
 export const __testables = {
+  HARD_VISUAL_BLOCK_ISSUES,
   buildReport,
   buildScores,
   evaluateShotPackage,

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildCharacterRegistry } from '../src/agents/characterRegistry.js';
-import { generateAllPrompts } from '../src/agents/promptEngineer.js';
+import { generateAllPrompts, generatePromptForShot } from '../src/agents/promptEngineer.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
@@ -360,4 +360,103 @@ test('prompt engineer removes scene-prop identity pollution from generated promp
   assert.equal(prompts[0].negative_prompt.includes('blurry, blurry'), false);
   assert.match(prompts[0].display_prompt_zh, /场景：废弃仓库/);
   assert.match(prompts[0].display_prompt_zh, /动作：阿鬼举刀逼近/);
+});
+
+test('prompt engineer injects identity anchors and forbidden identity tokens into execution prompts', async () => {
+  const shots = [
+    {
+      id: 'shot_contract_001',
+      scene: '仓库入口',
+      action: '陈默侧身观察',
+      characters: ['陈默'],
+      shotCharacters: [{ episodeCharacterId: 'char_chen', characterName: '陈默', sortOrder: 1 }],
+      camera_type: '近景',
+    },
+  ];
+  const registry = [
+    {
+      id: 'char_chen',
+      episodeCharacterId: 'char_chen',
+      name: '陈默',
+      identityAnchor: 'short black hair, black tactical jacket',
+      basePromptTokens: 'stern expression, black tactical jacket',
+      forbiddenIdentityTokens: 'different hairstyle, red coat',
+      visualDescription: 'lean man in tactical wear',
+    },
+  ];
+
+  const prompts = await generateAllPrompts(shots, registry, 'realistic', {
+    chatJSON: async () => ({
+      image_prompt_en: 'cinematic warehouse entrance, alert posture',
+      negative_prompt_en: 'blurry',
+      display_prompt_zh: '仓库入口，陈默侧身观察',
+      display_negative_prompt_zh: '避免模糊',
+      style_notes: '强调警觉状态',
+    }),
+  });
+
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0].image_prompt_en, /short black hair/);
+  assert.match(prompts[0].image_prompt_en, /black tactical jacket/);
+  assert.match(prompts[0].image_prompt_en, /stern expression/);
+  assert.match(prompts[0].negative_prompt_en, /different hairstyle/);
+  assert.match(prompts[0].negative_prompt_en, /red coat/);
+});
+
+test('prompt engineer injects script-specific chain prop anchors only from core prop registry', async () => {
+  const shot = {
+    id: 'shot_007',
+    scene: '游戏登录空间·虚空蓝光',
+    characters: ['陆衍', '零'],
+    action: '双人近景。零与陆衍面对面，锁链绷直。',
+    dialogue: '存活条件：锁链距离不可超过10米。',
+  };
+  const registry = [
+    {
+      id: 'char_luyan',
+      episodeCharacterId: 'char_luyan',
+      name: '陆衍',
+      visualDescription: 'short dark hair, pale skin, thin white robe',
+      basePromptTokens: 'short dark hair, pale skin, thin white robe',
+    },
+    {
+      id: 'char_zero',
+      episodeCharacterId: 'char_zero',
+      name: '零',
+      visualDescription: 'sleek black hair, black windbreaker, red eyes',
+      basePromptTokens: 'sleek black hair, black windbreaker, red eyes',
+    },
+  ];
+  const chatJSON = async () => ({
+    image_prompt_en: 'two men facing each other, chain taut between them',
+    negative_prompt_en: 'blurry',
+    display_prompt_zh: '两人面对面，锁链绷直',
+    display_negative_prompt_zh: '避免模糊',
+    style_notes: '',
+  });
+  const corePropRegistry = [
+    {
+      propId: 'binding_chain',
+      aliases: ['锁链', '黑色锁链'],
+      appearance: 'semi-transparent black chain',
+      activeShotIds: ['shot_007'],
+      placementPolicy: {
+        anchorType: 'wrist_endpoint_pair',
+        forbiddenAnchors: ['neck', 'collar', 'throat'],
+      },
+    },
+  ];
+
+  const withProp = await generatePromptForShot(shot, registry, 'realistic', {
+    chatJSON,
+    corePropRegistry,
+  });
+  const withoutProp = await generatePromptForShot(shot, registry, 'realistic', { chatJSON });
+
+  assert.match(withProp.image_prompt_en, /semi-transparent black chain/i);
+  assert.match(withProp.image_prompt_en, /endpoint locked around .* wrist/i);
+  assert.match(withProp.negative_prompt_en, /chain around neck/i);
+  assert.match(withProp.negative_prompt_en, /collar chain/i);
+  assert.doesNotMatch(withoutProp.image_prompt_en, /semi-transparent black chain/i);
+  assert.doesNotMatch(withoutProp.negative_prompt_en, /collar chain/i);
 });

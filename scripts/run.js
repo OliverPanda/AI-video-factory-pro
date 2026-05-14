@@ -19,6 +19,7 @@ const USAGE = `
 选项：
   --style=realistic|3d      视觉风格（默认：realistic）
   --skip-consistency        跳过一致性验证（加速测试）
+  --max-shots=<number>      仅处理前 N 个分镜（用于抽样验证）
   --provider=qwen|deepseek|claude  LLM提供商（覆盖.env设置）
   --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
   --input-format=professional-script|raw-novel|auto
@@ -51,6 +52,11 @@ function normalizeInputFormat(value) {
   return normalized;
 }
 
+function resolveStoreOptions() {
+  const baseTempDir = process.env.TEMP_DIR || './temp';
+  return { baseTempDir };
+}
+
 export function parseCliArgs(args) {
   const scriptFile = args.find((arg) => !arg.startsWith('--')) ?? null;
   const projectId = normalizeId(getFlagValue(args, 'project'));
@@ -59,10 +65,20 @@ export function parseCliArgs(args) {
   const projectIdOverride = normalizeId(getFlagValue(args, 'project-id'));
   const style = normalizeId(getFlagValue(args, 'style'));
   const provider = normalizeId(getFlagValue(args, 'provider'));
+  const maxShotsRaw = normalizeId(getFlagValue(args, 'max-shots'));
   const skipConsistencyCheck = args.includes('--skip-consistency');
   const stopAfterImages = args.includes('--stop-after-images');
   const stopBeforeVideo = args.includes('--stop-before-video');
   const inputFormat = normalizeInputFormat(getFlagValue(args, 'input-format'));
+
+  let maxShots = null;
+  if (maxShotsRaw !== null) {
+    const parsedMaxShots = Number.parseInt(maxShotsRaw, 10);
+    if (!Number.isInteger(parsedMaxShots) || parsedMaxShots <= 0) {
+      throw new Error('--max-shots 必须是大于 0 的整数。');
+    }
+    maxShots = parsedMaxShots;
+  }
 
   const hasProjectModeFlags = projectId || scriptId || episodeId;
   const hasCompleteProjectMode = projectId && scriptId && episodeId;
@@ -87,6 +103,7 @@ export function parseCliArgs(args) {
     episodeId,
     projectIdOverride,
     style,
+    maxShots,
     skipConsistencyCheck,
     stopAfterImages,
     stopBeforeVideo,
@@ -146,8 +163,10 @@ export function createCli(overrides = {}) {
           episodeId: parsedArgs.episodeId,
           options: {
             style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
+            maxShots: parsedArgs.maxShots,
             skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
             inputFormat: parsedArgs.inputFormat,
+            storeOptions: resolveStoreOptions(),
           },
         });
         deps.writeSuccess(outputPath);
@@ -156,11 +175,13 @@ export function createCli(overrides = {}) {
 
       const result = await deps.runPipeline(deps.resolveScriptPath(parsedArgs.scriptFile), {
         style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
+        maxShots: parsedArgs.maxShots,
         skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
         stopAfterImages: parsedArgs.stopAfterImages,
         stopBeforeVideo: parsedArgs.stopBeforeVideo,
         projectId: parsedArgs.projectIdOverride,
         inputFormat: parsedArgs.inputFormat,
+        storeOptions: resolveStoreOptions(),
       });
       if (parsedArgs.stopAfterImages) {
         deps.logger.info('Main', '已完成到出图阶段，跳过视频生成');

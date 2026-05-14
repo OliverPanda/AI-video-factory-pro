@@ -1,0 +1,17 @@
+{
+  "status": "warn",
+  "releasable": true,
+  "headline": "本轮可继续交付",
+  "summary": "有 1 个提醒项",
+  "passCount": 6,
+  "warnCount": 1,
+  "blockCount": 0,
+  "agentSummaries": [
+    {
+      "agentName": "Shot QA Agent",
+      "headline": "镜头基本通过",
+      "summary": "有 1 个提醒项",
+      "status": "warn"
+    }
+  ]
+}

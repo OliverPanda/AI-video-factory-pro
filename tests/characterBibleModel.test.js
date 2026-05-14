@@ -15,6 +15,7 @@ test('createCharacterBible sets stable defaults for project-level identity asset
   assert.deepEqual(bible.coreTraits, {});
   assert.deepEqual(bible.wardrobeAnchor, {});
   assert.deepEqual(bible.lightingAnchor, {});
+  assert.equal(bible.priority, 'support');
   assert.equal(bible.basePromptTokens, null);
   assert.equal(bible.negativeDriftTokens, null);
   assert.equal(bible.notes, null);
@@ -33,6 +34,7 @@ test('createCharacterBible preserves explicit core identity anchors', () => {
     coreTraits: { hairStyle: 'long black hair' },
     wardrobeAnchor: { primaryColors: ['white', 'navy'] },
     lightingAnchor: { baseTone: 'soft natural light' },
+    priority: 'lead',
     basePromptTokens: 'young woman, long black hair',
     negativeDriftTokens: 'different hairstyle',
     notes: '现代都市感',
@@ -45,8 +47,27 @@ test('createCharacterBible preserves explicit core identity anchors', () => {
   assert.deepEqual(bible.coreTraits, { hairStyle: 'long black hair' });
   assert.deepEqual(bible.wardrobeAnchor, { primaryColors: ['white', 'navy'] });
   assert.deepEqual(bible.lightingAnchor, { baseTone: 'soft natural light' });
+  assert.equal(bible.priority, 'lead');
   assert.equal(bible.basePromptTokens, 'young woman, long black hair');
   assert.equal(bible.negativeDriftTokens, 'different hairstyle');
   assert.equal(bible.notes, '现代都市感');
   assert.equal(bible.tier, 'lead');
+});
+
+test('createCharacterBible normalizes dirty structured fields to stable defaults', () => {
+  const bible = createCharacterBible({
+    projectId: 'project-1',
+    name: '小红',
+    aliases: null,
+    referenceImages: 'bad',
+    coreTraits: null,
+    wardrobeAnchor: null,
+    lightingAnchor: null,
+  });
+
+  assert.deepEqual(bible.aliases, []);
+  assert.deepEqual(bible.referenceImages, []);
+  assert.deepEqual(bible.coreTraits, {});
+  assert.deepEqual(bible.wardrobeAnchor, {});
+  assert.deepEqual(bible.lightingAnchor, {});
 });

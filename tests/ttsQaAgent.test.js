@@ -47,12 +47,16 @@ test('tts QA returns pass when all dialogue shots have audio and stay within dur
     assert.equal(result.status, 'pass');
     assert.equal(result.blockers.length, 0);
     assert.equal(result.warnings.length, 0);
+    assert.equal(Array.isArray(result.rootCauseView.entries), true);
+    assert.equal(result.rootCauseView.entries.length, 0);
     assert.deepEqual(result.manualReviewPlan.categories.protagonistShots, ['shot_1']);
     assert.deepEqual(result.manualReviewPlan.categories.closeUpLipsyncShots, []);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'tts-qa.json')), true);
+    assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'tts-root-cause.json')), true);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'asr-report.json')), true);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.outputsDir, 'voice-cast-report.md')), true);
     assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.outputsDir, 'manual-review-sample.md')), true);
+    assert.equal(fs.existsSync(path.join(ctx.agents.ttsQaAgent.outputsDir, 'tts-root-cause.md')), true);
   }, 'tts-qa');
 });
 
@@ -85,6 +89,8 @@ test('tts QA returns warn when fallback voices are used but delivery is still co
     assert.equal(result.blockers.length, 0);
     assert.equal(result.warnings.length, 1);
     assert.match(result.warnings[0], /fallback/i);
+    assert.equal(result.rootCauseView.entries[0].symptomCode, 'fallback_voice_used');
+    assert.equal(result.rootCauseView.entries[0].rootCauseCode, 'voice_binding_missing_or_unbound');
   }, 'tts-qa');
 });
 
@@ -169,6 +175,8 @@ test('tts QA returns block when a dialogue shot is missing audio', async (t) => 
     assert.equal(result.status, 'block');
     assert.equal(result.blockers.length, 1);
     assert.match(result.blockers[0], /音频缺失/);
+    assert.equal(result.rootCauseView.entries[0].symptomCode, 'missing_audio');
+    assert.match(result.rootCauseView.entries[0].rootCauseCode, /tts_generation_failed|audio_result_missing|tts_generation_timeout/);
   }, 'tts-qa');
 });
 
@@ -220,6 +228,10 @@ test('tts QA returns warn when the same speaker drifts across different voices',
 
     assert.equal(result.status, 'warn');
     assert.match(result.warnings.join('\n'), /音色漂移|speaker consistency/i);
+    assert.equal(
+      result.rootCauseView.entries.some((item) => item.symptomCode === 'speaker_voice_drift'),
+      true
+    );
   }, 'tts-qa');
 });
 
@@ -251,6 +263,10 @@ test('tts QA writes ASR report and warns when transcript drift exceeds threshold
 
     assert.equal(result.status, 'warn');
     assert.match(result.warnings.join('\n'), /ASR|转写/i);
+    assert.equal(
+      result.rootCauseView.entries.some((item) => item.symptomCode === 'asr_text_drift'),
+      true
+    );
 
     const asrReport = JSON.parse(
       fs.readFileSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'asr-report.json'), 'utf-8')
@@ -314,5 +330,10 @@ test('tts QA writes manual review sampling plan into report artifacts', async (t
     );
     assert.match(sampleReport, /主角抽查：shot_1, shot_2/);
     assert.match(sampleReport, /Close-up \/ 强检镜头：shot_1/);
+
+    const rootCauseJson = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.ttsQaAgent.metricsDir, 'tts-root-cause.json'), 'utf-8')
+    );
+    assert.equal(Array.isArray(rootCauseJson.entries), true);
   }, 'tts-qa');
 });

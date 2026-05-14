@@ -21,6 +21,34 @@ export function buildImagePrompt(prompt, negativePrompt) {
   return `${prompt}\n\nAvoid or suppress the following elements: ${negativePrompt}`;
 }
 
+function normalizeReferenceImages(references = []) {
+  return (Array.isArray(references) ? references : [])
+    .map((reference) => {
+      if (typeof reference === 'string') {
+        return reference.trim();
+      }
+      if (reference && typeof reference === 'object') {
+        return String(reference.path || reference.url || '').trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function appendReferenceHints(prompt, references = []) {
+  const normalizedReferences = normalizeReferenceImages(references);
+  if (normalizedReferences.length === 0) {
+    return prompt;
+  }
+
+  return [
+    prompt,
+    '',
+    'Reference anchor images are provided and must be strictly followed for identity consistency.',
+    ...normalizedReferences.map((referencePath, index) => `Reference ${index + 1}: ${referencePath}`),
+  ].join('\n');
+}
+
 // 保留旧名称兼容
 export const buildLaozhangPrompt = buildImagePrompt;
 
@@ -41,10 +69,11 @@ export function extractGeneratedImage(responseData) {
   throw new Error(`图像 API 返回了未知格式：${JSON.stringify(imageData).slice(0, 300)}`);
 }
 
-async function downloadImageFromUrl(url, outputPath) {
+async function downloadImageFromUrl(url, outputPath, signal = undefined) {
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 120000,
+    signal,
   });
   saveBuffer(outputPath, Buffer.from(response.data));
   return outputPath;
@@ -58,7 +87,16 @@ function getImageGenerationSize(env = process.env) {
 
 export const laozhangImageProvider = {
   name: 'openai_compat',
-  async generate({ prompt, negativePrompt, outputPath, route, env = process.env, size: sizeOverride }) {
+  async generate({
+    prompt,
+    negativePrompt,
+    outputPath,
+    route,
+    env = process.env,
+    size: sizeOverride,
+    signal = undefined,
+    references = [],
+  }) {
     const apiKey = getImageApiKey(env);
     if (!apiKey) throw new Error('缺少 IMAGE_API_KEY 或 LAOZHANG_API_KEY');
 
@@ -70,7 +108,7 @@ export const laozhangImageProvider = {
       `${baseUrl}/images/generations`,
       {
         model: route.model,
-        prompt: buildImagePrompt(prompt, negativePrompt),
+        prompt: buildImagePrompt(appendReferenceHints(prompt, references), negativePrompt),
         size,
         n: 1,
       },
@@ -80,6 +118,7 @@ export const laozhangImageProvider = {
           'Content-Type': 'application/json',
         },
         timeout: 120000,
+        signal,
       }
     );
 
@@ -90,7 +129,7 @@ export const laozhangImageProvider = {
       return outputPath;
     }
 
-    const savedPath = await downloadImageFromUrl(generated.value, outputPath);
+    const savedPath = await downloadImageFromUrl(generated.value, outputPath, signal);
     logger.debug('ImageAPI', `[${providerLabel}] 生成完成（url）：${path.basename(outputPath)}`);
     return savedPath;
   },
@@ -99,6 +138,7 @@ export const laozhangImageProvider = {
 export const __testables = {
   buildLaozhangPrompt,
   buildImagePrompt,
+  appendReferenceHints,
   extractGeneratedImage,
   downloadImageFromUrl,
   getLaozhangBaseUrl,

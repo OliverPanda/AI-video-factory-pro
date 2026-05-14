@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+workbench-ui/node_modules/
 
 # Environment variables
 .env
@@ -9,6 +10,7 @@ temp/
 output/
 .worktrees/
 .superpowers/
+workbench-ui/dist/
 
 # Logs
 *.log
@@ -17,3 +19,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+截图/
+*.png

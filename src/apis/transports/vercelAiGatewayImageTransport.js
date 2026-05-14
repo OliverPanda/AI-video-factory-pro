@@ -55,7 +55,16 @@ export function createVercelAiGatewayImageTransport(options = {}) {
 
   return {
     name: 'vercel_ai_gateway',
-    async generate({ prompt, negativePrompt, outputPath, route, env: runtimeEnv = env, size = null, references = [] }) {
+    async generate({
+      prompt,
+      negativePrompt,
+      outputPath,
+      route,
+      env: runtimeEnv = env,
+      size = null,
+      references = [],
+      signal = undefined,
+    }) {
       const requestBody = buildVercelAiGatewayImageRequest({
         prompt,
         negativePrompt,
@@ -66,7 +75,7 @@ export function createVercelAiGatewayImageTransport(options = {}) {
       });
 
       try {
-        const response = await httpClient.post(submitPath, requestBody);
+        const response = await httpClient.post(submitPath, requestBody, { signal });
         const payload = response?.data || {};
         if (typeof payload.b64_json === 'string') {
           saveBuffer(outputPath, Buffer.from(payload.b64_json, 'base64'));
@@ -78,7 +87,7 @@ export function createVercelAiGatewayImageTransport(options = {}) {
           throw new Error('Vercel AI Gateway 图像返回为空');
         }
 
-        const binary = await binaryHttpClient.get(url, { responseType: 'arraybuffer' });
+        const binary = await binaryHttpClient.get(url, { responseType: 'arraybuffer', signal });
         saveBuffer(outputPath, Buffer.from(binary.data));
         return outputPath;
       } catch (error) {

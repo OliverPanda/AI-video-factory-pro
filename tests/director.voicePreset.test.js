@@ -39,10 +39,25 @@ function createDirectorHarness(t, overrides = {}) {
   const loadPronunciationLexiconCalls = [];
   const qaCalls = [];
   let persistedState = null;
+  const projectStore = new Map();
+  const scriptStore = new Map();
+  const episodeStore = new Map();
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
 
   const deps = {
     parseScript: async () => ({ title: 'Voice Preset Demo', shots, characters: [{ name: 'Alice' }] }),
     buildCharacterRegistry: async () => characterRegistry,
+    generateCharacterRefSheets: async (cards) =>
+      cards.map((card) => ({
+        characterId: card.episodeCharacterId || card.name,
+        characterName: card.name,
+        imagePath: `/tmp/${card.name.toLowerCase()}-ref.png`,
+        success: true,
+        error: null,
+      })),
     generateAllPrompts: async () => [{ shotId: 'shot-1', image_prompt: 'prompt', negative_prompt: '' }],
     generateAllImages: async () => [{ shotId: 'shot-1', success: true, imagePath: path.join(dirs.images, 'shot-1.png') }],
     regenerateImage: async () => path.join(dirs.images, 'shot-1.png'),
@@ -63,6 +78,24 @@ function createDirectorHarness(t, overrides = {}) {
       persistedState = JSON.parse(JSON.stringify(state));
     },
     loadJSON: () => persistedState,
+    loadProject: (projectId) => projectStore.get(projectId) || null,
+    loadScript: (projectId, scriptId) => scriptStore.get(`${projectId}/${scriptId}`) || null,
+    loadEpisode: (projectId, scriptId, episodeId) => episodeStore.get(`${projectId}/${scriptId}/${episodeId}`) || null,
+    saveProject: (project) => {
+      const value = clone(project);
+      projectStore.set(value.id, value);
+      return value;
+    },
+    saveScript: (projectId, script) => {
+      const value = clone(script);
+      scriptStore.set(`${projectId}/${value.id}`, value);
+      return value;
+    },
+    saveEpisode: (projectId, scriptId, episode) => {
+      const value = clone(episode);
+      episodeStore.set(`${projectId}/${scriptId}/${value.id}`, value);
+      return value;
+    },
     initDirs: () => dirs,
     generateJobId: () => 'job-123',
     readTextFile: () => 'script content',

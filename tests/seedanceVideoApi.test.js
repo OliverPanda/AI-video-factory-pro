@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 
 import { __testables, seedanceImageToVideo } from '../src/apis/seedanceVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../src/apis/unifiedVideoProviderClient.js';
+import { resolveVideoGenerationConfig } from '../src/apis/videoGenerationConfig.js';
+import { __testables as videoTransportTestables, createRelaySeedanceV2VideoTransport } from '../src/apis/videoTransports.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-seedance-api-'));
@@ -528,4 +531,132 @@ test('createUnifiedVideoProviderClient can route seedance business packages thro
     ['poll', 'task_vercel_transport_001'],
     ['download', 'https://example.com/vercel-transport-shot.mp4', '/tmp/shot_transport_env_001.mp4'],
   ]);
+});
+
+test('relay_seedance_v2 transport respects configured submit and poll paths', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'reference.png');
+    await sharp({
+      create: {
+        width: 1600,
+        height: 1600,
+        channels: 3,
+        background: { r: 40, g: 80, b: 120 },
+      },
+    })
+      .png()
+      .toFile(imagePath);
+
+    const calls = [];
+    const transport = createRelaySeedanceV2VideoTransport({
+      httpClient: {
+        async post(url, body) {
+          calls.push(['post', url, body.model]);
+          return {
+            data: {
+              code: 'success',
+              data: {
+                request_id: 'relay_task_001',
+                status: 'SUBMITTING',
+              },
+            },
+          };
+        },
+        async get(url) {
+          calls.push(['get', url]);
+          return {
+            data: {
+              data: {
+                status: 'COMPLETED',
+                video_urls: ['https://example.com/relay-seedance-v2.mp4'],
+              },
+            },
+          };
+        },
+      },
+      sleep: async () => {},
+      pollIntervalMs: 1,
+      timeoutMs: 20,
+    });
+
+    const submitResult = await transport.submit(
+      {
+        model: 'bytedance/doubao-seedance-2-0',
+        prompt: 'test prompt',
+        imagePath,
+      },
+      {
+        baseUrl: 'https://router.example.com',
+        apiKey: 'demo-key',
+        submitPath: '/api/v1/tasks/generations',
+      }
+    );
+
+    const pollResult = await transport.poll(submitResult.taskId, {
+      baseUrl: 'https://router.example.com',
+      apiKey: 'demo-key',
+      pollPath: '/api/v1/tasks/generations',
+    });
+
+    assert.equal(submitResult.taskId, 'relay_task_001');
+    assert.equal(pollResult.outputUrl, 'https://example.com/relay-seedance-v2.mp4');
+    assert.deepEqual(calls, [
+      ['post', '/api/v1/tasks/generations', 'bytedance/doubao-seedance-2-0'],
+      ['get', '/api/v1/tasks/generations/relay_task_001'],
+    ]);
+  });
+});
+
+test('relay_seedance_v2 body compresses reference image into jpeg data url', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'reference.png');
+    await sharp({
+      create: {
+        width: 2048,
+        height: 2048,
+        channels: 3,
+        background: { r: 120, g: 60, b: 30 },
+      },
+    })
+      .png()
+      .toFile(imagePath);
+    const rawPng = fs.readFileSync(imagePath);
+
+    const body = await videoTransportTestables.buildRelaySeedanceV2Body({
+      model: 'bytedance/doubao-seedance-2-0',
+      prompt: 'test prompt',
+      imagePath,
+      duration: 3,
+      ratio: '9:16',
+    });
+
+    assert.equal(body.model, 'bytedance/doubao-seedance-2-0');
+    assert.equal(body.duration, 4);
+    assert.equal(body.ratio, '9:16');
+    assert.equal(body.service_tier, undefined);
+    assert.equal(body.content[0].type, 'text');
+    assert.equal(body.content[1].type, 'image_url');
+    assert.match(body.content[1].image_url.url, /^data:image\/jpeg;base64,/);
+    assert.equal(body.content[1].image_url.url.length < `data:image/png;base64,${rawPng.toString('base64')}`.length, true);
+  });
+});
+
+test('resolveVideoGenerationConfig uses relay_seedance_v2 default submit and poll paths', () => {
+  const config = resolveVideoGenerationConfig(
+    {
+      shotId: 'shot_001',
+      preferredProvider: 'seedance',
+    },
+    {},
+    {
+      VIDEO_PROVIDER: 'seedance',
+      VIDEO_TRANSPORT_PROVIDER: 'relay_seedance_v2',
+      VIDEO_TRANSPORT_BASE_URL: 'https://router.shengsuanyun.com',
+      VIDEO_MODEL_SHOT: 'bytedance/doubao-seedance-2-0',
+    }
+  );
+
+  assert.equal(config.transport, 'relay_seedance_v2');
+  assert.equal(config.submitPath, '/api/v1/tasks/generations');
+  assert.equal(config.pollPath, '/api/v1/tasks/generations');
 });

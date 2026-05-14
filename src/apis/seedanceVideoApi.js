@@ -17,7 +17,7 @@ import {
   normalizeVideoProviderResult,
 } from './videoProviderProtocol.js';
 
-const SEEDANCE_API_BASE_URL = process.env.SEEDANCE_API_BASE_URL || process.env.VIDEO_FALLBACK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+const SEEDANCE_API_BASE_URL = process.env.SEEDANCE_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
 const SEEDANCE_DEFAULT_MODEL = process.env.SEEDANCE_MODEL_ID || 'doubao-seedance-2-0-260128';
 const SEEDANCE_DEFAULT_POLL_INTERVAL_MS = Number.parseInt(process.env.SEEDANCE_POLL_INTERVAL_MS || '10000', 10);
 const SEEDANCE_DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.SEEDANCE_TIMEOUT_MS || '600000', 10);
@@ -360,13 +360,13 @@ function toSeedanceVideoContent(videoPath) {
 }
 
 function resolveSeedanceApiKey(options = {}, env = process.env) {
-  return options.apiKey || env.SEEDANCE_API_KEY || env.VIDEO_FALLBACK_API_KEY || env.ARK_API_KEY || null;
+  return options.apiKey || env.SEEDANCE_API_KEY || env.ARK_API_KEY || null;
 }
 
 function createSeedanceHttpClients(options = {}, env = process.env) {
   const apiKey = resolveSeedanceApiKey(options, env);
   if (!apiKey) {
-    throw createProviderError('缺少 SEEDANCE_API_KEY / VIDEO_FALLBACK_API_KEY / ARK_API_KEY，无法生成动态镜头', {
+    throw createProviderError('缺少 SEEDANCE_API_KEY / ARK_API_KEY，无法生成动态镜头', {
       code: 'SEEDANCE_AUTH_MISSING',
       category: 'provider_auth_error',
     });
@@ -374,7 +374,7 @@ function createSeedanceHttpClients(options = {}, env = process.env) {
 
   return {
     httpClient: options.httpClient || axios.create({
-      baseURL: options.baseUrl || env.SEEDANCE_API_BASE_URL || env.VIDEO_FALLBACK_BASE_URL || SEEDANCE_API_BASE_URL,
+      baseURL: options.baseUrl || env.SEEDANCE_API_BASE_URL || SEEDANCE_API_BASE_URL,
       timeout: options.timeoutMs || SEEDANCE_DEFAULT_TIMEOUT_MS,
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -507,9 +507,9 @@ export function createSeedanceVideoTransport(options = {}) {
 }
 
 async function executeSeedanceTask(requestBody, requestSummary, outputPath, entityRef, options = {}, env = process.env) {
-  const apiKey = options.apiKey || env.SEEDANCE_API_KEY || env.VIDEO_FALLBACK_API_KEY || env.ARK_API_KEY;
+  const apiKey = options.apiKey || env.SEEDANCE_API_KEY || env.ARK_API_KEY;
   if (!apiKey) {
-    throw createProviderError('缺少 SEEDANCE_API_KEY / VIDEO_FALLBACK_API_KEY / ARK_API_KEY，无法生成动态镜头', {
+    throw createProviderError('缺少 SEEDANCE_API_KEY / ARK_API_KEY，无法生成动态镜头', {
       code: 'SEEDANCE_AUTH_MISSING',
       category: 'provider_auth_error',
     });

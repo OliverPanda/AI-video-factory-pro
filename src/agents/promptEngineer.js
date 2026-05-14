@@ -13,7 +13,9 @@ import {
 } from '../llm/prompts/promptEngineering.js';
 import {
   getShotCharacterCards,
+  getShotCharacterIdentityAnchors,
   getShotCharacterNames,
+  getShotForbiddenIdentityTokens,
   getShotCharacterTokens,
 } from './characterRegistry.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
@@ -76,6 +78,77 @@ function buildContinuityTokens(shot = {}) {
   ];
 
   return tokens.filter(Boolean).join(', ');
+}
+
+function isAsciiText(value) {
+  return /^[\x00-\x7F]+$/.test(String(value || ''));
+}
+
+function characterExecutionLabel(name, index) {
+  const normalized = String(name || '').trim();
+  if (normalized && isAsciiText(normalized)) {
+    return normalized;
+  }
+  if (index === 0) return 'first character';
+  if (index === 1) return 'second character';
+  return `character ${index + 1}`;
+}
+
+function getActivePropContracts(shot = {}, corePropRegistry = []) {
+  const text = [shot.action, shot.dialogue, shot.scene, shot.subtitle]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+
+  return (Array.isArray(corePropRegistry) ? corePropRegistry : []).filter((prop) => {
+    if (Array.isArray(prop.activeShotIds) && prop.activeShotIds.includes(shot.id)) {
+      return true;
+    }
+
+    return (Array.isArray(prop.aliases) ? prop.aliases : []).some((alias) => alias && text.includes(alias));
+  });
+}
+
+function buildPropContractPromptTokens(shot = {}, activeProps = []) {
+  const names = Array.isArray(shot.characters) ? shot.characters : [];
+
+  return (Array.isArray(activeProps) ? activeProps : [])
+    .flatMap((prop) => {
+      if (prop?.placementPolicy?.anchorType !== 'wrist_endpoint_pair') {
+        return [];
+      }
+
+      const appearance = prop.appearance || prop.displayName || prop.propId || 'core prop';
+      const pair =
+        names.length >= 2
+          ? `same ${appearance}, one endpoint locked around ${characterExecutionLabel(names[0], 0)}'s wrist, the other endpoint locked around ${characterExecutionLabel(names[1], 1)}'s wrist`
+          : `same ${appearance}, endpoint locked around visible wrist`;
+
+      return [
+        pair,
+        `${prop.propId || 'core_prop'} continuity lock, prop stretched between visible wrists, both wrists in frame`,
+      ];
+    })
+    .join(', ');
+}
+
+function buildPropContractNegativeTokens(activeProps = []) {
+  return (Array.isArray(activeProps) ? activeProps : [])
+    .flatMap((prop) => {
+      const forbidden = Array.isArray(prop?.placementPolicy?.forbiddenAnchors)
+        ? prop.placementPolicy.forbiddenAnchors
+        : [];
+      const noun = String(prop.appearance || prop.displayName || prop.propId || 'prop').trim();
+      const genericNoun = noun.includes('chain') ? 'chain' : 'prop';
+
+      return forbidden.flatMap((anchor) => [
+        `${noun} around ${anchor}`,
+        `${genericNoun} around ${anchor}`,
+        `${anchor} ${genericNoun}`,
+        `${anchor} restraint`,
+      ]);
+    })
+    .join(', ');
 }
 
 function keepAsciiExecutionTokens(value) {
@@ -246,18 +319,30 @@ export async function generatePromptForShot(shot, characterRegistry, style = 're
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
   const cameraType = shot.camera_type || shot.cameraType || null;
   const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
+  const identityAnchors = getShotCharacterIdentityAnchors(shot, characterRegistry);
   const charTokens = getShotCharacterTokens(shot, characterRegistry);
+  const forbiddenIdentityTokens = getShotForbiddenIdentityTokens(shot, characterRegistry);
+  const activeProps = getActivePropContracts(shot, deps.corePropRegistry);
+  const propContractPromptTokens = buildPropContractPromptTokens(shotForPrompt, activeProps);
+  const propContractNegativeTokens = buildPropContractNegativeTokens(activeProps);
 
   const enhancedPrompt = mergePromptSegments([
+    identityAnchors,
     charTokens,
     llmImagePrompt,
     buildContinuityTokens(shot),
+    propContractPromptTokens,
     cameraKw,
     styleBase.lighting,
     styleBase.quality,
   ]);
 
-  const fullNegativePrompt = mergePromptSegments([llmNegativePrompt, styleBase.negative]);
+  const fullNegativePrompt = mergePromptSegments([
+    llmNegativePrompt,
+    forbiddenIdentityTokens,
+    propContractNegativeTokens,
+    styleBase.negative,
+  ]);
   const displayPromptZh = result.display_prompt_zh || buildChineseDisplayPrompt(shotForPrompt);
   const displayNegativePromptZh =
     result.display_negative_prompt_zh || buildChineseDisplayNegativePrompt(style);

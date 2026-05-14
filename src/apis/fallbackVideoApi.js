@@ -317,6 +317,15 @@ export function classifyFallbackVideoError(error) {
     });
   }
 
+  if (isUnavailableChannelError(error)) {
+    return createProviderError(error.message || 'Sora2 上游当前无可用渠道', {
+      code: 'SORA2_SERVER_ERROR',
+      category: 'provider_generation_failed',
+      status: Number.isFinite(Number(status)) ? Number(status) : 503,
+      details: error?.response?.data || null,
+    });
+  }
+
   if (status === 401 || status === 403) {
     return createProviderError(error.message || 'Sora2 鉴权失败', {
       code: 'SORA2_AUTH_ERROR',
@@ -531,6 +540,9 @@ function buildFallbackVideoResult(shotPackage, requestBody, outputPath, taskId, 
 }
 
 function shouldRetryWithNextRequestVariant(error) {
+  if (isUnavailableChannelError(error)) {
+    return false;
+  }
   return (
     error?.category === 'provider_generation_failed' ||
     error?.category === 'provider_timeout' ||

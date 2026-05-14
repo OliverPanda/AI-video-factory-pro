@@ -25,6 +25,75 @@ function normalizeProviderError(error) {
   };
 }
 
+function hasReusableVideoOutput(outputPath) {
+  if (!outputPath || !fs.existsSync(outputPath)) {
+    return false;
+  }
+  return fs.statSync(outputPath).size > 0;
+}
+
+function isHighRiskProviderError(error) {
+  const normalizedError = normalizeProviderError(error);
+  const searchable = [
+    normalizedError.message,
+    normalizedError.code,
+    normalizedError.category,
+    normalizedError.status,
+    typeof normalizedError.details === 'string'
+      ? normalizedError.details
+      : JSON.stringify(normalizedError.details || ''),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return (
+    normalizedError.status === 402 ||
+    normalizedError.status === 401 ||
+    normalizedError.status === 403 ||
+    normalizedError.category === 'provider_timeout' ||
+    searchable.includes('insufficient_quota') ||
+    searchable.includes('insufficient balance') ||
+    searchable.includes('quota') ||
+    searchable.includes('余额不足') ||
+    searchable.includes('余额') ||
+    searchable.includes('inputimagesensitivecontentdetected') ||
+    searchable.includes('sensitivecontent') ||
+    searchable.includes('sensitive content')
+  );
+}
+
+function buildFailureResult(shotPackage, normalizedError) {
+  return {
+    shotId: shotPackage.shotId,
+    preferredProvider: shotPackage.preferredProvider,
+    provider: 'seedance',
+    status: 'failed',
+    videoPath: null,
+    targetDurationSec: shotPackage.durationTargetSec,
+    actualDurationSec: null,
+    failureCategory: normalizedError.category,
+    error: normalizedError.message,
+    errorCode: normalizedError.code,
+    errorStatus: normalizedError.status,
+    errorDetails: normalizedError.details,
+  };
+}
+
+function buildGuardSkippedResult(shotPackage, blockedByShotId) {
+  return {
+    shotId: shotPackage.shotId,
+    preferredProvider: shotPackage.preferredProvider,
+    provider: 'seedance',
+    status: 'skipped',
+    reason: 'paid_video_guard_stopped_after_high_risk_error',
+    blockedByShotId,
+    videoPath: null,
+    targetDurationSec: shotPackage.durationTargetSec,
+    actualDurationSec: null,
+  };
+}
+
 async function runViaProviderClient(providerClient, shotPackage, outputPath, options = {}) {
   const submitResult = await providerClient.submit(
     {
@@ -138,8 +207,14 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'video'));
   const results = [];
   const providerClient = options.providerClient || createUnifiedVideoProviderClient();
+  let stoppedByHighRiskError = null;
 
   for (const shotPackage of shotPackages) {
+    if (stoppedByHighRiskError && shotPackage.preferredProvider === 'seedance') {
+      results.push(buildGuardSkippedResult(shotPackage, stoppedByHighRiskError.shotId));
+      continue;
+    }
+
     if (shotPackage.preferredProvider !== 'seedance') {
       results.push({
         shotId: shotPackage.shotId,
@@ -155,6 +230,20 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
     }
 
     const outputPath = buildOutputPath(resolvedVideoDir, shotPackage);
+    if (hasReusableVideoOutput(outputPath)) {
+      results.push({
+        shotId: shotPackage.shotId,
+        preferredProvider: shotPackage.preferredProvider,
+        provider: 'seedance',
+        status: 'completed',
+        videoPath: outputPath,
+        targetDurationSec: shotPackage.durationTargetSec,
+        actualDurationSec: shotPackage.durationTargetSec || null,
+        reusedFromDisk: true,
+      });
+      continue;
+    }
+
     try {
       const run = options.generateVideoClip
         ? await options.generateVideoClip(shotPackage, outputPath, options)
@@ -168,20 +257,10 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
       });
     } catch (error) {
       const normalizedError = normalizeProviderError(error);
-      results.push({
-        shotId: shotPackage.shotId,
-        preferredProvider: shotPackage.preferredProvider,
-        provider: 'seedance',
-        status: 'failed',
-        videoPath: null,
-        targetDurationSec: shotPackage.durationTargetSec,
-        actualDurationSec: null,
-        failureCategory: normalizedError.category,
-        error: normalizedError.message,
-        errorCode: normalizedError.code,
-        errorStatus: normalizedError.status,
-        errorDetails: normalizedError.details,
-      });
+      results.push(buildFailureResult(shotPackage, normalizedError));
+      if (isHighRiskProviderError(error)) {
+        stoppedByHighRiskError = { shotId: shotPackage.shotId };
+      }
     }
   }
 
@@ -197,4 +276,6 @@ export const __testables = {
   buildOutputPath,
   buildReport,
   normalizeProviderError,
+  hasReusableVideoOutput,
+  isHighRiskProviderError,
 };

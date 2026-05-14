@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { __testables, runSeedanceVideo } from '../src/agents/seedanceVideoAgent.js';
@@ -165,4 +167,83 @@ test('runSeedanceVideo uses providerClient for default seedance generation path'
     ['poll', 'task_provider_client'],
     ['download', 'https://example.com/shot_provider_client.mp4', path.join('/tmp/video', 'shot_provider_client.mp4')],
   ]);
+});
+
+test('runSeedanceVideo reuses existing video output without submitting again', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-seedance-reuse-'));
+
+  try {
+    const existingPath = path.join(tempRoot, 'shot_existing.mp4');
+    fs.writeFileSync(existingPath, 'already-generated-video');
+    let submitCount = 0;
+
+    const videoRun = await runSeedanceVideo(
+      [
+        {
+          shotId: 'shot_existing',
+          preferredProvider: 'seedance',
+          durationTargetSec: 4,
+        },
+      ],
+      tempRoot,
+      {
+        providerClient: {
+          async submit() {
+            submitCount += 1;
+            throw new Error('submit should not be called');
+          },
+        },
+      }
+    );
+
+    assert.equal(submitCount, 0);
+    assert.equal(videoRun.results[0].status, 'completed');
+    assert.equal(videoRun.results[0].videoPath, existingPath);
+    assert.equal(videoRun.results[0].reusedFromDisk, true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('runSeedanceVideo stops submitting remaining seedance shots after quota error', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-seedance-guard-'));
+  const submitCalls = [];
+
+  try {
+    const videoRun = await runSeedanceVideo(
+      [
+        {
+          shotId: 'shot_quota',
+          preferredProvider: 'seedance',
+          durationTargetSec: 4,
+        },
+        {
+          shotId: 'shot_should_not_submit',
+          preferredProvider: 'seedance',
+          durationTargetSec: 4,
+        },
+      ],
+      tempRoot,
+      {
+        generateVideoClip: async (shotPackage) => {
+          submitCalls.push(shotPackage.shotId);
+          const error = new Error('insufficient_quota');
+          error.code = 'ERR_BAD_REQUEST';
+          error.status = 402;
+          error.category = 'provider_generation_failed';
+          error.details = { reason: 'insufficient_quota' };
+          throw error;
+        },
+      }
+    );
+
+    assert.deepEqual(submitCalls, ['shot_quota']);
+    assert.equal(videoRun.results[0].status, 'failed');
+    assert.equal(videoRun.results[0].errorStatus, 402);
+    assert.equal(videoRun.results[1].status, 'skipped');
+    assert.equal(videoRun.results[1].reason, 'paid_video_guard_stopped_after_high_risk_error');
+    assert.equal(videoRun.results[1].blockedByShotId, 'shot_quota');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

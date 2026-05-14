@@ -36,11 +36,11 @@ export function resolveImageRoute(taskType, env = process.env) {
   const routes = {
     [IMAGE_TASK_TYPES.REALISTIC_IMAGE]: {
       provider,
-      model: env.REALISTIC_IMAGE_MODEL || 'flux-kontext-pro',
+      model: env.REALISTIC_IMAGE_MODEL || 'gpt-image-2',
     },
     [IMAGE_TASK_TYPES.THREED_IMAGE]: {
       provider,
-      model: env.THREED_IMAGE_MODEL || 'gpt-image-1',
+      model: env.THREED_IMAGE_MODEL || 'gpt-image-2',
     },
     [IMAGE_TASK_TYPES.IMAGE_EDIT]: {
       provider,

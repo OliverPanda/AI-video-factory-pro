@@ -26,16 +26,28 @@ function containsAny(text, keywords = []) {
   return keywords.some((keyword) => text.includes(keyword));
 }
 
+function normalizeMinimaxVoiceName(value) {
+  const text = normalizeText(value);
+  if (!text) return null;
+
+  const localeQualifiedMatch = text.match(/^[^_]+_(.+)$/);
+  if (localeQualifiedMatch && localeQualifiedMatch[1]) {
+    return localeQualifiedMatch[1];
+  }
+
+  return text;
+}
+
 function resolveMinimaxVoice(gender, env = process.env) {
   if (env.MINIMAX_TTS_VOICE) {
-    return env.MINIMAX_TTS_VOICE;
+    return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE);
   }
 
   if (gender === 'male') {
-    return env.MINIMAX_TTS_VOICE_MALE || 'Reliable_Executive';
+    return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_MALE) || 'Reliable_Executive';
   }
 
-  return env.MINIMAX_TTS_VOICE_FEMALE || 'Warm_Girl';
+  return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_FEMALE) || 'Warm_Girl';
 }
 
 function buildIdentityCandidates(entry = {}) {

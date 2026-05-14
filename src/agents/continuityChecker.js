@@ -74,11 +74,73 @@ function normalizePropStateList(propStates = []) {
   );
 }
 
+function getActivePropContracts(shot = {}, corePropRegistry = []) {
+  const text = [shot.action, shot.dialogue, shot.scene, shot.subtitle]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+
+  return (Array.isArray(corePropRegistry) ? corePropRegistry : []).filter((prop) => {
+    if (Array.isArray(prop.activeShotIds) && prop.activeShotIds.includes(shot.id)) {
+      return true;
+    }
+
+    return (Array.isArray(prop.aliases) ? prop.aliases : []).some((alias) => alias && text.includes(alias));
+  });
+}
+
+function anchorPattern(anchor) {
+  const escaped = String(anchor || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const localized = {
+    neck: ['neck', '脖子', '颈部'],
+    collar: ['collar', '项圈', '衣领'],
+    throat: ['throat', '喉咙', '咽喉'],
+  }[anchor];
+
+  return new RegExp((localized || [escaped]).join('|'), 'i');
+}
+
+function validatePropContractAnchors(shot = {}, activeProps = []) {
+  const violations = [];
+  const text = [shot.action, shot.dialogue, shot.scene, shot.subtitle]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const propStates = Array.isArray(shot?.continuityState?.propStates) ? shot.continuityState.propStates : [];
+
+  for (const prop of Array.isArray(activeProps) ? activeProps : []) {
+    if (prop?.placementPolicy?.anchorType !== 'wrist_endpoint_pair') {
+      continue;
+    }
+
+    const forbiddenAnchors = Array.isArray(prop?.placementPolicy?.forbiddenAnchors)
+      ? prop.placementPolicy.forbiddenAnchors
+      : [];
+    const hasForbiddenText = forbiddenAnchors.some((anchor) => anchorPattern(anchor).test(text));
+    const hasForbiddenState = propStates.some(
+      (state) =>
+        state?.name === prop.propId &&
+        forbiddenAnchors.some((anchor) => String(state?.side || '').toLowerCase() === String(anchor).toLowerCase())
+    );
+
+    if (hasForbiddenText || hasForbiddenState) {
+      addViolation(
+        violations,
+        'prop_anchor_drift',
+        'high',
+        `${prop.displayName || prop.propId || '核心道具'} 锚点漂移到禁用身体位置`
+      );
+    }
+  }
+
+  return violations;
+}
+
 function addViolation(target, code, severity, message) {
   target.push({ code, severity, message });
 }
 
-function buildHardViolations(previousShot, currentShot) {
+function buildHardViolations(previousShot, currentShot, options = {}) {
   const violations = [];
   const previousState = previousShot?.continuityState ?? {};
   const currentState = currentShot?.continuityState ?? {};
@@ -134,6 +196,13 @@ function buildHardViolations(previousShot, currentShot) {
       );
     }
   }
+
+  violations.push(
+    ...validatePropContractAnchors(
+      currentShot,
+      getActivePropContracts(currentShot, options.corePropRegistry)
+    )
+  );
 
   return violations;
 }
@@ -192,8 +261,8 @@ function dedupeByCode(items = []) {
   return result;
 }
 
-function normalizeReport(previousShot, currentShot, rawReport = {}, threshold = 7) {
-  const ruleHardViolations = buildHardViolations(previousShot, currentShot);
+function normalizeReport(previousShot, currentShot, rawReport = {}, threshold = 7, options = {}) {
+  const ruleHardViolations = buildHardViolations(previousShot, currentShot, options);
   const reportHardViolations = normalizeHardViolations(rawReport.hardViolations);
   const hardViolations = dedupeByCode([...ruleHardViolations, ...reportHardViolations]);
   const softWarnings = normalizeSoftWarnings(rawReport.softWarnings, rawReport.violations);
@@ -244,7 +313,7 @@ export async function checkShotContinuity(previousShot, currentShot, previousIma
   const threshold = options.threshold ?? 7;
   if (typeof options.checkTransition === 'function') {
     const rawReport = await options.checkTransition(previousShot, currentShot, previousImage, currentImage);
-    return normalizeReport(previousShot, currentShot, rawReport, threshold);
+    return normalizeReport(previousShot, currentShot, rawReport, threshold, options);
   }
 
   return normalizeReport(
@@ -257,7 +326,8 @@ export async function checkShotContinuity(previousShot, currentShot, previousIma
       softWarnings: [],
       postprocessHints: [],
     },
-    threshold
+    threshold,
+    options
   );
 }
 

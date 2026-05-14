@@ -7,9 +7,9 @@
 当前这个 Agent 的真实职责是：
 
 - 检查同一角色在多张分镜图中的外观一致性
-- 输出身份漂移标签与锚点摘要
-- 给出评分、问题图索引和重生成建议
-- 为导演提供“哪些镜头该重画”的决策依据
+- 输出身份漂移标签、硬失败原因、软风险标签与锚点摘要
+- 给出评分、问题图索引、`pass / warn / block` 和重生成建议
+- 为导演提供“哪些镜头该重画，以及该怎么重画”的决策依据
 
 它**还不是**一个完整的“时序连贯性 Agent”。
 
@@ -34,7 +34,8 @@
 
 1. 按角色聚合同一角色出现过的镜头图像。
 2. 对每个角色做多模态一致性评分。
-3. 找出低于阈值的镜头，并返回给导演重生成。
+3. 用“角色优先级 × 镜头复杂度”规则把结果判成 `pass / warn / block`。
+4. 找出需要处理的镜头，并返回给导演重生成。
 4. 把报告、标记镜头、批次失败证据落到审计目录。
 
 ## 入口函数
@@ -63,7 +64,40 @@
    - `success === true`
    - `characters` 包含该角色名
 3. 每个角色调用 `checkCharacterConsistency(...)`。
-4. 如果 `overallScore < CONSISTENCY_THRESHOLD`，把问题镜头加入 `needsRegeneration`。
+4. 结合角色优先级、镜头复杂度、硬失败原因、软风险标签，生成 `qaDecision`。
+5. 如果结果是 `warn / block`，把问题镜头加入 `needsRegeneration`。
+
+## 当前判定模型
+
+当前不是“只看一个平均分”的老逻辑，而是双轴 QA：
+
+- 轴 1：`characterPriority`
+  - `lead`
+  - `support`
+- 轴 2：`shotConsistencyClass`
+  - `anchor`
+  - `standard`
+  - `complex`
+
+输出核心字段：
+
+- `characterPriority`
+- `shotConsistencyClass`
+- `hardFailureReasons`
+- `softRiskTags`
+- `qaDecision`
+- `regenStrategy`
+
+三段式决策：
+
+- `pass`
+  - 当前角色/镜头组合可放行
+- `warn`
+  - 当前镜头建议补图，但不是硬阻断
+  - 默认 `regenStrategy=prompt_tighten`
+- `block`
+  - 触发硬失败，例如 `identity_swap`
+  - 默认 `regenStrategy=reanchor_regenerate`
 
 ## 批量策略
 
@@ -103,11 +137,11 @@
 如果所有批次都失败：
 
 - 返回一个保守报告
-- `overallScore: 10`
+- `overallScore: 0`
 - `error: '所有批次均失败'`
+- `hardFailureReasons: ['consistency_check_unavailable']`
 
-这是一种“不中断主流程”的设计取向。  
-优点是流程稳；缺点是如果视觉模型持续坏掉，可能会把问题伪装成“高分跳过”。所以这一步的审计证据非常重要。
+这一步现在不会再伪装成高分通过，而是会形成可观测阻断信号，所以这一步的审计证据非常重要。
 
 ## 可审计成果物
 
@@ -125,9 +159,9 @@
 其中最关键的是：
 
 - `consistency-report.json`
-  - 每个角色的评分、建议、问题索引、`identityDriftTags`、`anchorSummary`
+  - 每个角色的评分、建议、问题索引、`identityDriftTags`、`hardFailureReasons`、`softRiskTags`、`qaDecision`
 - `flagged-shots.json`
-  - 导演真正会消费的“哪些镜头该重生成”
+  - 导演真正会消费的“哪些镜头该重生成、建议怎么重生成”
 - `consistency-report.md`
   - 给人快速 review
 - `<character>-batch-<n>-error.json`
@@ -140,6 +174,8 @@
 - `flagged_shot_count`
 - `avg_consistency_score`
 - `identity_drift_tag_counts`
+- `qa_decision_counts`
+- `regen_strategy_counts`
 - `regeneration_count`
 
 ## 新增的身份漂移信号
@@ -161,8 +197,10 @@
 
 1. `Consistency Checker` 输出 `needsRegeneration`
 2. `Director` 拿到这个列表
-3. `Director` 在原 prompt 基础上追加一致性提示
-4. `Director` 调 `imageGenerator.regenerateImage(...)`
+3. `Director` 根据 `regenStrategy` 选执行路径
+4. `prompt_tighten` 时，在原 prompt 基础上追加一致性提示
+5. `reanchor_regenerate` 时，优先带角色参考图 / 三视图 / 当前最佳图回锚
+6. `Director` 调 `imageGenerator.regenerateImage(...)`
 
 所以这个 Agent 更像“质检 + 建议器”，不是执行器。
 

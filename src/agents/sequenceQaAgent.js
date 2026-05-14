@@ -252,6 +252,49 @@ function determineFinalDecision(engineCheck, durationCheck, entryExitCheck, cont
   };
 }
 
+function mergeContinuityEvaluation(defaultEvaluation = {}, overrideEvaluation = {}) {
+  const merged = {
+    ...defaultEvaluation,
+    ...overrideEvaluation,
+  };
+
+  if (
+    Object.prototype.hasOwnProperty.call(overrideEvaluation, 'entryExitCheck') &&
+    !Object.prototype.hasOwnProperty.call(overrideEvaluation, 'entryExitDecisionReason')
+  ) {
+    merged.entryExitDecisionReason = null;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(overrideEvaluation, 'continuityCheck') &&
+    !Object.prototype.hasOwnProperty.call(overrideEvaluation, 'continuityDecisionReason')
+  ) {
+    merged.continuityDecisionReason = null;
+  }
+
+  return merged;
+}
+
+function resolveDecisionReason(continuityEvaluation = {}, decision = {}) {
+  if (continuityEvaluation.entryExitCheck === 'fail') {
+    return continuityEvaluation.entryExitDecisionReason || decision.decisionReason;
+  }
+
+  if (continuityEvaluation.continuityCheck === 'fail') {
+    return continuityEvaluation.continuityDecisionReason || decision.decisionReason;
+  }
+
+  if (continuityEvaluation.entryExitCheck === 'warn') {
+    return continuityEvaluation.entryExitDecisionReason || continuityEvaluation.continuityDecisionReason || decision.decisionReason;
+  }
+
+  if (continuityEvaluation.continuityCheck === 'warn') {
+    return continuityEvaluation.continuityDecisionReason || continuityEvaluation.entryExitDecisionReason || decision.decisionReason;
+  }
+
+  return continuityEvaluation.entryExitDecisionReason || continuityEvaluation.continuityDecisionReason || decision.decisionReason;
+}
+
 function formatNotes({
   engineCheck,
   durationCheck,
@@ -446,14 +489,13 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
       const engineCheck = 'pass';
       let continuityEvaluation;
       try {
-        continuityEvaluation = {
-          ...defaultEvaluateSequenceContinuity(result, options),
-          ...(await evaluateSequenceContinuity(result, {
-            ...options,
-            probeResult,
-            referenceContext,
-          })),
-        };
+        const defaultEvaluation = defaultEvaluateSequenceContinuity(result, options);
+        const overrideEvaluation = await evaluateSequenceContinuity(result, {
+          ...options,
+          probeResult,
+          referenceContext,
+        });
+        continuityEvaluation = mergeContinuityEvaluation(defaultEvaluation, overrideEvaluation);
         if (shots.length > 0 && !isContiguousInShotOrder(coveredShotIds, shots)) {
           continuityEvaluation = {
             ...continuityEvaluation,
@@ -499,10 +541,7 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
           durationCheck,
           entryExitCheck: continuityEvaluation.entryExitCheck,
           ...decision,
-          decisionReason:
-            continuityEvaluation.entryExitDecisionReason ||
-            continuityEvaluation.continuityDecisionReason ||
-            decision.decisionReason,
+          decisionReason: resolveDecisionReason(continuityEvaluation, decision),
           referenceContext,
         })
       );

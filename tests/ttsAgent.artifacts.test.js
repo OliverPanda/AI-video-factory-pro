@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import axios from 'axios';
 
 import { runConsistencyCheck } from '../src/agents/consistencyChecker.js';
 import { generateAllAudio } from '../src/agents/ttsAgent.js';
@@ -29,17 +30,19 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     fs.writeFileSync(imagePath, 'fake');
 
     await runConsistencyCheck(
-      [{ name: '小红', visualDescription: 'short hair', basePromptTokens: 'short hair' }],
+      [{ name: '小红', priority: 'lead', visualDescription: 'short hair', basePromptTokens: 'short hair' }],
       [
-        { shotId: 'shot_001', imagePath, success: true, characters: ['小红'] },
-        { shotId: 'shot_002', imagePath, success: true, characters: ['小红'] },
+        { shotId: 'shot_001', imagePath, success: true, characters: ['小红'], shotType: 'close-up' },
+        { shotId: 'shot_002', imagePath, success: true, characters: ['小红'], shotType: 'close-up' },
       ],
       {
         artifactContext: ctx.agents.consistencyChecker,
         checkCharacterConsistency: async () => ({
           character: '小红',
-          overallScore: 6,
+          overallScore: 8.2,
           identityDriftTags: ['hair_drift', 'outfit_drift'],
+          hardFailureReasons: [],
+          softRiskTags: ['hair_drift', 'outfit_drift'],
           anchorSummary: {
             hair: 'hairstyle changed slightly',
             outfit: 'apron missing',
@@ -77,19 +80,32 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
     assert.equal(report.length, 1);
     assert.equal(report[0].character, '小红');
-    assert.equal(report[0].overallScore, 6);
+    assert.equal(report[0].overallScore, 8.2);
+    assert.equal(report[0].characterPriority, 'lead');
+    assert.equal(report[0].shotConsistencyClass, 'anchor');
+    assert.deepEqual(report[0].hardFailureReasons, []);
+    assert.deepEqual(report[0].softRiskTags, ['hair_drift', 'outfit_drift']);
+    assert.equal(report[0].qaDecision.status, 'warn');
+    assert.equal(report[0].regenStrategy, 'prompt_tighten');
 
     const markdown = fs.readFileSync(markdownPath, 'utf-8');
     assert.match(markdown, /# Consistency Report/);
     assert.match(markdown, /## 小红/);
-    assert.match(markdown, /Overall Score: 6/);
+    assert.match(markdown, /Overall Score: 8.2/);
+    assert.match(markdown, /Character Priority: lead/);
+    assert.match(markdown, /Shot Consistency Class: anchor/);
+    assert.match(markdown, /QA Decision: warn/);
+    assert.match(markdown, /Regen Strategy: prompt_tighten/);
     assert.match(markdown, /Identity Drift Tags: hair_drift, outfit_drift/);
 
     const flaggedShots = JSON.parse(fs.readFileSync(flaggedPath, 'utf-8'));
     assert.deepEqual(flaggedShots, [
       {
         shotId: 'shot_002',
-        reason: '小红 一致性评分 6/10',
+        reason: '小红 一致性评分 8.2/10（lead/anchor）',
+        regenStrategy: 'prompt_tighten',
+        hardFailureReasons: [],
+        softRiskTags: ['hair_drift', 'outfit_drift'],
         suggestion: 'match costume',
       },
     ]);
@@ -99,10 +115,20 @@ test('consistency checker writes report flagged shots metrics and manifest when 
       checked_character_count: 1,
       checked_shot_count: 2,
       flagged_shot_count: 1,
-      avg_consistency_score: 6,
+      avg_consistency_score: 8.2,
       identity_drift_tag_counts: {
         hair_drift: 1,
         outfit_drift: 1,
+      },
+      qa_decision_counts: {
+        pass: 0,
+        warn: 1,
+        block: 0,
+      },
+      regen_strategy_counts: {
+        none: 0,
+        prompt_tighten: 1,
+        reanchor_regenerate: 0,
       },
       regeneration_count: 1,
     });
@@ -296,4 +322,61 @@ test('tts agent writes voice resolution audio index dialogue table metrics manif
     assert.equal(terminalError.error, '[Queue] shot_002 重试3次后失败：tts synth failed');
     assert.equal(terminalError.voiceResolution.speakerName, '店长');
   }, 'tts-agent');
+});
+
+test('consistency checker all-batch failure is observable and blocking in artifacts', async (t) => {
+  await withManagedTempRoot(t, 'aivf-consistency-checker-all-batch-failure', async (tempRoot) => {
+    const ctx = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_123',
+      projectName: '咖啡馆相遇',
+      scriptId: 'script_001',
+      scriptTitle: '第一卷',
+      episodeId: 'episode_001',
+      episodeTitle: '试播集',
+      episodeNo: 1,
+      runJobId: 'run_consistency_all_batch_failure',
+      startedAt: '2026-04-01T09:00:00.000Z',
+    });
+
+    const imageDir = path.join(tempRoot, 'images');
+    fs.mkdirSync(imageDir, { recursive: true });
+    const imagePathA = path.join(imageDir, 'shot_010.png');
+    const imagePathB = path.join(imageDir, 'shot_011.png');
+    fs.writeFileSync(imagePathA, 'a');
+    fs.writeFileSync(imagePathB, 'b');
+
+    t.mock.method(axios, 'post', async () => {
+      throw new Error('upstream vision timeout');
+    });
+
+    await runConsistencyCheck(
+      [{ name: '小红', priority: 'lead', visualDescription: 'short hair', basePromptTokens: 'short hair' }],
+      [
+        { shotId: 'shot_010', imagePath: imagePathA, success: true, characters: ['小红'], shotType: 'close-up' },
+        { shotId: 'shot_011', imagePath: imagePathB, success: true, characters: ['小红'], shotType: 'close-up' },
+      ],
+      {
+        artifactContext: ctx.agents.consistencyChecker,
+      }
+    );
+
+    const report = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.consistencyChecker.outputsDir, 'consistency-report.json'), 'utf-8')
+    );
+    assert.equal(report.length, 1);
+    assert.equal(report[0].qaDecision.status, 'block');
+    assert.deepEqual(report[0].hardFailureReasons, ['consistency_check_unavailable']);
+    assert.equal(report[0].error, '所有批次均失败');
+
+    const flaggedShots = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.consistencyChecker.outputsDir, 'flagged-shots.json'), 'utf-8')
+    );
+    assert.deepEqual(flaggedShots, []);
+
+    const qaSummary = JSON.parse(
+      fs.readFileSync(path.join(ctx.agents.consistencyChecker.metricsDir, 'qa-summary.json'), 'utf-8')
+    );
+    assert.equal(qaSummary.status, 'block');
+  }, 'consistency-checker');
 });

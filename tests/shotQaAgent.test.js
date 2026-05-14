@@ -109,3 +109,68 @@ test('evaluateShotVideos marks near-static clips as motion_fail with explainable
     assert.equal(entry.decisionReason, 'motion_below_threshold');
   });
 });
+
+test('evaluateShotVideos blocks severe anatomy issues instead of silently falling back', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const blockedPath = path.join(tempRoot, 'blocked.mp4');
+    fs.writeFileSync(blockedPath, 'video');
+
+    const [entry] = await __testables.evaluateShotVideos(
+      [
+        {
+          shotId: 'shot_blocked',
+          status: 'completed',
+          videoPath: blockedPath,
+          targetDurationSec: 4,
+          performanceTemplate: 'dialogue_closeup_react',
+          qaIssues: ['anatomy_structure_invalid'],
+        },
+      ],
+      {
+        probeVideo: async () => ({
+          durationSec: 4,
+          freezeDurationSec: 0,
+          nearDuplicateRatio: 0.1,
+          motionScore: 0.8,
+        }),
+      }
+    );
+
+    assert.equal(entry.qaStatus, 'block');
+    assert.equal(entry.finalDecision, 'block');
+    assert.equal(entry.fallbackToImage, false);
+    assert.equal(entry.reason, 'anatomy_structure_invalid');
+  });
+
+  await withTempRoot(async (tempRoot) => {
+    const blockedPath = path.join(tempRoot, 'blocked.mp4');
+    fs.writeFileSync(blockedPath, 'video');
+
+    const report = await runShotQa(
+      [
+        {
+          shotId: 'shot_blocked',
+          status: 'completed',
+          videoPath: blockedPath,
+          targetDurationSec: 4,
+          performanceTemplate: 'dialogue_closeup_react',
+          qaIssues: ['anatomy_structure_invalid'],
+        },
+      ],
+      {
+        probeVideo: async () => ({
+          durationSec: 4,
+          freezeDurationSec: 0,
+          nearDuplicateRatio: 0.1,
+          motionScore: 0.8,
+        }),
+      }
+    );
+
+    assert.equal(report.status, 'block');
+    assert.equal(report.blockCount, 1);
+    assert.deepEqual(report.blockedShots, ['shot_blocked']);
+    assert.deepEqual(report.blockers, ['shot_blocked:anatomy_structure_invalid']);
+    assert.equal(report.fallbackCount, 0);
+  });
+});

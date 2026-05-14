@@ -1029,6 +1029,146 @@ test('runEpisodePipeline keeps original image when consistency regeneration fail
   });
 });
 
+test('runEpisodePipeline uses tightened prompt for prompt_tighten consistency regeneration', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const regenerateCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_regen_prompt_tighten',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '提示词收紧测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'old prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_old',
+          imagePath: '/tmp/shot_1_old.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({
+        needsRegeneration: [{
+          shotId: 'shot_1',
+          suggestion: 'keep costume identical',
+          regenStrategy: 'prompt_tighten',
+        }],
+      }),
+      regenerateImage: async (...args) => {
+        regenerateCalls.push(args);
+        return {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_new',
+          imagePath: '/tmp/shot_1_new.png',
+          success: true,
+        };
+      },
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(regenerateCalls.length, 1);
+    assert.match(regenerateCalls[0][1], /highly consistent character appearance/i);
+    assert.deepEqual(regenerateCalls[0][4], { style: process.env.IMAGE_STYLE || 'realistic' });
+  });
+});
+
+test('runEpisodePipeline uses reference images for reanchor_regenerate consistency recovery', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const regenerateCalls = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_regen_reanchor',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '回锚重生测试',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'] }],
+      }),
+      buildCharacterRegistry: async () => [{
+        id: 'char_1',
+        name: '沈清',
+        basePromptTokens: 'shen qing',
+        referenceImages: ['ref/front.png'],
+      }],
+      generateAllPrompts: async () => [
+        { shotId: 'shot_1', image_prompt: 'old prompt', negative_prompt: 'none' },
+      ],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_old',
+          imagePath: '/tmp/shot_1_old.png',
+          success: true,
+        },
+      ],
+      runConsistencyCheck: async () => ({
+        needsRegeneration: [{
+          shotId: 'shot_1',
+          suggestion: 'lock face identity',
+          regenStrategy: 'reanchor_regenerate',
+        }],
+      }),
+      regenerateImage: async (...args) => {
+        regenerateCalls.push(args);
+        return {
+          shotId: 'shot_1',
+          keyframeAssetId: 'keyframe_new',
+          imagePath: '/tmp/shot_1_new.png',
+          success: true,
+        };
+      },
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      runLipsync: async () => ({ results: [] }),
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(regenerateCalls.length, 1);
+    assert.match(regenerateCalls[0][1], /provided references/i);
+    assert.deepEqual(regenerateCalls[0][4], {
+      style: process.env.IMAGE_STYLE || 'realistic',
+      referenceImages: ['ref/front.png', '/tmp/shot_1_old.png'],
+    });
+  });
+});
+
 test('runEpisodePipeline applies continuity repair regeneration and records repair attempts', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
@@ -2044,6 +2184,11 @@ test('runEpisodePipeline writes delivery summary with lipsync review and downgra
     assert.match(summary, /降级镜头数：1/);
     assert.match(summary, /Lip-sync Fallback Count：1/);
     assert.match(summary, /Lip-sync Fallback Shots：shot_1:funcineforge->mock/);
+    assert.match(summary, /老板可读根因摘要/);
+    assert.match(summary, /项目级：现在看到的现象是“这次配音用了兜底声音，声音一致性会有风险”/);
+    assert.match(summary, /建议先看“TTS 与配音绑定模块”/);
+    assert.match(summary, /shot_1：现在看到的现象是“已触发 provider fallback”/);
+    assert.match(summary, /shot_2：现在看到的现象是“口型片段生成失败，已降级回普通合成”/);
   });
 });
 
@@ -2197,17 +2342,19 @@ test('runEpisodePipeline writes block qa-overview when the run fails before fina
       /ffmpeg failed/
     );
 
-    const runDir = path.join(
-      tempRoot,
-      'projects',
-      '失败验收项目__project_1',
-      'scripts',
-      '第一卷__script_1',
-      'episodes',
-      '第01集__episode_1',
-      'runs',
-      '2026-04-03_120000__run_failed_overview'
-    );
+    const artifactContext = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '失败验收项目',
+      scriptId: 'script_1',
+      scriptTitle: '第一卷',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: 'run_failed_overview',
+      startedAt: '2026-04-03T12:00:00.000Z',
+    });
+    const runDir = artifactContext.runDir;
     const qaOverview = JSON.parse(fs.readFileSync(path.join(runDir, 'qa-overview.json'), 'utf-8'));
     assert.equal(qaOverview.status, 'block');
     assert.equal(qaOverview.releasable, false);
@@ -2310,7 +2457,10 @@ test('runEpisodePipeline includes preflight blocked shots in delivery summary an
     assert.match(summary, /Preflight Block Count：1/);
     assert.match(summary, /Preflight Blocked Shots：shot_1/);
     assert.match(summary, /Preflight Fix Brief Count：1/);
-    assert.match(summary, /Preflight Fix Brief Artifact：runs\/2026-04-14_100000__run_job_preflight_visibility_20260414100000000_deadbeef\/09bc-preflight-qa-agent\/1-outputs\/preflight-fix-brief.md/);
+    assert.match(summary, /Preflight Fix Brief Artifact：runs\/r_2026-04-14_100000_[a-f0-9]{10}\/09bc-preflight-qa-agent\/1-outputs\/preflight-fix-brief.md/);
+    assert.match(summary, /shot_1：现在看到的现象是“镜头还没拿到可用关键帧，所以后面的生视频做不下去”/);
+    assert.match(summary, /更可能的根因是“关键帧结果缺失”/);
+    assert.match(summary, /建议先看“上游生图模块”/);
     const artifactContext = createRunArtifactContext({
       baseTempDir: tempRoot,
       projectId: 'project_1',
@@ -2835,6 +2985,609 @@ test('runEpisodePipeline blocks weak dynamic shots before provider generation an
 
     assert.equal(seedanceCalls, 0);
   });
+});
+
+test('runEpisodePipeline recovers existing image files from disk and resumes only missing shots', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    fs.writeFileSync(path.join(dirs.images, 'shot_001.png'), 'existing-image');
+    const generateCalls = [];
+    const savedStates = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_resume_images',
+      loadJSON: () => null,
+      saveJSON: (_stateFile, value) => {
+        savedStates.push(JSON.parse(JSON.stringify(value)));
+      },
+      loadScript: () => ({
+        id: 'script_1',
+        title: '断点续跑',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [
+          { id: 'shot_001', scene: '废墟门口', action: '林岚抬头', characters: ['林岚'], duration: 4 },
+          { id: 'shot_002', scene: '废墟走廊', action: '林岚前进', characters: ['林岚'], duration: 4 },
+        ],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async (shots) =>
+        shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: 'none' })),
+      generateAllImages: async (prompts, _imagesDir, options = {}) => {
+        generateCalls.push(prompts.map((prompt) => prompt.shotId));
+        const result = { shotId: 'shot_002', imagePath: path.join(dirs.images, 'shot_002.png'), success: true };
+        fs.writeFileSync(result.imagePath, 'generated-image');
+        options.onResult?.(result);
+        return [result];
+      },
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      generateAllAudio: async () => [],
+      runLipsync: async () => ({ results: [] }),
+      composeVideo: async () => {},
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.deepEqual(generateCalls, [['shot_002']]);
+    const lastState = savedStates.at(-1);
+    assert.equal(Array.isArray(lastState.imageResults), true);
+    assert.equal(lastState.imageResults.length, 2);
+    assert.deepEqual(
+      lastState.imageResults.map((entry) => entry.shotId).sort(),
+      ['shot_001', 'shot_002']
+    );
+  });
+});
+
+test('runEpisodePipeline can stop before video generation without touching sequence locals', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    let videoCalls = 0;
+    let regenerateCalls = 0;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_stop_before_video',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '视频前停止',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '废墟', action: '林岚回头', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: path.join(dirs.images, 'shot_1.png'), success: true }],
+      runConsistencyCheck: async () => ({
+        needsRegeneration: [{ shotId: 'shot_1', suggestion: 'keep face consistent' }],
+      }),
+      regenerateImage: async () => {
+        regenerateCalls += 1;
+        return { shotId: 'shot_1', imagePath: path.join(dirs.images, 'shot_1-regen.png'), success: true };
+      },
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'slow_push',
+        cameraSpec: { moveType: 'slow_push', framing: 'medium', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '角色回头',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_single',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: [],
+        referenceImages: [],
+        durationTargetSec: 4,
+        generationPack: { reference_stack: [] },
+        providerRequestHints: {},
+        seedancePromptBlocks: [],
+      }],
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: { passCount: 1, warnCount: 0, blockCount: 0, entries: [] },
+      }),
+      runSeedanceVideo: async () => {
+        videoCalls += 1;
+        return { results: [], report: { status: 'pass', warnings: [], blockers: [] } };
+      },
+      composeVideo: async () => {},
+    });
+
+    const result = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: { stopBeforeVideo: true },
+    });
+
+    assert.equal(result.status, 'stopped_before_video');
+    assert.equal(videoCalls, 0);
+    assert.equal(regenerateCalls, 0);
+  });
+});
+
+test('runEpisodePipeline hard-blocks before video generation when preflight flags anatomy/reference fatal issues', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    let seedanceCalls = 0;
+    let composeCalled = false;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_preflight_hard_block',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '硬阻断预检',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '棚拍', action: '角色站立', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: path.join(dirs.images, 'shot_1.png'), success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'slow_push',
+        cameraSpec: { moveType: 'slow_push', framing: 'medium', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '角色站立',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_single',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['static_image'],
+        referenceImages: [{ type: 'keyframe', path: path.join(dirs.images, 'shot_1.png'), shotId: 'shot_1' }],
+        durationTargetSec: 4,
+        generationPack: { reference_stack: [{ path: path.join(dirs.images, 'shot_1.png') }] },
+        seedancePromptBlocks: [],
+        qualityIssues: [],
+        providerRequestHints: {},
+      }],
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: {
+          passCount: 0,
+          warnCount: 0,
+          blockCount: 1,
+          entries: [
+            {
+              shotId: 'shot_1',
+              decision: 'block',
+              reasons: ['anatomy_structure_invalid', 'reference_sheet_background_invalid'],
+            },
+          ],
+        },
+      }),
+      runSeedanceVideo: async () => {
+        seedanceCalls += 1;
+        return { results: [], report: { status: 'pass', warnings: [], blockers: [] } };
+      },
+      composeVideo: async () => {
+        composeCalled = true;
+      },
+    });
+
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      }),
+      /Preflight QA 发现人体结构\/参考图硬伤/
+    );
+
+    assert.equal(seedanceCalls, 0);
+    assert.equal(composeCalled, false);
+  });
+});
+
+test('runEpisodePipeline hard-blocks before compose when shot QA flags anatomy fatal issues', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    let composeCalled = false;
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_shot_qa_hard_block',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '镜头QA硬阻断',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '棚拍', action: '角色移动', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: path.join(dirs.images, 'shot_1.png'), success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'dialogue_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'slow_push',
+        cameraSpec: { moveType: 'slow_push', framing: 'medium', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '角色移动',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'dialogue_single',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'push_in' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['static_image'],
+        referenceImages: [{ type: 'keyframe', path: path.join(dirs.images, 'shot_1.png'), shotId: 'shot_1' }],
+        durationTargetSec: 4,
+        generationPack: { reference_stack: [{ path: path.join(dirs.images, 'shot_1.png') }] },
+        seedancePromptBlocks: [],
+        qualityIssues: [],
+        providerRequestHints: {},
+      }],
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: { passCount: 1, warnCount: 0, blockCount: 0, entries: [] },
+      }),
+      runSeedanceVideo: async () => ({
+        results: [{ shotId: 'shot_1', status: 'completed', videoPath: path.join(dirs.output, 'shot_1.mp4'), targetDurationSec: 4 }],
+        report: { status: 'pass', warnings: [], blockers: [] },
+      }),
+      runMotionEnhancer: async () => [{
+        shotId: 'shot_1',
+        status: 'completed',
+        enhancedVideoPath: path.join(dirs.output, 'shot_1_enhanced.mp4'),
+        targetDurationSec: 4,
+        qaIssues: ['anatomy_structure_invalid'],
+      }],
+      runShotQa: async () => ({
+        status: 'block',
+        entries: [
+          {
+            shotId: 'shot_1',
+            qaStatus: 'block',
+            finalDecision: 'block',
+            decisionReason: 'anatomy_structure_invalid',
+            canUseVideo: false,
+            fallbackToImage: false,
+          },
+        ],
+        warnings: [],
+        blockers: ['shot_1:anatomy_structure_invalid'],
+      }),
+      generateAllAudio: async () => [],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      composeVideo: async () => {
+        composeCalled = true;
+      },
+    });
+
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      }),
+      /Shot QA 发现人体结构\/参考图硬伤/
+    );
+
+    assert.equal(composeCalled, false);
+  });
+});
+
+test('buildVisualEligibilityReport marks image timeout as upstream block root cause', () => {
+  const report = directorTestables.buildVisualEligibilityReport(
+    [{ id: 'shot_1' }, { id: 'shot_2' }],
+    [
+      { shotId: 'shot_1', imagePath: null, success: false, error: '图像生成超时：shot_1 在 30s 内未完成' },
+      { shotId: 'shot_2', imagePath: '/tmp/shot_2.png', success: true },
+    ]
+  );
+
+  assert.equal(report.passCount, 1);
+  assert.equal(report.blockCount, 1);
+  assert.deepEqual(report.blockedShotIds, ['shot_1']);
+  assert.equal(report.entries[0].rootCauseCode, 'image_generation_timeout');
+  assert.equal(report.entries[0].decision, 'block');
+  assert.equal(report.entries[1].decision, 'pass');
+});
+
+test('buildUpstreamFailureInsights rewrites missing_reference_stack to upstream image failure root cause', () => {
+  const visualEligibilityReport = {
+    passCount: 0,
+    blockCount: 1,
+    blockedShotIds: ['shot_1'],
+    entries: [
+      {
+        shotId: 'shot_1',
+        decision: 'block',
+        rootCauseCode: 'image_generation_timeout',
+        rootCauseLabel: '图像生成超时',
+      },
+    ],
+  };
+
+  const upstreamFailureInsights = directorTestables.buildUpstreamFailureInsights(
+    visualEligibilityReport,
+    {
+      entries: [
+        {
+          shotId: 'shot_1',
+          decision: 'block',
+          reasons: ['missing_reference_stack'],
+        },
+      ],
+    }
+  );
+
+  assert.equal(upstreamFailureInsights.matchedCount, 1);
+  assert.deepEqual(upstreamFailureInsights.matchedShotIds, ['shot_1']);
+  assert.equal(upstreamFailureInsights.entries[0].rootCauseConfidence, 'upstream_primary_candidate');
+  assert.match(upstreamFailureInsights.entries[0].conclusion, /优先排查上游关键帧缺失问题/);
+  assert.match(upstreamFailureInsights.learnedPattern, /参考栈缺失仍可能是并发问题/);
+});
+
+test('runEpisodePipeline writes early visual blocking and case memory into stop-before-video QA overview', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const runAttemptId = 'run_job_visual_case_memory_20260418120000000_deadbeef';
+    const startedAt = '2026-04-18T12:00:00.000Z';
+
+    const loadJson = (filePath) => {
+      if (!fs.existsSync(filePath)) return null;
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    };
+    const saveJson = (filePath, data) => {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    };
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_visual_case_memory',
+      loadJSON: loadJson,
+      saveJSON: saveJson,
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '根因前移' }),
+      loadScript: () => ({
+        id: 'script_1',
+        title: '根因前移',
+        characters: [{ name: '林岚' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        episodeNo: 1,
+        shots: [{ id: 'shot_1', scene: '仓库', action: '林岚急转身', characters: ['林岚'], duration: 4 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '林岚', basePromptTokens: 'lin lan' }],
+      generateCharacterRefSheets: async () => [],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: 'none' }],
+      generateAllImages: async () => [
+        {
+          shotId: 'shot_1',
+          imagePath: null,
+          success: false,
+          error: '图像生成超时：shot_1 在 30s 内未完成',
+        },
+      ],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+      planSceneGrammar: async () => [],
+      planDirectorPacks: async () => [],
+      planMotion: async () => [{
+        shotId: 'shot_1',
+        shotType: 'action_medium',
+        durationTargetSec: 4,
+        cameraIntent: 'fast_pan',
+        cameraSpec: { moveType: 'fast_pan', framing: 'medium', ratio: '9:16' },
+        videoGenerationMode: 'seedance_image_to_video',
+        visualGoal: '角色急转身',
+      }],
+      planPerformance: async () => [{
+        shotId: 'shot_1',
+        performanceTemplate: 'action_single',
+        actionBeatList: [],
+        cameraMovePlan: { pattern: 'fast_pan' },
+        generationTier: 'enhanced',
+        variantCount: 1,
+        enhancementHints: [],
+      }],
+      routeVideoShots: async () => [{
+        shotId: 'shot_1',
+        preferredProvider: 'seedance',
+        fallbackProviders: ['static_image'],
+        referenceImages: [],
+        durationTargetSec: 4,
+        generationPack: { reference_stack: [] },
+        seedancePromptBlocks: [],
+        qualityIssues: ['missing_reference_stack'],
+        providerRequestHints: {},
+      }],
+      runPreflightQa: async (shotPackages) => ({
+        reviewedPackages: shotPackages,
+        report: {
+          passCount: 0,
+          warnCount: 0,
+          blockCount: 1,
+          entries: [
+            {
+              shotId: 'shot_1',
+              decision: 'block',
+              reasons: ['missing_reference_stack'],
+              reasonDetails: [
+                {
+                  code: 'missing_reference_stack',
+                  label: '参考栈缺失',
+                  suggestion: '补角色参考图、场景参考图或上一镜承接图，不要让模型盲猜人物和空间。',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      composeVideo: async () => {},
+    });
+
+    const result = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {
+        stopBeforeVideo: true,
+        runAttemptId,
+        startedAt,
+        storeOptions: { baseTempDir: tempRoot },
+      },
+    });
+
+    assert.equal(result.status, 'stopped_before_video');
+
+    const artifactContext = createRunArtifactContext({
+      baseTempDir: tempRoot,
+      projectId: 'project_1',
+      projectName: '根因前移',
+      scriptId: 'script_1',
+      scriptTitle: '根因前移',
+      episodeId: 'episode_1',
+      episodeTitle: '第一集',
+      episodeNo: 1,
+      runJobId: runAttemptId,
+      startedAt,
+    });
+
+    const qaOverview = JSON.parse(fs.readFileSync(artifactContext.qaOverviewJsonPath, 'utf-8'));
+    assert.match(qaOverview.summary, /视觉可开工性：pass 0，block 1/);
+    assert.match(qaOverview.summary, /案例记忆：已识别 1 个/);
+    assert.equal(
+      qaOverview.topIssues.some((item) => /Visual Eligibility: shot_1 block - 缺少关键帧，根因是图像生成超时/.test(item)),
+      true
+    );
+    assert.equal(
+      qaOverview.topIssues.some((item) => /Case Memory: shot_1 同时出现 missing_reference_stack 与图像生成超时，应优先排查上游关键帧失败/.test(item)),
+      true
+    );
+    assert.deepEqual(qaOverview.runDebug.visualBlockedShotIds, ['shot_1']);
+    assert.deepEqual(qaOverview.runDebug.upstreamFailureShotIds, ['shot_1']);
+    assert.equal(qaOverview.runDebug.caseMemoryFindings.length, 1);
+
+    const stateSnapshot = JSON.parse(fs.readFileSync(path.join(artifactContext.runDir, 'state.snapshot.json'), 'utf-8'));
+    assert.equal(stateSnapshot.visualEligibilityReport.blockCount, 1);
+    assert.equal(stateSnapshot.upstreamFailureInsights.matchedCount, 1);
+  });
+});
+
+test('collectRunQaOverview keeps agent block items ahead of explanatory extraTopIssues', () => {
+  const overview = directorTestables.collectRunQaOverview(
+    (filePath) => {
+      const normalized = String(filePath).replace(/\\/g, '/');
+      if (normalized.endsWith('/manifest.json')) {
+        if (normalized.includes('/runs/')) {
+          return { runJobId: 'run_1' };
+        }
+        return { status: 'completed' };
+      }
+      if (normalized.endsWith('/run-jobs/run_1.json')) {
+        return { status: 'completed', agentTaskRuns: [] };
+      }
+      if (normalized.endsWith('/state.snapshot.json')) {
+        return {};
+      }
+      if (normalized.endsWith('/04-image-generator/2-metrics/qa-summary.json')) {
+        return {
+          agentKey: 'imageGenerator',
+          agentName: 'Image Generator',
+          status: 'block',
+          blockItems: ['有 1 个镜头生成失败'],
+          warnItems: [],
+          passItems: [],
+          nextActions: [],
+          artifacts: [],
+        };
+      }
+      return null;
+    },
+    {
+      manifestPath: 'tmp/runs/manifest.json',
+      runDir: 'tmp/runs/run_1',
+      episodeDir: 'tmp/episode_1',
+      agents: {
+        imageGenerator: {
+          metricsDir: 'tmp/runs/04-image-generator/2-metrics',
+          manifestPath: 'tmp/runs/04-image-generator/manifest.json',
+        },
+      },
+    },
+    {
+      releasable: false,
+      extraTopIssues: [
+        'Visual Eligibility: shot_9 block - 缺少关键帧',
+        'Case Memory: shot_9 同时出现 missing_reference_stack 与图像生成超时，应优先排查上游关键帧失败。',
+      ],
+    }
+  );
+
+  assert.equal(overview.topIssues[0], 'Image Generator: 有 1 个镜头生成失败');
 });
 
 test('buildBridgeClipBridge drops continuity clips when QA report is missing', () => {

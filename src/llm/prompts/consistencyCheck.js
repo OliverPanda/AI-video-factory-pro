@@ -41,6 +41,8 @@ ${characterCard.visualDescription}
     "bodyShape": "体型一致性描述"
   },
   "identityDriftTags": ["hair_drift", "outfit_drift", "palette_drift", "age_feel_drift"],
+  "hardFailureReasons": ["identity_swap", "character_swap"],
+  "softRiskTags": ["hair_drift", "palette_drift"],
   "anchorSummary": {
     "hair": "发型/发色是否稳定",
     "outfit": "服装轮廓是否稳定",
@@ -49,4 +51,9 @@ ${characterCard.visualDescription}
   },
   "problematicImageIndices": [需要重新生成的图片索引，从0开始],
   "suggestion": "改进建议（如何调整Prompt提升一致性）"
-}`;
+}
+
+约束：
+- hardFailureReasons 只放“必须阻断”的硬失败原因；没有则返回 []
+- softRiskTags 放可放宽但需记录的软风险；没有则返回 []
+- hardFailureReasons / softRiskTags 可以复用 identityDriftTags 中的标签，但语义要符合硬/软分类`;

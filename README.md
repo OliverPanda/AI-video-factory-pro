@@ -50,7 +50,7 @@ project
 6. `Character Ref Sheet Generator`
    负责先为每个角色生成三视图参考纸，给后续角色一致性提供硬参考。
 7. `Consistency Checker`
-   负责检查同一角色在不同镜头里的外观是否漂移。
+   负责按“角色优先级 × 镜头复杂度”做双轴一致性 QA，输出 `pass / warn / block`、硬失败原因、软风险标签，以及推荐的重生成策略。
 8. `Continuity Checker`
    负责检查镜头之间的连贯性，并标记高风险 cut。
 9. `Motion Planner`
@@ -97,6 +97,22 @@ Prompt Engineer 的双语字段约定（用于 UI 展示与模型执行解耦）
 4. `lipsyncResults`
 5. `animationClips`
 6. `imageResults`
+
+当前一致性 QA 策略：
+
+- 不再是“单一分数阈值”。
+- 规则是 `角色优先级 × 镜头复杂度` 双轴判定：
+  - `lead + anchor` 最严格
+  - `support + complex` 适度放宽
+- 分数只负责提示风险，真正放行由规则决定。
+- 统一输出三段式结果：
+  - `pass`：放行
+  - `warn`：允许继续，但建议 `prompt_tighten`
+  - `block`：判为硬失败，建议 `reanchor_regenerate`
+- `Director` 会按 `regenStrategy` 分流：
+  - `prompt_tighten`：在原 prompt 上收紧身份约束
+  - `reanchor_regenerate`：优先带角色参考图 / 三视图 / 当前最佳图回锚重生
+- `--stop-before-video` 仍然不会自动执行这些补图动作，只会把问题保留下来给人看。
 
 Phase 4 的最小增量位置固定为：
 

@@ -6,6 +6,9 @@
   "main": "scripts/run.js",
   "scripts": {
     "start": "node scripts/run.js",
+    "workbench": "node scripts/workbench-server.js",
+    "workbench:ui": "npm --prefix workbench-ui run dev",
+    "workbench:all": "start cmd /c \"npm run workbench\" && start cmd /c \"npm run workbench:ui\"",
     "resume:from-step": "node scripts/resume-from-step.js",
     "test": "node scripts/run-tests.js",
     "test:tts": "node scripts/run-tts-tests.js",

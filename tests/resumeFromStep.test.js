@@ -22,6 +22,21 @@ test('parseCliArgs enters project mode selection when no legacy script file is p
   assert.equal(parsed.episodeId, null);
 });
 
+test('parseCliArgs records explicit paid video confirmation', () => {
+  const parsed = __testables.parseCliArgs(['--step=video', '--confirm-paid-video']);
+
+  assert.equal(parsed.step, 'video');
+  assert.equal(parsed.confirmPaidVideo, true);
+  assert.equal(__testables.blocksPaidVideoExecution(parsed), false);
+});
+
+test('blocksPaidVideoExecution also blocks video prepare-only unless confirmed', () => {
+  const parsed = __testables.parseCliArgs(['--step=video', '--prepare-only']);
+
+  assert.equal(parsed.prepareOnly, true);
+  assert.equal(__testables.blocksPaidVideoExecution(parsed), true);
+});
+
 test('getStateKeysToDelete cascades from lipsync to compose only', () => {
   assert.deepEqual(__testables.getStateKeysToDelete('lipsync'), [
     'lipsyncResults',
@@ -460,7 +475,15 @@ test('resumeFromStep uses bound run snapshot as source of truth and writes resum
     );
 
     const result = await __testables.resumeFromStep(
-      ['--step=video', '--project=demo-project', '--script-id=pilot', '--episode=episode-1', '--run-id=run_demo', '--prepare-only'],
+      [
+        '--step=video',
+        '--project=demo-project',
+        '--script-id=pilot',
+        '--episode=episode-1',
+        '--run-id=run_demo',
+        '--prepare-only',
+        '--confirm-paid-video',
+      ],
       { baseTempDir: tempRoot }
     );
 
@@ -538,6 +561,134 @@ test('resumeFromStep dry-run reports strict binding source information', async (
     assert.match(result.planSummary, /恢复模式：strict_run_binding/);
     assert.match(result.planSummary, /绑定 run-id：run_demo/);
     assert.match(result.planSummary, /复用参考图数：1/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resumeFromStep blocks paid video execution by default without mutating state or files', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-resume-paid-guard-'));
+
+  try {
+    const runJobsDir = path.join(
+      tempRoot,
+      'projects',
+      'demo-project',
+      'scripts',
+      'pilot',
+      'episodes',
+      'episode-1',
+      'run-jobs'
+    );
+    const liveStateDir = path.join(tempRoot, 'job_demo');
+    const imageDir = path.join(liveStateDir, 'images');
+    const videoDir = path.join(liveStateDir, 'video');
+    fs.mkdirSync(runJobsDir, { recursive: true });
+    fs.mkdirSync(imageDir, { recursive: true });
+    fs.mkdirSync(videoDir, { recursive: true });
+
+    const imagePath = path.join(imageDir, 'shot_001.png');
+    const videoPath = path.join(videoDir, 'shot_001.mp4');
+    const statePath = path.join(liveStateDir, 'state.json');
+    fs.writeFileSync(imagePath, 'image');
+    fs.writeFileSync(videoPath, 'video');
+    fs.writeFileSync(
+      path.join(runJobsDir, 'run_demo.json'),
+      JSON.stringify(
+        {
+          id: 'run_demo',
+          projectId: 'demo-project',
+          scriptId: 'pilot',
+          episodeId: 'episode-1',
+          jobId: 'job_demo',
+        },
+        null,
+        2
+      )
+    );
+
+    const originalState = {
+      characterRegistry: [{ name: '阿坤' }],
+      imageResults: [{ shotId: 'shot_001', imagePath, success: true }],
+      motionPlan: [{ shotId: 'shot_001' }],
+      videoResults: [{ shotId: 'shot_001', videoPath }],
+    };
+    fs.writeFileSync(statePath, JSON.stringify(originalState, null, 2));
+
+    const result = await __testables.resumeFromStep(
+      ['--step=video', '--project=demo-project', '--script-id=pilot', '--episode=episode-1'],
+      { baseTempDir: tempRoot }
+    );
+
+    const writtenState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(result.blockedByPaidVideoGuard, true);
+    assert.equal(result.executed, false);
+    assert.deepEqual(writtenState, originalState);
+    assert.equal(fs.existsSync(videoPath), true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resumeFromStep blocks video prepare-only without confirmation so cached clips are preserved', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-resume-prepare-guard-'));
+
+  try {
+    const runJobsDir = path.join(
+      tempRoot,
+      'projects',
+      'demo-project',
+      'scripts',
+      'pilot',
+      'episodes',
+      'episode-1',
+      'run-jobs'
+    );
+    const liveStateDir = path.join(tempRoot, 'job_demo');
+    const imageDir = path.join(liveStateDir, 'images');
+    const videoDir = path.join(liveStateDir, 'video');
+    fs.mkdirSync(runJobsDir, { recursive: true });
+    fs.mkdirSync(imageDir, { recursive: true });
+    fs.mkdirSync(videoDir, { recursive: true });
+
+    const imagePath = path.join(imageDir, 'shot_001.png');
+    const videoPath = path.join(videoDir, 'shot_001.mp4');
+    const statePath = path.join(liveStateDir, 'state.json');
+    fs.writeFileSync(imagePath, 'image');
+    fs.writeFileSync(videoPath, 'video');
+    fs.writeFileSync(
+      path.join(runJobsDir, 'run_demo.json'),
+      JSON.stringify(
+        {
+          id: 'run_demo',
+          projectId: 'demo-project',
+          scriptId: 'pilot',
+          episodeId: 'episode-1',
+          jobId: 'job_demo',
+        },
+        null,
+        2
+      )
+    );
+
+    const originalState = {
+      characterRegistry: [{ name: '阿坤' }],
+      imageResults: [{ shotId: 'shot_001', imagePath, success: true }],
+      motionPlan: [{ shotId: 'shot_001' }],
+      videoResults: [{ shotId: 'shot_001', videoPath }],
+    };
+    fs.writeFileSync(statePath, JSON.stringify(originalState, null, 2));
+
+    const result = await __testables.resumeFromStep(
+      ['--step=video', '--project=demo-project', '--script-id=pilot', '--episode=episode-1', '--prepare-only'],
+      { baseTempDir: tempRoot }
+    );
+
+    const writtenState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(result.blockedByPaidVideoGuard, true);
+    assert.equal(result.executed, false);
+    assert.deepEqual(writtenState, originalState);
+    assert.equal(fs.existsSync(videoPath), true);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

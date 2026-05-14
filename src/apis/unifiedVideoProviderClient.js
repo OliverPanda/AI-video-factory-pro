@@ -1,223 +1,278 @@
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
-import { createFallbackVideoClip } from './fallbackVideoApi.js';
-import {
-  createSeedanceBridgeClip,
-  createSeedanceMultiShotClip,
-  createSeedanceVideoClip,
-} from './seedanceVideoApi.js';
+import { createVideoGenerationResult, createVideoGenerationRequest, normalizeVideoProvider, resolveVideoPackageId, resolveVideoPackageType, summarizeReferenceBindings } from './videoGenerationContract.js';
+import { resolveVideoGenerationConfig } from './videoGenerationConfig.js';
+import { createVideoRequestRouter } from './videoRequestRouter.js';
 
-function normalizeProvider(provider) {
-  if (provider === 'fallback_video' || provider === 'runway') {
-    return 'sora2';
+function normalizeRequestPrompt(videoPackage = {}) {
+  if (Array.isArray(videoPackage.seedancePromptBlocks) && videoPackage.seedancePromptBlocks.length > 0) {
+    return videoPackage.seedancePromptBlocks
+      .map((block) => String(block?.text || '').trim())
+      .filter(Boolean)
+      .join('. ');
   }
-  if (provider === 'vercel' || provider === 'vercel_ai_gateway') {
-    return 'vercel_ai_gateway';
+
+  if (Array.isArray(videoPackage.promptDirectives) && videoPackage.promptDirectives.length > 0) {
+    return videoPackage.promptDirectives.map((item) => String(item || '').trim()).filter(Boolean).join('. ');
   }
-  return provider || 'seedance';
+
+  return [
+    videoPackage.visualGoal,
+    videoPackage.sequenceContextSummary,
+    videoPackage.providerRequestHints?.sequenceGoal,
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join('. ');
 }
 
-function resolveTransportProvider(videoPackage = {}, runtimeOptions = {}) {
-  const env = runtimeOptions.env || process.env;
-  const rawProvider =
-    runtimeOptions.transportProvider ||
-    videoPackage.transportProvider ||
-    env.VIDEO_TRANSPORT_PROVIDER ||
-    videoPackage.preferredProvider;
-  return normalizeProvider(rawProvider);
+function buildRequestMetadata(videoPackage = {}, resolvedConfig = {}) {
+  return {
+    requestedProvider: normalizeVideoProvider(videoPackage.provider || videoPackage.preferredProvider),
+    requestedTransport: videoPackage.transport || null,
+    packageType: resolvedConfig.packageType,
+    packageId: resolvedConfig.packageId,
+    referenceBindingSummary: summarizeReferenceBindings({
+      referenceImages: videoPackage.referenceImages || [],
+      referenceVideos: videoPackage.referenceVideos || [],
+    }),
+  };
 }
 
-function resolvePackageType(videoPackage = {}) {
-  if (videoPackage.packageType) {
-    return videoPackage.packageType;
-  }
-  if (videoPackage.sequenceId) {
-    return 'sequence';
-  }
-  if (videoPackage.bridgeId) {
-    return 'bridge';
-  }
-  return 'shot';
+function buildRequestDigest(requestBody = {}) {
+  return createHash('sha1').update(JSON.stringify(requestBody)).digest('hex');
 }
 
-function resolvePackageId(videoPackage = {}, packageType = resolvePackageType(videoPackage)) {
-  if (packageType === 'sequence') {
-    return videoPackage.sequenceId || null;
-  }
-  if (packageType === 'bridge') {
-    return videoPackage.bridgeId || null;
-  }
-  return videoPackage.shotId || null;
+function createRegistryEntry({
+  request,
+  route,
+  adapterResult,
+  outputPath,
+  submitResult,
+}) {
+  return {
+    request,
+    route,
+    adapterResult,
+    outputPath,
+    submitResult,
+    taskId: submitResult?.taskId || `task_${randomUUID()}`,
+  };
 }
 
-function buildTempOutputPath(videoPackage = {}) {
-  const packageType = resolvePackageType(videoPackage);
-  const packageId = resolvePackageId(videoPackage, packageType) || randomUUID();
-  return path.join(os.tmpdir(), `aivf-unified-${packageType}-${packageId}.mp4`);
+function toContext(entry, override = {}) {
+  return {
+    request: entry.request,
+    route: entry.route,
+    baseUrl: override.baseUrl || entry.request.params?.baseUrl || null,
+    apiKey: override.apiKey || entry.request.params?.apiKey || null,
+    submitPath: override.submitPath || entry.request.params?.submitPath || null,
+    pollPath: override.pollPath || entry.request.params?.pollPath || null,
+    downloadPath: override.downloadPath || entry.request.params?.downloadPath || null,
+    taskId: override.taskId || entry.taskId,
+    providerRequest: entry.adapterResult.requestSummary?.providerRequest || null,
+    providerMetadata: {
+      ...(entry.adapterResult.requestSummary?.providerMetadata || {}),
+      requestId: entry.request.requestId,
+      resolvedAdapter: entry.route.adapter.name,
+      resolvedTransport: entry.route.transport.name,
+      requestBodyDigest: buildRequestDigest(entry.adapterResult.requestBody),
+    },
+    durationTargetSec: entry.request.durationSec,
+  };
 }
 
-function copyIfNeeded(sourcePath, outputPath) {
-  if (!sourcePath || !outputPath || sourcePath === outputPath) {
-    return;
+function selectInjectedHandlerBundle(options = {}, resolvedConfig = {}) {
+  if (resolvedConfig.transport === 'gateway' && options.vercelHandlers) {
+    return {
+      kind: 'vercel',
+      handlers: options.vercelHandlers,
+      adapterName: 'InjectedVercelVideoAdapter',
+      transportName: 'InjectedVercelVideoTransport',
+    };
   }
-  fs.copyFileSync(sourcePath, outputPath);
+
+  if (resolvedConfig.provider === 'sora' && options.fallbackHandlers) {
+    return {
+      kind: 'fallback',
+      handlers: options.fallbackHandlers,
+      adapterName: 'InjectedFallbackVideoAdapter',
+      transportName: 'InjectedFallbackVideoTransport',
+    };
+  }
+
+  if (resolvedConfig.provider === 'seedance' && options.seedanceHandlers) {
+    return {
+      kind: 'seedance',
+      handlers: options.seedanceHandlers,
+      adapterName: 'InjectedSeedanceVideoAdapter',
+      transportName: 'InjectedSeedanceVideoTransport',
+    };
+  }
+
+  return null;
 }
 
-function createImmediateHandler(runGeneration) {
+function createInjectedRoute(bundle) {
+  return {
+    adapter: { name: bundle.adapterName },
+    transport: { name: bundle.transportName },
+    resolvedProvider: null,
+    resolvedTransport: null,
+  };
+}
+
+export function createUnifiedVideoProviderClient(options = {}) {
+  const router = options.router || createVideoRequestRouter(options.routerOptions);
   const taskRegistry = new Map();
   const outputRegistry = new Map();
 
   return {
-    async submitVideoGeneration(videoPackage, options = {}) {
-      const outputPath = options.outputPath || buildTempOutputPath(videoPackage);
-      const run = await runGeneration(videoPackage, outputPath, options);
-      const taskId = run?.taskId || `task_${randomUUID()}`;
-      const outputUrl = run?.outputUrl || run?.videoPath || outputPath;
-      const taskEntry = {
-        run,
-        outputPath,
-        outputUrl,
-      };
-      taskRegistry.set(taskId, taskEntry);
-      if (outputUrl) {
-        outputRegistry.set(outputUrl, taskEntry);
-      }
-      return {
-        taskId,
-        provider: run?.provider || normalizeProvider(videoPackage?.preferredProvider),
-        model: run?.model || null,
-        outputUrl,
-      };
-    },
-    async pollVideoGeneration(taskId) {
-      const taskEntry = taskRegistry.get(taskId);
-      if (!taskEntry) {
-        throw new Error(`Unknown unified video task: ${taskId}`);
-      }
-      return {
-        status: 'COMPLETED',
-        outputUrl: taskEntry.outputUrl,
-        actualDurationSec: taskEntry.run?.actualDurationSec || null,
-      };
-    },
-    async downloadVideoGeneration(outputUrl, outputPath) {
-      const taskEntry = outputRegistry.get(outputUrl);
-      if (!taskEntry) {
-        throw new Error(`Unknown unified video output: ${outputUrl}`);
-      }
-      copyIfNeeded(taskEntry.run?.videoPath || taskEntry.outputPath, outputPath);
-      return { outputPath };
-    },
-  };
-}
-
-function createDefaultSeedanceHandlers() {
-  return createImmediateHandler((videoPackage, outputPath, options) => {
-    const packageType = resolvePackageType(videoPackage);
-    if (packageType === 'sequence') {
-      return createSeedanceMultiShotClip(videoPackage, outputPath, options);
-    }
-    if (packageType === 'bridge') {
-      return createSeedanceBridgeClip(videoPackage, outputPath, options);
-    }
-    return createSeedanceVideoClip(videoPackage, outputPath, options);
-  });
-}
-
-function createDefaultFallbackHandlers() {
-  return createImmediateHandler((videoPackage, outputPath, options) =>
-    createFallbackVideoClip(videoPackage, outputPath, options)
-  );
-}
-
-export function createUnifiedVideoProviderClient(options = {}) {
-  const seedanceHandlers = options.seedanceHandlers || createDefaultSeedanceHandlers();
-  const fallbackHandlers = options.fallbackHandlers || createDefaultFallbackHandlers();
-  const vercelHandlers = options.vercelHandlers || null;
-  const taskRegistry = new Map();
-
-  function selectHandlers(videoPackage = {}, runtimeOptions = {}) {
-    const provider = resolveTransportProvider(videoPackage, runtimeOptions);
-    if (provider === 'vercel_ai_gateway') {
-      return {
-        provider,
-        handlers: vercelHandlers || seedanceHandlers,
-      };
-    }
-    return {
-      provider,
-      handlers: provider === 'seedance' ? seedanceHandlers : fallbackHandlers,
-    };
-  }
-
-  return {
     async submit(videoPackage, outputPath = null, submitOptions = {}) {
-      const packageType = resolvePackageType(videoPackage);
-      const packageId = resolvePackageId(videoPackage, packageType);
-      const { provider, handlers } = selectHandlers(videoPackage, submitOptions);
-      const submitResult = await handlers.submitVideoGeneration(videoPackage, {
-        ...submitOptions,
-        outputPath,
+      const env = submitOptions.env || process.env;
+      const resolvedConfig = resolveVideoGenerationConfig(videoPackage, submitOptions, env);
+      const request = createVideoGenerationRequest({
+        packageType: resolvedConfig.packageType,
+        packageId: resolvedConfig.packageId,
+        provider: resolvedConfig.provider,
+        model: resolvedConfig.model,
+        transport: resolvedConfig.transport,
+        prompt: normalizeRequestPrompt(videoPackage),
+        referenceImages: Array.isArray(videoPackage.referenceImages) ? videoPackage.referenceImages : [],
+        referenceVideos: Array.isArray(videoPackage.referenceVideos) ? videoPackage.referenceVideos : [],
+        durationSec: videoPackage.durationTargetSec,
+        ratio: videoPackage.cameraSpec?.ratio || null,
+        outputPath: outputPath || videoPackage.outputPath || path.join(process.cwd(), `${resolvedConfig.packageId}.mp4`),
+        params: {
+          baseUrl: resolvedConfig.baseUrl,
+          apiKey: resolvedConfig.apiKey,
+          protocol: resolvedConfig.protocol,
+          submitPath: resolvedConfig.submitPath,
+          pollPath: resolvedConfig.pollPath,
+          downloadPath: resolvedConfig.downloadPath,
+        },
+        metadata: buildRequestMetadata(videoPackage, resolvedConfig),
       });
-      const taskId = submitResult?.taskId || `task_${randomUUID()}`;
-      taskRegistry.set(taskId, { handlers, provider });
+      const injectedHandlerBundle = selectInjectedHandlerBundle(options, resolvedConfig);
+      const route = injectedHandlerBundle ? createInjectedRoute(injectedHandlerBundle) : router.resolve(request);
+      const adapterResult = injectedHandlerBundle
+        ? {
+            requestBody: videoPackage,
+            requestSummary: {
+              providerRequest: videoPackage,
+              providerMetadata: {
+                injectedHandler: injectedHandlerBundle.kind,
+              },
+            },
+          }
+        : route.adapter.buildProviderRequest(request);
+      const submitResult = injectedHandlerBundle
+        ? await injectedHandlerBundle.handlers.submitVideoGeneration(videoPackage, {
+            request,
+            outputPath: request.outputPath,
+            submitOptions,
+          })
+        : await route.transport.submit(adapterResult.requestBody, {
+            request,
+            baseUrl: resolvedConfig.baseUrl,
+            apiKey: resolvedConfig.apiKey,
+            submitPath: resolvedConfig.submitPath,
+            protocol: resolvedConfig.protocol,
+          });
+      const entry = createRegistryEntry({
+        request,
+        route,
+        adapterResult,
+        outputPath: request.outputPath,
+        submitResult,
+      });
+      taskRegistry.set(entry.taskId, entry);
+      if (submitResult?.outputUrl) {
+        outputRegistry.set(submitResult.outputUrl, entry);
+      }
       return {
-        ...submitResult,
-        taskId,
-        provider: submitResult?.provider || provider,
-        packageType,
-        packageId,
+        requestId: request.requestId,
+        taskId: entry.taskId,
+        provider: submitResult?.provider || request.provider,
+        model: submitResult?.model || request.model,
+        transport: request.transport,
+        outputUrl: submitResult?.outputUrl || null,
+        packageType: request.packageType,
+        packageId: request.packageId,
+        providerRequest: adapterResult.requestSummary?.providerRequest || null,
+        providerMetadata: {
+          ...(adapterResult.requestSummary?.providerMetadata || {}),
+          resolvedAdapter: route.adapter.name,
+          resolvedTransport: route.transport.name,
+          requestBodyDigest: buildRequestDigest(adapterResult.requestBody),
+          requestedProvider: request.metadata?.requestedProvider || request.provider,
+          referenceBindingSummary: request.metadata?.referenceBindingSummary || summarizeReferenceBindings(request),
+        },
       };
     },
     async poll(taskId, ...rest) {
-      const taskEntry = taskRegistry.get(taskId);
-      if (!taskEntry) {
+      const entry = taskRegistry.get(taskId);
+      if (!entry) {
         throw new Error(`Unknown unified video task: ${taskId}`);
       }
-      return taskEntry.handlers.pollVideoGeneration(taskId, ...rest);
+      const injectedHandlerKind = entry.adapterResult.requestSummary?.providerMetadata?.injectedHandler || null;
+      const result = injectedHandlerKind
+        ? await options[`${injectedHandlerKind}Handlers`].pollVideoGeneration(taskId, toContext(entry, { taskId }))
+        : await entry.route.transport.poll(taskId, toContext(entry, { taskId }));
+      if (result?.outputUrl) {
+        outputRegistry.set(result.outputUrl, entry);
+      }
+      return {
+        ...result,
+        taskId,
+        requestId: entry.request.requestId,
+      };
     },
-    async download(outputUrl, outputPath, ...rest) {
-      const providerHint = rest[0] ? resolveTransportProvider(rest[0], rest[2] || {}) : null;
-      const handlers =
-        providerHint === 'seedance'
-          ? seedanceHandlers
-          : providerHint === 'vercel_ai_gateway'
-            ? (vercelHandlers || seedanceHandlers)
-            : providerHint === 'sora2'
-              ? fallbackHandlers
-              : null;
-
-      if (handlers?.downloadVideoGeneration) {
-        return handlers.downloadVideoGeneration(outputUrl, outputPath, ...rest);
+    async download(outputUrl, outputPath, _videoPackage, pollResult) {
+      const entry =
+        (pollResult?.taskId ? taskRegistry.get(pollResult.taskId) : null) ||
+        (outputUrl ? outputRegistry.get(outputUrl) : null);
+      if (!entry) {
+        throw new Error(`Unknown unified video output: ${outputUrl || pollResult?.taskId || 'unknown'}`);
       }
-
-      if (seedanceHandlers.downloadVideoGeneration) {
-        try {
-          return await seedanceHandlers.downloadVideoGeneration(outputUrl, outputPath, ...rest);
-        } catch {
-          // Try fallback handler next.
-        }
+      const injectedHandlerKind = entry.adapterResult.requestSummary?.providerMetadata?.injectedHandler || null;
+      if (injectedHandlerKind) {
+        await options[`${injectedHandlerKind}Handlers`].downloadVideoGeneration(
+          outputUrl,
+          outputPath,
+          toContext(entry, {
+            taskId: pollResult?.taskId || entry.taskId,
+          })
+        );
+      } else {
+        await entry.route.transport.download(outputUrl, outputPath, toContext(entry, {
+          taskId: pollResult?.taskId || entry.taskId,
+        }));
       }
-
-      if (vercelHandlers?.downloadVideoGeneration) {
-        try {
-          return await vercelHandlers.downloadVideoGeneration(outputUrl, outputPath, ...rest);
-        } catch {
-          // Try fallback handler next.
-        }
-      }
-
-      return fallbackHandlers.downloadVideoGeneration(outputUrl, outputPath, ...rest);
+      return createVideoGenerationResult({
+        request: entry.request,
+        status: 'completed',
+        videoPath: outputPath,
+        outputUrl,
+        taskId: pollResult?.taskId || entry.taskId,
+        providerRequest: entry.adapterResult.requestSummary?.providerRequest || null,
+        providerResponse: pollResult?.providerResponse || entry.submitResult?.providerResponse || null,
+        extra: {
+          providerMetadata: {
+            ...(entry.adapterResult.requestSummary?.providerMetadata || {}),
+            resolvedAdapter: entry.route.adapter.name,
+            resolvedTransport: entry.route.transport.name,
+            requestBodyDigest: buildRequestDigest(entry.adapterResult.requestBody),
+            requestedProvider: entry.request.metadata?.requestedProvider || entry.request.provider,
+          },
+        },
+      });
     },
   };
 }
 
 export const __testables = {
-  normalizeProvider,
-  resolveTransportProvider,
-  resolvePackageId,
-  resolvePackageType,
+  buildRequestDigest,
+  normalizeRequestPrompt,
 };

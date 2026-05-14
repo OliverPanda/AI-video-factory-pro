@@ -4,12 +4,34 @@ import { generateImage } from '../apis/imageApi.js';
 import { resolveCharacterIdentity } from './characterRegistry.js';
 import { buildCharacterRefSheetPrompt } from '../llm/prompts/promptEngineering.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
-import { imageQueue, queueWithRetry } from '../utils/queue.js';
+import { createExecutionPolicy, queueWithRetry } from '../utils/queue.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
 function resolveCharacterId(card) {
   return resolveCharacterIdentity(card);
+}
+
+function collectCharacterReferenceImages(card = {}) {
+  const references = [];
+  const seen = new Set();
+
+  function pushReference(value) {
+    const normalized = String(value || '').trim();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    references.push(normalized);
+  }
+
+  const referenceImages = Array.isArray(card.referenceImages) ? card.referenceImages : [];
+  for (const referenceImage of referenceImages) {
+    pushReference(referenceImage?.path || referenceImage?.url || referenceImage);
+  }
+  pushReference(card.referenceImagePath);
+
+  return references;
 }
 
 function writeArtifacts(results, report, artifactContext) {
@@ -45,6 +67,11 @@ export async function generateCharacterRefSheets(characterRegistry = [], outputD
   const style = options.style || process.env.IMAGE_STYLE || 'realistic';
   const resolvedDir = ensureDir(outputDir || path.join(process.env.TEMP_DIR || './temp', 'character-ref-sheets'));
   const runGenerateImage = options.generateImage || generateImage;
+  const executionPolicy =
+    options.executionPolicy && typeof options.executionPolicy === 'object'
+      ? createExecutionPolicy(options.executionPolicy)
+      : createExecutionPolicy();
+  const maxRetries = executionPolicy.defaultMaxRetries ?? 3;
 
   const results = await Promise.all(
     characterRegistry.map((card) => {
@@ -54,11 +81,15 @@ export async function generateCharacterRefSheets(characterRegistry = [], outputD
       const outputPath = path.join(resolvedDir, `${charId || charName}_ref_sheet.png`);
 
       return queueWithRetry(
-        imageQueue,
+        null,
         async () => {
           logger.info('CharRefSheet', `生成角色三视图：${charName}`);
-          const refSheetSize = process.env.CHARACTER_REF_SHEET_SIZE || '2048x1024';
-          const imagePath = await runGenerateImage(refPrompt.prompt, refPrompt.negative, outputPath, { style, size: refSheetSize });
+          const refSheetSize = process.env.CHARACTER_REF_SHEET_SIZE || '1280x1024';
+          const imagePath = await runGenerateImage(refPrompt.prompt, refPrompt.negative, outputPath, {
+            style,
+            size: refSheetSize,
+            references: collectCharacterReferenceImages(card),
+          });
           return {
             characterId: charId,
             characterName: charName,
@@ -68,8 +99,12 @@ export async function generateCharacterRefSheets(characterRegistry = [], outputD
             error: null,
           };
         },
-        5,
-        `ref_sheet_${charName}`
+        maxRetries,
+        `ref_sheet_${charName}`,
+        {
+          queueType: 'image',
+          policy: executionPolicy,
+        }
       ).catch((err) => {
         logger.error('CharRefSheet', `${charName} 三视图生成失败：${err.message}`);
         return {
@@ -99,5 +134,6 @@ export async function generateCharacterRefSheets(characterRegistry = [], outputD
 }
 
 export const __testables = {
+  collectCharacterReferenceImages,
   resolveCharacterId,
 };

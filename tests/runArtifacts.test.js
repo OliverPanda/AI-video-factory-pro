@@ -110,36 +110,11 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       ctx.qaOverviewMarkdownPath,
       path.join(ctx.runDir, 'qa-overview.md')
     );
-    assert.equal(
-      ctx.projectDir,
-      path.join(tempRoot, 'projects', '咖啡馆相遇__project_123')
-    );
-    assert.equal(
-      ctx.episodeDir,
-      path.join(
-        tempRoot,
-        'projects',
-        '咖啡馆相遇__project_123',
-        'scripts',
-        '第一卷__script_001',
-        'episodes',
-        '第01集__episode_001'
-      )
-    );
-    assert.equal(
-      ctx.runDir,
-      path.join(
-        tempRoot,
-        'projects',
-        '咖啡馆相遇__project_123',
-        'scripts',
-        '第一卷__script_001',
-        'episodes',
-        '第01集__episode_001',
-        'runs',
-        '2026-04-01_090000__run_abc'
-      )
-    );
+    assert.equal(ctx.projectDir.startsWith(path.join(tempRoot, 'projects', 'p_')), true);
+    assert.equal(ctx.scriptDir.startsWith(path.join(ctx.projectDir, 'scripts', 's_')), true);
+    assert.equal(ctx.episodeDir.startsWith(path.join(ctx.scriptDir, 'episodes', 'e01_')), true);
+    assert.equal(ctx.runDir.startsWith(path.join(ctx.episodeDir, 'runs', 'r_2026-04-01_090000_')), true);
+    assert.equal(ctx.runDir.length < 180, true);
     assert.deepEqual(ctx.agents.scriptParser, {
       dir: path.join(ctx.runDir, '01-script-parser'),
       manifestPath: path.join(ctx.runDir, '01-script-parser', 'manifest.json'),

@@ -221,6 +221,29 @@ test('character consistency acceptance run writes bible anchors identity report 
       )
     );
     assert.deepEqual(consistencyReport[0].identityDriftTags, ['hair_drift']);
+    assert.equal(consistencyReport[0].characterPriority, 'support');
+    assert.equal(consistencyReport[0].shotConsistencyClass, 'standard');
+    assert.deepEqual(consistencyReport[0].hardFailureReasons, []);
+    assert.deepEqual(consistencyReport[0].softRiskTags, ['hair_drift']);
+    assert.equal(consistencyReport[0].qaDecision.status, 'warn');
+    assert.equal(consistencyReport[0].regenStrategy, 'prompt_tighten');
+
+    const flaggedShots = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.consistencyChecker.outputsDir, 'flagged-shots.json'),
+        'utf-8'
+      )
+    );
+    assert.deepEqual(flaggedShots, [
+      {
+        shotId: 'shot_002',
+        reason: '沈清 一致性评分 6/10（support/standard）',
+        regenStrategy: 'prompt_tighten',
+        hardFailureReasons: [],
+        softRiskTags: ['hair_drift'],
+        suggestion: 'lock fringe and pale hanfu silhouette',
+      },
+    ]);
 
     const continuityFlagged = JSON.parse(
       fs.readFileSync(

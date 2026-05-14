@@ -23,33 +23,33 @@ test('style 会映射到新的任务类型', () => {
 test('默认路由只返回老张平台模型', () => {
   const realisticRoute = resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE, {
     PRIMARY_API_PROVIDER: 'openai_compat',
-    REALISTIC_IMAGE_MODEL: 'flux-kontext-pro',
+    REALISTIC_IMAGE_MODEL: 'gpt-image-2',
   });
   const threedRoute = resolveImageRoute(IMAGE_TASK_TYPES.THREED_IMAGE, {
     PRIMARY_API_PROVIDER: 'openai_compat',
-    THREED_IMAGE_MODEL: 'gpt-image-1',
+    THREED_IMAGE_MODEL: 'gpt-image-2',
   });
 
   assert.deepEqual(realisticRoute, {
     provider: 'openai_compat',
-    model: 'flux-kontext-pro',
+    model: 'gpt-image-2',
   });
   assert.deepEqual(threedRoute, {
     provider: 'openai_compat',
-    model: 'gpt-image-1',
+    model: 'gpt-image-2',
   });
 });
 
 test('图像 transport provider 与模型路由解耦', () => {
   const route = resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE, {
     PRIMARY_API_PROVIDER: 'openai_compat',
-    REALISTIC_IMAGE_MODEL: 'flux-kontext-pro',
+    REALISTIC_IMAGE_MODEL: 'gpt-image-2',
     IMAGE_TRANSPORT_PROVIDER: 'vercel_ai_gateway',
   });
 
   assert.deepEqual(route, {
     provider: 'openai_compat',
-    model: 'flux-kontext-pro',
+    model: 'gpt-image-2',
   });
   assert.equal(__testables.resolveImageTransportProvider({
     PRIMARY_API_PROVIDER: 'openai_compat',

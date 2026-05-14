@@ -1,0 +1,15 @@
+[
+  {
+    "characterId": "ep-char-shenqing",
+    "episodeCharacterId": "ep-char-shenqing",
+    "displayName": "沈清",
+    "name": "沈清",
+    "voiceProfile": {
+      "provider": "xfyun",
+      "voice": "xiaoyan",
+      "rate": 1,
+      "pitch": 0,
+      "volume": 1
+    }
+  }
+]

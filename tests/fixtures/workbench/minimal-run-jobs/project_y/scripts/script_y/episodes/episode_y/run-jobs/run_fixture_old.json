@@ -1,0 +1,15 @@
+{
+  "id": "run_fixture_old",
+  "projectId": "project_y",
+  "scriptId": "script_y",
+  "episodeId": "episode_y",
+  "jobId": "job_fixture_old",
+  "status": "running",
+  "style": "realistic",
+  "scriptTitle": "夹具脚本B",
+  "episodeTitle": "第二集",
+  "startedAt": "2026-04-01T10:00:00.000Z",
+  "finishedAt": null,
+  "artifactRunDir": "tests/fixtures/workbench/minimal-run-jobs-artifacts/run_fixture_old",
+  "agentTaskRuns": []
+}

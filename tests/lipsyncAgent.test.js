@@ -62,6 +62,11 @@ test('runLipsync only generates clips for triggered shots and writes artifacts',
     );
 
     assert.deepEqual(generatedCalls, ['shot_001']);
+    assert.equal(Array.isArray(result.report.rootCauseView.entries), true);
+    assert.equal(
+      result.report.rootCauseView.entries.some((item) => item.symptomCode === 'manual_review_required'),
+      true
+    );
     assert.deepEqual(result.clips, [
       {
         shotId: 'shot_001',
@@ -99,6 +104,8 @@ test('runLipsync only generates clips for triggered shots and writes artifacts',
     assert.equal(report.fallbackCount, 0);
     assert.deepEqual(report.fallbackShots, []);
     assert.deepEqual(report.manualReviewShots, ['shot_001']);
+    assert.equal(fs.existsSync(path.join(ctx.agents.lipsyncAgent.metricsDir, 'lipsync-root-cause.json')), true);
+    assert.equal(fs.existsSync(path.join(ctx.agents.lipsyncAgent.outputsDir, 'lipsync-root-cause.md')), true);
 
     const manifest = JSON.parse(fs.readFileSync(ctx.agents.lipsyncAgent.manifestPath, 'utf-8'));
     assert.equal(manifest.status, 'warn');
@@ -160,6 +167,10 @@ test('runLipsync records per-shot error evidence when provider fails', async (t)
     assert.equal(errorPayload.error, 'provider unavailable');
     assert.equal(errorPayload.qaStatus, 'block');
     assert.equal(errorPayload.downgradeApplied, true);
+    assert.equal(
+      result.report.rootCauseView.entries.some((item) => item.symptomCode === 'lipsync_provider_failure'),
+      true
+    );
   }, 'lipsync-agent');
 });
 
@@ -184,6 +195,10 @@ test('runLipsync preserves structured provider failure categories for downgrade 
   assert.equal(result.results[0].downgradeReason, 'timeout');
   assert.equal(result.results[0].provider, 'funcineforge');
   assert.equal(result.results[0].errorCode, 'FUNCINEFORGE_TIMEOUT');
+  assert.equal(
+    result.report.rootCauseView.entries.some((item) => item.rootCauseCode === 'timeout'),
+    true
+  );
 });
 
 test('runLipsync records fallback provider usage in result entries', async (t) => {
@@ -224,6 +239,10 @@ test('runLipsync records fallback provider usage in result entries', async (t) =
     assert.equal(result.results[0].fallbackFrom, 'funcineforge');
     assert.equal(result.report.fallbackCount, 1);
     assert.deepEqual(result.report.fallbackShots, ['shot_fallback']);
+    assert.equal(
+      result.report.rootCauseView.entries.some((item) => item.symptomCode === 'provider_fallback_applied'),
+      true
+    );
 
     const manifest = JSON.parse(fs.readFileSync(ctx.agents.lipsyncAgent.manifestPath, 'utf-8'));
     assert.equal(manifest.fallbackCount, 1);
@@ -258,6 +277,10 @@ test('runLipsync blocks close-up shots when timing offset exceeds threshold', as
     assert.equal(result.report.status, 'block');
     assert.equal(result.results[0].qaStatus, 'block');
     assert.deepEqual(result.results[0].qaBlockers, ['timing_offset_exceeded_60ms']);
+    assert.equal(
+      result.report.rootCauseView.entries.some((item) => item.symptomCode === 'timing_offset_exceeded'),
+      true
+    );
   }, 'lipsync-agent');
 });
 
@@ -294,5 +317,9 @@ test('runLipsync downgrades invalid video outputs instead of forwarding fake mp4
     assert.equal(result.results[0].downgradeApplied, true);
     assert.equal(result.results[0].downgradeReason, 'invalid_video_output');
     assert.deepEqual(result.results[0].qaWarnings, ['invalid_video_output']);
+    assert.equal(
+      result.report.rootCauseView.entries.some((item) => item.symptomCode === 'invalid_video_output'),
+      true
+    );
   }, 'lipsync-agent');
 });

@@ -301,6 +301,7 @@ function usage() {
 选项：
   --prepare-only           只重置缓存，不自动重新执行
   --dry-run                仅打印将执行的动作，不写文件
+  --confirm-paid-video     确认重置/执行付费视频步骤（--step=video 必须显式添加）
   --run-id=<runJobId>      指定恢复某次历史 run（项目模式优先）
   --style=realistic|3d     续跑时覆盖风格
   --provider=<name>        续跑时覆盖 LLM provider
@@ -363,6 +364,7 @@ function parseCliArgs(args) {
   const step = normalizeStepName(getFlagValue(args, 'step'));
   const dryRun = args.includes('--dry-run');
   const prepareOnly = args.includes('--prepare-only');
+  const confirmPaidVideo = args.includes('--confirm-paid-video') || args.includes('--allow-paid-video');
   const skipConsistencyCheck = args.includes('--skip-consistency');
   const legacyScriptFile = explicitScriptFile || scriptFileArg;
 
@@ -385,6 +387,7 @@ function parseCliArgs(args) {
       runId,
       dryRun,
       prepareOnly,
+      confirmPaidVideo,
       skipConsistencyCheck,
       step,
     };
@@ -402,10 +405,15 @@ function parseCliArgs(args) {
     runId,
     dryRun,
     prepareOnly,
+    confirmPaidVideo,
     skipConsistencyCheck,
     projectIdOverride,
     step,
   };
+}
+
+function blocksPaidVideoExecution(parsed) {
+  return parsed.step === 'video' && !parsed.dryRun && !parsed.confirmPaidVideo;
 }
 
 function listProjectChoices(baseTempDir = process.env.TEMP_DIR || './temp') {
@@ -1046,6 +1054,26 @@ export async function resumeFromStep(args, overrides = {}) {
     };
   }
 
+  if (blocksPaidVideoExecution(parsed)) {
+    logger.warn(
+      'Resume',
+      '已拦截付费视频步骤：--step=video 默认不会清理缓存或提交生成。确认要重置/执行时请显式添加 --confirm-paid-video。'
+    );
+    return {
+      parsed,
+      context,
+      planSummary,
+      stateKeysToDelete,
+      filesToRemove,
+      resumeMode,
+      stateSource,
+      imageReuseCount: strictBindingCheck.imageReuseCount,
+      missingPrerequisites,
+      blockedByPaidVideoGuard: true,
+      executed: false,
+    };
+  }
+
   const backupPath = backupStateFile(context.statePath, state);
   const nextState = structuredClone(state);
   for (const key of stateKeysToDelete) {
@@ -1106,6 +1134,7 @@ if (isDirectExecution) {
 
 export const __testables = {
   parseCliArgs,
+  blocksPaidVideoExecution,
   normalizeStepName,
   getStateKeysToDelete,
   collectShotIds,

@@ -1,4 +1,5 @@
-import { getSanitizedCharacterTokens } from '../../agents/characterRegistry.js';
+import { getSanitizedCharacterTokens, sanitizeCharacterIdentityTokens } from '../../agents/characterRegistry.js';
+import { getCharacterIdentityAnchor, getCharacterForbiddenIdentityTokens } from '../../agents/characterRegistry.js';
 
 /**
  * 图像 Prompt 工程模板
@@ -72,31 +73,47 @@ export const STYLE_BASE = {
 };
 
 export function buildCharacterRefSheetPrompt(character, style = 'realistic') {
+  const identityAnchor = getCharacterIdentityAnchor(character);
   const tokens = getSanitizedCharacterTokens(character);
-  const desc = String(character.visualDescription || '').trim();
-  const identity = tokens || desc || 'a person';
+  const desc = sanitizeCharacterIdentityTokens(character.visualDescription || '');
+  const forbiddenIdentityTokens = getCharacterForbiddenIdentityTokens(character);
+  const personality = sanitizeCharacterIdentityTokens(character.personality || character.persona || '');
+  const background = sanitizeCharacterIdentityTokens(
+    character.background || character.backstory || character.roleBackground || ''
+  );
+  const identity = identityAnchor || tokens || desc || 'a person';
 
   const styleTokens =
     style === '3d'
-      ? '3D render, Pixar style, character model sheet'
-      : 'photorealistic, studio photo, fashion catalog';
+      ? '3D render, premium character design sheet, physically based materials, production-ready presentation board'
+      : 'photorealistic, premium character design sheet, studio quality presentation board, production-ready art pack';
 
   const prompt = [
-    `one single ${character.gender === 'female' ? 'female' : 'male'} person, ${identity}`,
-    `character turnaround sheet, 3 views side by side: front | side profile | back`,
-    `full body head to toe, standing pose, centered in each panel, pure white seamless studio background`,
-    `same person same outfit in all 3 views, equal spacing`,
-    `isolated subject only, no props, no furniture, no environment objects, no architecture, no background structures`,
+    `use the provided reference image(s) to generate one single ${character.gender === 'female' ? 'female' : 'male'} character reference sheet, ${identity}`,
+    'clean character turnaround sheet on a pure white background, presentation board layout, aspect ratio 1.25:1',
+    'main visual area at the top: 3 full-body core views shown clearly side by side, front view, side profile view, back view, head to toe, same person, same outfit, same proportions, neutral standing pose',
+    'left detail area: facial close-up and dedicated color palette chips for hair, skin, costume, and other key materials, unified color style, production reference clarity',
+    'bottom detail area: multiple enlarged inset close-ups for accessories, patterns, insignia, identity markers, and hard-to-read construction details',
+    'right proportion area: proportional guide with golden ratio reference lines or a clean scale reference for intuitive height and body proportion comparison',
+    'include visual cues for character personality and background setting through costume language, expression control, and design details, without adding a scene background',
+    'full body silhouette and garment structure must be complete and readable, suitable for character asset production and review',
+    'isolated subject only, no props, no furniture, no environment objects, no architecture, no background structures',
     styleTokens,
     'high quality, sharp, even lighting',
-  ].join(', ');
+    personality ? `character personality: ${personality}` : null,
+    background ? `background setting: ${background}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   const negative =
     style === '3d'
-      ? 'photograph, blurry, low quality, watermark, text, labels, props, furniture, ladder, stairs, rack, pillar, walls, background objects, environment'
-      : 'cartoon, anime, 3d render, illustration, landscape, scenery, nature, building, multiple people, crowd, blurry, low quality, watermark, text, labels, cropped, cut off, props, furniture, ladder, stairs, staircase, rack, pillar, walls, background objects, environment';
+      ? 'photograph, blurry, low quality, watermark, text paragraphs, captions, dense labels, props, furniture, ladder, stairs, rack, pillar, walls, background objects, environment, extra people, inconsistent outfit, inconsistent proportions, cropped body, missing limbs, broken anatomy'
+      : 'cartoon, anime, 3d render, illustration, landscape, scenery, nature, building, multiple people, crowd, blurry, low quality, watermark, text paragraphs, captions, dense labels, cropped, cut off, props, furniture, ladder, stairs, staircase, rack, pillar, walls, background objects, environment, inconsistent outfit, inconsistent proportions, missing limbs, broken anatomy';
 
-  return { prompt, negative };
+  const mergedNegative = [negative, forbiddenIdentityTokens].filter(Boolean).join(', ');
+
+  return { prompt, negative: mergedNegative };
 }
 
 export const CAMERA_KEYWORDS = {

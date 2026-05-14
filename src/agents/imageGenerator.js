@@ -8,7 +8,7 @@ import { generateImage, resolveImageRoute, resolveImageTaskType } from '../apis/
 import { createKeyframeAsset } from '../domain/assetModel.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-import { imageQueue, queueWithRetry } from '../utils/queue.js';
+import { createExecutionPolicy, queueWithRetry } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
 function createKeyframeResult({
@@ -71,7 +71,60 @@ function buildRequestContext(task, providerConfig) {
     negativePrompt: task.negativePrompt,
     outputPath: task.outputPath,
     providerConfig,
+    referenceImages: Array.isArray(task.referenceImages) ? task.referenceImages : [],
   };
+}
+
+function resolveImageGenerationTimeoutMs(options = {}) {
+  const rawValue =
+    options.timeoutMs ||
+    process.env.IMAGE_GENERATION_TIMEOUT_MS ||
+    process.env.IMAGE_REQUEST_TIMEOUT_MS ||
+    '180000';
+  const timeoutMs = Number.parseInt(String(rawValue), 10);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 180000;
+}
+
+function resolveExecutionPolicy(options = {}) {
+  return options.executionPolicy && typeof options.executionPolicy === 'object'
+    ? createExecutionPolicy(options.executionPolicy)
+    : createExecutionPolicy();
+}
+
+async function runGenerateImageWithTimeout(task, runGenerateImage, options = {}) {
+  const timeoutMs = resolveImageGenerationTimeoutMs(options);
+  const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+  let timeoutHandle = null;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      abortController?.abort();
+      const timeoutError = new Error(
+        `图像生成超时：${task.shotId} 在 ${Math.round(timeoutMs / 1000)}s 内未完成`
+      );
+      timeoutError.code = 'IMAGE_GENERATION_TIMEOUT';
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  try {
+    const references = Array.isArray(task.referenceImages)
+      ? task.referenceImages
+      : (Array.isArray(options.references) ? options.references : []);
+    return await Promise.race([
+      runGenerateImage(task.prompt, task.negativePrompt, task.outputPath, {
+        ...options,
+        timeoutMs,
+        signal: abortController?.signal,
+        references,
+      }),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 function writeImageArtifacts(results, retryLog, artifactContext, providerConfig) {
@@ -156,27 +209,27 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
   const runGenerateImage = options.generateImage || generateImage;
   const retryLog = [];
   const providerConfig = buildProviderConfigSnapshot(options);
+  const executionPolicy = resolveExecutionPolicy(options);
+  const maxRetries = executionPolicy.defaultMaxRetries ?? 3;
 
   const tasks = promptList.map((p) => ({
     shotId: p.shotId,
     prompt: p.image_prompt,
     negativePrompt: p.negative_prompt,
     outputPath: path.join(imagesDir, `${p.shotId}.png`),
+    referenceImages: Array.isArray(p.referenceImages) ? p.referenceImages : [],
   }));
+
+  const onResult = typeof options.onResult === 'function' ? options.onResult : null;
 
   const results = await Promise.all(
     tasks.map((task, i) =>
       queueWithRetry(
-        imageQueue,
+        null,
         async () => {
           logger.step(i + 1, tasks.length, `生成图像: ${task.shotId}`);
-          const imgPath = await runGenerateImage(
-            task.prompt,
-            task.negativePrompt,
-            task.outputPath,
-            options
-          );
-          return createKeyframeResult({
+          const imgPath = await runGenerateImageWithTimeout(task, runGenerateImage, options);
+          const result = createKeyframeResult({
             shotId: task.shotId,
             prompt: task.prompt,
             negativePrompt: task.negativePrompt,
@@ -185,10 +238,14 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
             success: true,
             request: buildRequestContext(task, providerConfig),
           });
+          onResult?.(result);
+          return result;
         },
-        3,
+        maxRetries,
         task.shotId,
         {
+          queueType: 'image',
+          policy: executionPolicy,
           onRetry: ({ taskName, attempt, maxRetries, delay, error }) => {
             retryLog.push({
               ...buildRequestContext(task, providerConfig),
@@ -202,7 +259,7 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
         }
       ).catch((err) => {
         logger.error('ImageGenerator', `${task.shotId} 生成失败：${err.message}`);
-        return createKeyframeResult({
+        const result = createKeyframeResult({
           shotId: task.shotId,
           prompt: task.prompt,
           negativePrompt: task.negativePrompt,
@@ -212,6 +269,8 @@ export async function generateAllImages(promptList, imagesDir, options = {}) {
           error: err.message,
           request: buildRequestContext(task, providerConfig),
         });
+        onResult?.(result);
+        return result;
       })
     )
   );
@@ -232,6 +291,8 @@ export async function regenerateImage(shotId, prompt, negativePrompt, imagesDir,
   const style = options.style || process.env.IMAGE_STYLE || 'realistic';
   const runGenerateImage = options.generateImage || generateImage;
   const providerConfig = buildProviderConfigSnapshot(options);
+  const executionPolicy = resolveExecutionPolicy(options);
+  const maxRetries = executionPolicy.defaultMaxRetries ?? 3;
   const outputPath = path.join(imagesDir, `${shotId}.png`);
   const request = buildRequestContext(
     {
@@ -239,15 +300,23 @@ export async function regenerateImage(shotId, prompt, negativePrompt, imagesDir,
       prompt,
       negativePrompt,
       outputPath,
+      referenceImages: options.referenceImages,
     },
     providerConfig
   );
   const retryHistory = [];
 
   return queueWithRetry(
-    imageQueue,
+    null,
     async () => {
-      const imagePath = await runGenerateImage(prompt, negativePrompt, outputPath, options);
+      const imagePath = await runGenerateImageWithTimeout(
+        { shotId, prompt, negativePrompt, outputPath },
+        runGenerateImage,
+        {
+          ...options,
+          references: Array.isArray(options.referenceImages) ? options.referenceImages : [],
+        }
+      );
       return createKeyframeResult({
         shotId,
         prompt,
@@ -258,9 +327,11 @@ export async function regenerateImage(shotId, prompt, negativePrompt, imagesDir,
         request,
       });
     },
-    3,
+    maxRetries,
     shotId,
     {
+      queueType: 'image',
+      policy: executionPolicy,
       onRetry: ({ taskName, attempt, maxRetries, delay, error }) => {
         retryHistory.push({
           ...request,

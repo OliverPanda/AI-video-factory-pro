@@ -10,6 +10,33 @@ function writeTextFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
+const HARD_QA_ISSUE_CODES = new Set([
+  'anatomy_structure_invalid',
+  'anatomy_pose_invalid',
+  'limb_structure_invalid',
+  'character_identity_corrupted',
+  'reference_sheet_background_invalid',
+]);
+
+function normalizeStringArray(value) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+}
+
+function extractQaIssueCodes(result = {}) {
+  return [
+    ...normalizeStringArray(result.qaIssues),
+    ...normalizeStringArray(result.qualityIssues),
+    ...normalizeStringArray(result.blockingIssues),
+    ...normalizeStringArray(result.providerRequestHints?.qaIssues),
+  ].filter((item, index, list) => item && list.indexOf(item) === index);
+}
+
+function pickHardQaIssue(issueCodes = []) {
+  return issueCodes.find((issue) => HARD_QA_ISSUE_CODES.has(issue)) || null;
+}
+
 async function probeVideo(videoPath) {
   return {
     ...(await probeVideoMetadata(videoPath)),
@@ -86,6 +113,32 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
   const probe = options.probeVideo || probeVideo;
 
   for (const result of videoResults) {
+    const qaIssueCodes = extractQaIssueCodes(result);
+    const hardQaIssue = pickHardQaIssue(qaIssueCodes);
+
+    if (hardQaIssue) {
+      entries.push({
+        shotId: result.shotId,
+        qaStatus: 'block',
+        engineeringStatus: 'unknown',
+        motionStatus: 'unknown',
+        canUseVideo: false,
+        fallbackToImage: false,
+        freezeDurationSec: null,
+        nearDuplicateRatio: null,
+        motionScore: null,
+        enhancementApplied: Boolean(result.enhancementApplied),
+        enhancementProfile: result.enhancementProfile || 'none',
+        finalDecision: 'block',
+        decisionReason: hardQaIssue,
+        reason: hardQaIssue,
+        qaIssueCodes,
+        durationSec: result.actualDurationSec || null,
+        targetDurationSec: result.targetDurationSec || null,
+      });
+      continue;
+    }
+
     if (result.status !== 'completed' || !result.videoPath) {
       entries.push({
         shotId: result.shotId,
@@ -102,6 +155,7 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
         finalDecision: 'fallback_to_image',
         decisionReason: result.failureCategory || result.reason || 'video_unavailable',
         reason: result.failureCategory || result.reason || 'video_unavailable',
+        qaIssueCodes,
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
       });
@@ -124,6 +178,7 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
         finalDecision: 'fallback_to_image',
         decisionReason: 'missing_or_empty_video_file',
         reason: 'missing_or_empty_video_file',
+        qaIssueCodes,
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
       });
@@ -160,6 +215,7 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
           : 'fallback_to_image',
         decisionReason: canUseVideo ? null : motionEvaluation.decisionReason,
         reason: canUseVideo ? null : motionEvaluation.decisionReason,
+        qaIssueCodes,
         durationSec: probeResult.durationSec,
         targetDurationSec: result.targetDurationSec || null,
       });
@@ -179,6 +235,7 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
         finalDecision: 'fallback_to_image',
         decisionReason: 'ffprobe_failed',
         reason: 'ffprobe_failed',
+        qaIssueCodes,
         durationSec: null,
         targetDurationSec: result.targetDurationSec || null,
         error: error.message,
@@ -191,20 +248,23 @@ export async function evaluateShotVideos(videoResults = [], options = {}) {
 
 function buildReport(entries) {
   const passedEntries = entries.filter((entry) => entry.canUseVideo);
+  const blockedEntries = entries.filter((entry) => entry.finalDecision === 'block' || entry.qaStatus === 'block');
   const fallbackEntries = entries.filter((entry) => entry.fallbackToImage);
   const engineeringPassedEntries = entries.filter((entry) => entry.engineeringStatus === 'pass');
   const motionPassedEntries = entries.filter((entry) => entry.motionStatus === 'pass');
   return {
-    status: fallbackEntries.length > 0 ? 'warn' : 'pass',
+    status: blockedEntries.length > 0 ? 'block' : fallbackEntries.length > 0 ? 'warn' : 'pass',
     entries,
     plannedShotCount: entries.length,
     engineeringPassedCount: engineeringPassedEntries.length,
     motionPassedCount: motionPassedEntries.length,
     passedCount: passedEntries.length,
+    blockCount: blockedEntries.length,
+    blockedShots: blockedEntries.map((entry) => entry.shotId),
     fallbackCount: fallbackEntries.length,
     fallbackShots: fallbackEntries.map((entry) => entry.shotId),
     warnings: fallbackEntries.map((entry) => `${entry.shotId}:${entry.reason || 'fallback_to_image'}`),
-    blockers: [],
+    blockers: blockedEntries.map((entry) => `${entry.shotId}:${entry.reason || 'qa_blocked'}`),
   };
 }
 
@@ -220,6 +280,7 @@ function writeArtifacts(report, artifactContext) {
     engineeringPassedCount: report.engineeringPassedCount,
     motionPassedCount: report.motionPassedCount,
     passedCount: report.passedCount,
+    blockCount: report.blockCount,
     fallbackCount: report.fallbackCount,
   });
   writeTextFile(
@@ -234,11 +295,13 @@ function writeArtifacts(report, artifactContext) {
     ].join('\n')
   );
   saveJSON(artifactContext.manifestPath, {
-    status: report.status === 'warn' ? 'completed_with_errors' : 'completed',
+    status: report.status === 'block' || report.status === 'warn' ? 'completed_with_errors' : 'completed',
     plannedShotCount: report.plannedShotCount,
     engineeringPassedCount: report.engineeringPassedCount,
     motionPassedCount: report.motionPassedCount,
     passedCount: report.passedCount,
+    blockCount: report.blockCount,
+    blockedShots: report.blockedShots,
     fallbackCount: report.fallbackCount,
     fallbackShots: report.fallbackShots,
     outputFiles: ['shot-qa-report.json', 'manual-review-shots.json', 'shot-qa-metrics.json', 'shot-qa-report.md'],
@@ -249,22 +312,31 @@ function writeArtifacts(report, artifactContext) {
       agentName: 'Shot QA Agent',
       status: report.status,
       headline:
-        report.status === 'warn'
+        report.status === 'block'
+          ? `${report.blockCount} 个镜头因严重 QA 问题被阻断`
+          : report.status === 'warn'
           ? `${report.fallbackCount} 个镜头将回退到静图合成`
           : `所有 ${report.passedCount} 个动态镜头均通过基础验收`,
       summary:
-        report.status === 'warn'
+        report.status === 'block'
+          ? '存在严重视觉 QA 问题，当前不允许继续静图 fallback 或进入最终交付。'
+          : report.status === 'warn'
           ? '部分动态镜头未达标，但主链路仍可使用静图 fallback 继续交付。'
           : '当前动态镜头满足 Phase 1 的工程验收要求。',
       passItems: [`通过视频镜头数：${report.passedCount}`],
       warnItems: report.warnings,
-      nextAction: '将通过 QA 的视频镜头送入最终合成，其余镜头回退到静图路径。',
+      blockItems: report.blockers,
+      nextAction:
+        report.status === 'block'
+          ? '先修复被阻断镜头的人体/角色/参考图硬伤，再重新进入生视频链路。'
+          : '将通过 QA 的视频镜头送入最终合成，其余镜头回退到静图路径。',
       evidenceFiles: ['1-outputs/shot-qa-report.json', '2-metrics/shot-qa-metrics.json'],
       metrics: {
         plannedShotCount: report.plannedShotCount,
         engineeringPassedCount: report.engineeringPassedCount,
         motionPassedCount: report.motionPassedCount,
         passedCount: report.passedCount,
+        blockCount: report.blockCount,
         fallbackCount: report.fallbackCount,
       },
     },
@@ -280,9 +352,12 @@ export async function runShotQa(videoResults = [], options = {}) {
 }
 
 export const __testables = {
+  HARD_QA_ISSUE_CODES,
   buildReport,
   evaluateShotVideos,
   evaluateMotionStatus,
+  extractQaIssueCodes,
   getMotionThresholds,
   isDurationAcceptable,
+  pickHardQaIssue,
 };

@@ -1,0 +1,31 @@
+{
+  "id": "episode-1",
+  "projectId": "project-example",
+  "scriptId": "pilot",
+  "episodeNo": 1,
+  "title": "第一集",
+  "summary": "沈清在宫墙之下收到一封密信。",
+  "episodeCharacters": [
+    {
+      "id": "ep-char-shenqing",
+      "episodeCharacterId": "ep-char-shenqing",
+      "name": "沈清",
+      "characterBibleId": "bible-shenqing",
+      "gender": "female",
+      "roleType": "lead",
+      "personality": "冷静坚韧"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot_001",
+      "scene": "宫墙外",
+      "action": "沈清抬头看向远处",
+      "characters": [
+        "沈清"
+      ],
+      "dialogue": "",
+      "duration": 3
+    }
+  ]
+}

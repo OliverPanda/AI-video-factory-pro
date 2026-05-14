@@ -1,0 +1,12 @@
+{
+  "id": "bible-shenqing",
+  "projectId": "project-example",
+  "name": "沈清",
+  "gender": "female",
+  "age": "19",
+  "roleType": "lead",
+  "personality": "冷静坚韧",
+  "identityAnchor": "black hair, pale skin, determined eyes",
+  "styleFamily": "ancient_chinese_drama",
+  "referenceImages": []
+}

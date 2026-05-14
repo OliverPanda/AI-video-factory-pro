@@ -89,3 +89,78 @@ test('runContinuityCheck respects carry-over shot ids and flags low-score transi
     },
   ]);
 });
+
+test('runContinuityCheck flags prop state drift from wrist to neck', async () => {
+  const shots = [
+    {
+      id: 'shot_006',
+      scene: '游戏登录空间',
+      action: '他手腕上缠着锁链的另一端。',
+      continuityState: {
+        propStates: [
+          { name: 'binding_chain', holderEpisodeCharacterId: 'zero', side: 'wrist', state: 'attached' },
+        ],
+      },
+    },
+    {
+      id: 'shot_007',
+      scene: '游戏登录空间',
+      action: '两人面对面，锁链错误地贴近脖子。',
+      continuityState: {
+        carryOverFromShotId: 'shot_006',
+        propStates: [
+          { name: 'binding_chain', holderEpisodeCharacterId: 'zero', side: 'neck', state: 'attached' },
+        ],
+      },
+    },
+  ];
+  const imageResults = [
+    { shotId: 'shot_006', imagePath: '006.png', success: true },
+    { shotId: 'shot_007', imagePath: '007.png', success: true },
+  ];
+
+  const { reports } = await runContinuityCheck(shots, imageResults);
+
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].hardViolations.some((violation) => violation.code === 'prop_state_break'), true);
+});
+
+test('runContinuityCheck flags core prop forbidden body anchor drift', async () => {
+  const shots = [
+    {
+      id: 'shot_006',
+      scene: '游戏登录空间',
+      action: '他手腕上缠着锁链的另一端。',
+    },
+    {
+      id: 'shot_007',
+      scene: '游戏登录空间',
+      action: '两人面对面，锁链错误地贴近 neck。',
+      continuityState: {
+        carryOverFromShotId: 'shot_006',
+      },
+    },
+  ];
+  const imageResults = [
+    { shotId: 'shot_006', imagePath: '006.png', success: true },
+    { shotId: 'shot_007', imagePath: '007.png', success: true },
+  ];
+
+  const { reports } = await runContinuityCheck(shots, imageResults, {
+    corePropRegistry: [
+      {
+        propId: 'binding_chain',
+        displayName: '绑定锁链',
+        aliases: ['锁链'],
+        activeShotIds: ['shot_006', 'shot_007'],
+        placementPolicy: {
+          anchorType: 'wrist_endpoint_pair',
+          forbiddenAnchors: ['neck', 'collar', 'throat'],
+        },
+      },
+    ],
+  });
+
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].hardViolations.some((violation) => violation.code === 'prop_anchor_drift'), true);
+});
