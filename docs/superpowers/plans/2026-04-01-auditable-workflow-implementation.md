@@ -1,4 +1,4 @@
-# Auditable Workflow Implementation Plan
+﻿# Auditable Workflow Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -800,3 +800,4 @@ Expected:
 git add src tests scripts README.md
 git commit -m "feat: add auditable workflow run packages"
 ```
+

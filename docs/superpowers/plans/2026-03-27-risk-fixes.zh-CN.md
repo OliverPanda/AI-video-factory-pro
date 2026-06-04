@@ -493,3 +493,4 @@ git commit -m "test: add regression coverage for pipeline risk fixes"
 - 优先把规划逻辑抽成纯函数 helper，这样 FFmpeg 相关行为就能在不真正起进程的情况下测试。
 - 如果音频归一化需要额外临时文件，把它们放在任务级 temp 目录下，保证清理边界清晰。
 - 如果仓库里已经有未提交改动，不要覆盖或回滚无关文件。
+

@@ -1,0 +1,312 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+/*
+ * AI Video Factory - Fresh Clean Design System
+ * 清新明亮 · 微阴影卡片 · 青蓝薄荷 · 聚焦优先
+ */
+
+:root {
+  /* 背景 - 暖白层次 */
+  --background: #f8fafc;
+  --background-secondary: #f1f5f9;
+
+  /* 微阴影卡片系统（替代毛玻璃） */
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --card-shadow-hover: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+  --card-bg-hover: #fafbfc;
+
+  /* 增强卡片（用于重点区域） */
+  --card-bg-strong: #ffffff;
+  --card-border-strong: #cbd5e1;
+
+  /* 文字 */
+  --foreground: #0f172a;
+  --foreground-muted: #64748b;
+
+  /* 主题色 - 清新青蓝薄荷系 */
+  --primary: #0891b2;
+  --accent-indigo: #0d9488;
+  --accent-violet: #06b6d4;
+
+  /* 发光色（浅色主题下降低饱和） */
+  --neon-blue: #06b6d4;
+  --neon-purple: #14b8a6;
+  --neon-green: #10b981;
+
+  /* 状态色 */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+
+  /* 焦点状态 */
+  --focus-ring: rgba(8, 145, 178, 0.25);
+}
+
+/* ===== 全局样式 ===== */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family:
+    "Plus Jakarta Sans",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  background:
+    linear-gradient(180deg, #fafbfc 0%, #f8fafc 40%, #f1f5f9 100%);
+  background-attachment: fixed;
+  color: var(--foreground);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* 去掉旧暗黑星空纹理 */
+
+/* ===== 字体类 ===== */
+.font-heading {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ===== 微阴影卡片系统（替代旧 glass-card） ===== */
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  box-shadow: var(--card-shadow);
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: var(--card-bg-hover);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* ===== 增强卡片效果 ===== */
+.glass-card-strong {
+  background: var(--card-bg-strong);
+  border: 1px solid var(--card-border-strong);
+  border-radius: 1rem;
+  box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.06), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-strong:hover {
+  box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.1), 0 4px 12px -2px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+/* ===== 胶囊型 Tabs ===== */
+.pill-tab-container {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 4px;
+  border-radius: 9999px;
+}
+
+/* ===== 霓虹光效（浅色主题柔化） ===== */
+.glow-border {
+  position: relative;
+}
+
+.glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgba(8, 145, 178, 0.25),
+    rgba(13, 148, 136, 0.25)
+  );
+  opacity: 0;
+  transition: opacity 400ms ease-out;
+  z-index: -1;
+  filter: blur(6px);
+}
+
+.glow-border:hover::before {
+  opacity: 1;
+}
+
+/* ===== 动态发光线条 ===== */
+.glow-line {
+  position: relative;
+  overflow: hidden;
+}
+
+.glow-line::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  transform: translateX(-100%);
+  animation: border-slide 3s infinite;
+}
+
+@keyframes border-slide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ===== 动画 ===== */
+@keyframes ai-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 20px rgba(8, 145, 178, 0.15);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 35px rgba(8, 145, 178, 0.35);
+  }
+}
+
+.ai-processing {
+  animation: ai-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes neon-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.progress-neon {
+  background: linear-gradient(90deg, #0891b2, #0d9488, #06b6d4, #0891b2);
+  background-size: 200% 100%;
+  animation: neon-flow 3s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 0, 0, 0.04),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite;
+}
+
+/* ===== 精致滚动条（浅色主题） ===== */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 99px;
+  transition: background 0.3s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* ===== 选择器样式 ===== */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 14px;
+  padding-right: 40px;
+}
+
+/* ===== 动画入场 ===== */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes zoom-in-95 {
+  from { transform: scale(0.97); }
+  to { transform: scale(1); }
+}
+
+.animate-in {
+  animation:
+    fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    zoom-in-95 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== 交互工具类 ===== */
+.interactive {
+  cursor: pointer;
+  transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.interactive:hover {
+  transform: translateY(-1px);
+  background: #f8fafc;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+/* ===== 焦点样式 ===== */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ===== 通知红点动画 ===== */
+@keyframes notification-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.9;
+    box-shadow: 0 0 10px 4px rgba(239, 68, 68, 0.15);
+  }
+}
+
+.notification-dot {
+  animation: notification-pulse 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* ===== 统计数字渐变 ===== */
+.stat-number {
+  background: linear-gradient(135deg, #0f172a 30%, #0891b2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

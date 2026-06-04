@@ -1,4 +1,4 @@
-# Seedance Web Director Implementation Plan
+﻿# Seedance Web Director Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -541,3 +541,4 @@ Before claiming completion:
 - Making sequence generation the default instead of a selective path
 - Mixing provider abstraction concerns into high-level cinematic schema
 - Reintroducing prompt-string concatenation instead of structured packs
+

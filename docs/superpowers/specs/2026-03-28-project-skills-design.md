@@ -1,4 +1,4 @@
-# Project Skills Design
+﻿# Project Skills Design
 
 **项目：** AI Video Factory Pro  
 **日期：** 2026-03-28  
@@ -399,4 +399,5 @@ skills 与 agents 的关系应当是：
 - skill 与 `src/agents` 采用“规则层 / 执行层”分工
 
 这是当前项目最稳妥、长期成本最低的做法。
+
 

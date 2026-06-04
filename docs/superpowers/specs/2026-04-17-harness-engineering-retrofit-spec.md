@@ -1,4 +1,4 @@
-# Harness Engineering Retrofit Spec
+﻿# Harness Engineering Retrofit Spec
 
 **Goal:** 把当前漫剧生成系统改造成一个可观测、可回放、可调优的 agent harness，让每次 run 都能清楚回答“输入是什么、每一步推断了什么、哪里降级了、为什么失败、下一次该改哪”。
 
@@ -25,6 +25,8 @@
    角色身份和 provider 路由都必须可追踪，不能靠隐式猜测。
 5. **Debuggability Over Cleverness**
    先让系统更容易查问题，再谈更复杂的自动化。
+6. **Video Provider Isolation**
+   视频 provider 是 run-level contract：`VIDEO_PROVIDER=seedance` 时所有视频生成包都必须保持 `seedance`，接入其他视频模型时同理。系统可以失败或跳过非视频 direct-cut/static 场景，但不能自动改用另一个视频模型。
 
 ## Harness Layers
 
@@ -130,6 +132,8 @@
 - 身份绑定失败直接阻断资产回填
 - 关键 QA block 阻断合成
 - 昂贵 provider 调用前必须通过 preflight
+- 视频 provider 不允许跨模型 fallback：`fallbackProviders` 不能包含另一个视频模型，bridge / sequence / shot 都必须继承同一个主 provider。
+- 新视频 provider 必须通过 unified video provider client 接入，并通过 `tests/videoProviderHarness.test.js` 证明 shot / bridge / sequence 不换 provider。
 
 ### Observability
 
@@ -174,5 +178,8 @@ run 级别要能快速看出：
 - [ ] 每个关键 agent 是否有统一的 status / next_actions
 - [ ] 每个关键 agent 是否能被 Director 聚合
 - [ ] 三视图 / 身份 / provider / QA 的 stop gate 是否明确
+- [ ] 视频 provider 是否全链路隔离，且没有自动降级到另一个视频模型
+- [ ] 新视频 provider 是否只通过 adapter / transport / config / contract test 接入，而不是新增 Director 分支
 - [ ] 是否可以用 run artifacts 快速回放一次失败
+
 

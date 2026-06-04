@@ -1,4 +1,4 @@
-# Identity Resolution Regression Spec
+﻿# Identity Resolution Regression Spec
 
 **Goal:** 统一项目内所有“身份识别”和“资产绑定”规则，避免中文名、英文名、别名、展示名被误当成不同实体。
 
@@ -271,4 +271,5 @@ ID first, name last
 3. 最后才考虑展示名
 
 如果某个模块没有稳定 ID，就不要让它参与资产绑定，只能做临时兼容。
+
 

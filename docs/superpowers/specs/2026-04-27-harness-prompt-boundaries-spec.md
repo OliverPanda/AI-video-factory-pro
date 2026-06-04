@@ -1,4 +1,4 @@
-# Harness Prompt Boundaries Spec
+﻿# Harness Prompt Boundaries Spec
 
 **Goal:** 明确本项目 agent harness 中通用级、产品级、项目级、剧集级、场景级、镜头级提示词和结构化上下文的边界，避免把某个剧本的特殊规则写死到全局 prompt，同时让每次 run 都可审计、可复跑、可修复。
 
@@ -478,4 +478,5 @@ Every agent should emit:
 4. QA can report prop anchor drift as a structured issue.
 5. Artifacts show which context levels each agent consumed and produced.
 6. A retry patch does not silently become a global prompt rule.
+
 

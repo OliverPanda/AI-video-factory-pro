@@ -1,10 +1,12 @@
 import {
   createGatewayVideoTransport,
+  createDashScopeAsyncVideoTransport,
   createOfficialSeedanceVideoTransport,
+  createRelayMediaTaskTransport,
   createRelayOpenAiVideoTransport,
   createRelaySeedanceV2VideoTransport,
 } from './videoTransports.js';
-import { seedanceAdapter, soraAdapter, veoAdapter } from './videoAdapters.js';
+import { happyHorseAdapter, seedanceAdapter, soraAdapter, veoAdapter } from './videoAdapters.js';
 import { createVideoRouteError, normalizeVideoProvider, normalizeVideoTransport } from './videoGenerationContract.js';
 
 function buildRouteKey(provider, transport) {
@@ -16,11 +18,14 @@ export function createVideoRequestRouter(options = {}) {
     seedance: seedanceAdapter,
     veo: veoAdapter,
     sora: soraAdapter,
+    happyhorse: happyHorseAdapter,
   };
   const transports = options.transports || {
     official: createOfficialSeedanceVideoTransport(options.officialSeedanceTransportOptions),
+    relay_media_task: createRelayMediaTaskTransport(options.relayMediaTaskTransportOptions),
     relay_openai: createRelayOpenAiVideoTransport(options.relayOpenAiTransportOptions),
     relay_seedance_v2: createRelaySeedanceV2VideoTransport(options.relaySeedanceV2TransportOptions),
+    dashscope_async: createDashScopeAsyncVideoTransport(options.dashScopeAsyncTransportOptions),
     gateway: createGatewayVideoTransport(options.gatewayTransportOptions),
   };
   const routeTable = new Map(
@@ -31,8 +36,10 @@ export function createVideoRequestRouter(options = {}) {
       ['seedance', 'gateway'],
       ['veo', 'relay_openai'],
       ['veo', 'gateway'],
+      ['sora', 'relay_media_task'],
       ['sora', 'relay_openai'],
       ['sora', 'gateway'],
+      ['happyhorse', 'dashscope_async'],
     ]).map(([provider, transport]) => [buildRouteKey(provider, transport), { provider, transport }])
   );
 

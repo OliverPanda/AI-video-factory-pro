@@ -1,4 +1,4 @@
-# Prompt Contract Retrofit Design
+﻿# Prompt Contract Retrofit Design
 
 ## 背景
 
@@ -291,4 +291,5 @@ prompt 尽量短，把稳定性主要交给 QA、preflight、rerank 和回退逻
 3. `step-by-step prompt 映射表`
 
 这样后续 agent 和人都能直接查，不需要回源码猜语义。
+
 

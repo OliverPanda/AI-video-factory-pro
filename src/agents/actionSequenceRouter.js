@@ -6,7 +6,7 @@ import { createActionSequencePackage } from '../utils/actionSequenceProtocol.js'
 
 function resolvePreferredSequenceProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;
@@ -31,6 +31,15 @@ function buildShotCandidateBuckets(items = []) {
     buckets.set(entry.shotId, bucket);
   });
   return buckets;
+}
+
+function pickReferenceUrlFields(entry = {}) {
+  const fields = {};
+  if (entry?.url) fields.url = entry.url;
+  if (entry?.publicUrl) fields.publicUrl = entry.publicUrl;
+  if (entry?.remoteUrl) fields.remoteUrl = entry.remoteUrl;
+  if (entry?.sourceUrl) fields.sourceUrl = entry.sourceUrl;
+  return fields;
 }
 
 function scoreVideoCandidate(result = {}) {
@@ -154,6 +163,7 @@ function buildReferenceImages(sequenceShotIds = [], imageResults = []) {
       role: index === 0 ? 'first_frame' : 'supporting_reference',
       shotId: result.shotId,
       path: result.imagePath,
+      ...pickReferenceUrlFields(result),
       provider: result.provider || null,
       status: result.status || null,
     }));
@@ -223,20 +233,15 @@ function selectReferenceTier(referenceVideos, bridgeReferences, referenceImages)
 }
 
 function buildFallbackProviders(referenceTier) {
-  if (referenceTier === 'video') {
-    return ['bridge_clip', 'image'];
-  }
-  if (referenceTier === 'bridge') {
-    return ['image'];
-  }
   return [];
 }
 
 function buildQaRules(referenceTier) {
   const rules = [
-    'prefer_qa_passed_video_then_bridge_then_image',
+    'select_best_available_reference_without_switching_provider',
     'do_not_emit_invalid_provider_request',
     'skip_when_no_valid_reference_material',
+    'do_not_fallback_to_other_video_provider',
   ];
 
   if (referenceTier !== 'skip') {

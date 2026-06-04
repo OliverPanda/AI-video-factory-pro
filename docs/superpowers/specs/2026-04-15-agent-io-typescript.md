@@ -1,4 +1,4 @@
-# AI Video Factory Pro Agent IO TypeScript Interfaces
+﻿# AI Video Factory Pro Agent IO TypeScript Interfaces
 
 ## 说明
 
@@ -1070,3 +1070,4 @@ export interface ComposeResult {
 5. `src/types/composition.ts`
 
 这样比把所有接口塞进一个文件里更容易维护。
+

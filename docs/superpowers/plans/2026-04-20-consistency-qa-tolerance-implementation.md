@@ -1,4 +1,4 @@
-# Consistency QA Tolerance Implementation Plan
+﻿# Consistency QA Tolerance Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -482,3 +482,4 @@ git commit -m "test: stabilize consistency qa tolerance rollout"
 - Do not let this rollout trigger video generation in tests or real runs.
 - Preserve `--stop-before-video` semantics: report risk, skip auto-spend.
 - Favor pure helper functions for classification/policy logic so thresholds stay testable.
+

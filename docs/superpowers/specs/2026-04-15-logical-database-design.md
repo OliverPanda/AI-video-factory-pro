@@ -1,4 +1,4 @@
-# AI Video Factory Pro Logical Database Design
+﻿# AI Video Factory Pro Logical Database Design
 
 ## 说明
 
@@ -629,3 +629,4 @@ Schema：
    - `runs/...` 审计目录
 
 它本质上是一个**文件数据库驱动的 AI 生产系统**，而不是缺少设计的“临时 JSON 拼装”。结构已经相当清晰，只是还没有迁移到传统 RDBMS。
+

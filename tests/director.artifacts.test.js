@@ -83,7 +83,7 @@ test('director creates manifest timeline and agent directories for an episode ru
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09bb-seedance-prompt-agent', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09bc-preflight-qa-agent', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09c-video-router', 'manifest.json')), true);
-    assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-runway-video-agent', 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-video-generation-agent', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-sora2-video-agent', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09d-seedance-video-agent', 'manifest.json')), true);
     assert.equal(fs.existsSync(path.join(expectedRunDir, '09e-motion-enhancer', 'manifest.json')), true);

@@ -1,7 +1,9 @@
+import fs from 'node:fs';
 import axios from 'axios';
 import path from 'path';
 import { saveBuffer } from '../../utils/fileHelper.js';
 import logger from '../../utils/logger.js';
+import { resolveSingleReferenceAsset } from '../../utils/referenceImageAsset.js';
 
 export function getImageApiBaseUrl(env = process.env) {
   return env.IMAGE_API_BASE_URL || env.LAOZHANG_BASE_URL || 'https://api.laozhang.ai/v1';
@@ -103,6 +105,44 @@ export const laozhangImageProvider = {
     const baseUrl = getImageApiBaseUrl(env);
     const size = sizeOverride || getImageGenerationSize(env).size;
     const providerLabel = new URL(baseUrl).hostname;
+    const useReferenceEdit = normalizeReferenceImages(references).length > 0 && String(env.IMAGE_REFERENCE_MODE || 'edit').toLowerCase() !== 'prompt_only';
+
+    if (useReferenceEdit) {
+      try {
+        const referenceAsset = await resolveSingleReferenceAsset(references, {
+          tempDir: path.join(process.env.TEMP_DIR || './temp', 'image-reference-assets'),
+        });
+        if (referenceAsset?.path) {
+          const form = new FormData();
+          form.append('model', env.IMAGE_EDIT_MODEL || route.model);
+          form.append('prompt', buildImagePrompt(prompt, negativePrompt));
+          form.append('size', size);
+          form.append('n', '1');
+          form.append('image', new Blob([fs.readFileSync(referenceAsset.path)]), path.basename(referenceAsset.path));
+
+          const response = await axios.post(`${baseUrl}/images/edits`, form, {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+            timeout: 120000,
+            signal,
+          });
+
+          const generated = extractGeneratedImage(response.data);
+          if (generated.kind === 'b64') {
+            saveBuffer(outputPath, Buffer.from(generated.value, 'base64'));
+            logger.debug('ImageAPI', `[${providerLabel}] 参考图编辑完成（base64）：${path.basename(outputPath)}`);
+            return outputPath;
+          }
+
+          const savedPath = await downloadImageFromUrl(generated.value, outputPath, signal);
+          logger.debug('ImageAPI', `[${providerLabel}] 参考图编辑完成（url）：${path.basename(outputPath)}`);
+          return savedPath;
+        }
+      } catch (error) {
+        logger.warn('ImageAPI', `[${providerLabel}] 参考图编辑失败，回退到 prompt hints：${error.message}`);
+      }
+    }
 
     const response = await axios.post(
       `${baseUrl}/images/generations`,

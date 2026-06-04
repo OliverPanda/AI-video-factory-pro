@@ -37,7 +37,16 @@
       "Bash(node --test tests/seedanceVideoApi.test.js tests/bridgeClipGenerator.test.js tests/sequenceClipGenerator.test.js tests/videoRouter.test.js tests/bridgeShotRouter.test.js tests/characterRefSheetGenerator.test.js tests/director.artifacts.test.js)",
       "Bash(node --test tests/sequenceClipGenerator.test.js)",
       "Bash(node --test tests/sequenceClipGenerator.test.js tests/director.artifacts.test.js)",
-      "Bash(node --test tests/sequenceClipGenerator.test.js tests/bridgeClipGenerator.test.js tests/videoRouter.test.js tests/director.artifacts.test.js tests/characterRefSheetGenerator.test.js)"
+      "Bash(node --test tests/sequenceClipGenerator.test.js tests/bridgeClipGenerator.test.js tests/videoRouter.test.js tests/director.artifacts.test.js tests/characterRefSheetGenerator.test.js)",
+      "Bash(npm run *)",
+      "Bash(gh pr *)",
+      "Bash(node *)",
+      "Bash(curl -s http://localhost:4180/api/projects)",
+      "Bash(npx playwright *)",
+      "Bash(npx *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:4180/api/projects/project_1)",
+      "Bash(curl -s http://localhost:4180/api/runs/run_job_shot_qa_hard_block_20260601084708767_8fd699f3)"
     ]
   }
 }

@@ -1715,12 +1715,14 @@ test('runEpisodePipeline passes lipsync results into video composition', async (
   });
 });
 
-test('runEpisodePipeline passes QA-approved generated video clips into video composition', async () => {
+test('runEpisodePipeline blocks delivery when any generated shot falls back to image after shot QA', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));
     const composeCalls = [];
     const performanceCalls = [];
     const enhancerCalls = [];
+    let audioCalled = 0;
+    let lipsyncCalled = 0;
 
     const director = createDirector({
       initDirs: () => dirs,
@@ -1754,7 +1756,7 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           durationTargetSec: shot.duration,
           cameraIntent: 'slow_dolly',
           cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
-          videoGenerationMode: 'runway_image_to_video',
+          videoGenerationMode: 'sora2_image_to_video',
           visualGoal: shot.scene,
         })),
       planPerformance: async (motionPlan) => {
@@ -1777,7 +1779,7 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
           visualGoal: shot.scene,
           cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
           referenceImages: [{ type: 'keyframe', path: `/tmp/${shot.id}.png` }],
-          preferredProvider: 'runway',
+          preferredProvider: 'sora2',
           fallbackProviders: ['static_image'],
           audioRef: null,
           performanceTemplate: shot.id === 'shot_1' ? 'dialogue_two_shot_tension' : 'ambient_transition_motion',
@@ -1845,33 +1847,35 @@ test('runEpisodePipeline passes QA-approved generated video clips into video com
         warnings: ['shot_2:duration_out_of_range'],
       }),
       normalizeDialogueShots: async (shots) => shots,
-      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }],
+      generateAllAudio: async () => {
+        audioCalled += 1;
+        return [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3' }];
+      },
       runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
-      runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+      runLipsync: async () => {
+        lipsyncCalled += 1;
+        return { results: [], report: { status: 'pass', blockers: [], warnings: [] } };
+      },
       composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
         composeCalls.push(options);
       },
     });
 
-    await director.runEpisodePipeline({
-      projectId: 'project_1',
-      scriptId: 'script_1',
-      episodeId: 'episode_1',
-      options: {},
-    });
+    await assert.rejects(
+      director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      }),
+      /动态视频未全部生成成功，已中断交付：shot_2\(duration_out_of_range\)/
+    );
 
-    assert.equal(composeCalls.length, 1);
+    assert.equal(composeCalls.length, 0);
+    assert.equal(audioCalled, 0);
+    assert.equal(lipsyncCalled, 0);
     assert.deepEqual(performanceCalls, [['shot_1', 'shot_2']]);
     assert.deepEqual(enhancerCalls, [['shot_1', 'shot_2']]);
-    assert.deepEqual(composeCalls[0].videoClips, [
-      {
-        shotId: 'shot_1',
-        videoPath: '/tmp/shot_1-enhanced.mp4',
-        durationSec: 4,
-        status: 'completed',
-        provider: 'sora2',
-      },
-    ]);
   });
 });
 
@@ -2005,6 +2009,170 @@ test('runEpisodePipeline can switch to seedance provider and pass provider-tagge
           durationSec: 4,
           status: 'completed',
           provider: 'seedance',
+        },
+      ]);
+    } finally {
+      if (previousVideoProvider == null) {
+        delete process.env.VIDEO_PROVIDER;
+      } else {
+        process.env.VIDEO_PROVIDER = previousVideoProvider;
+      }
+    }
+  });
+});
+
+test('runEpisodePipeline dispatches happyhorse packages through unified video generation', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const previousVideoProvider = process.env.VIDEO_PROVIDER;
+    process.env.VIDEO_PROVIDER = 'happyhorse';
+    try {
+      const dirs = createDirs(path.join(tempRoot, 'job'));
+      const composeCalls = [];
+      const generationCalls = [];
+      let seedanceCalled = false;
+      let sora2Called = false;
+
+      const director = createDirector({
+        initDirs: () => dirs,
+        generateJobId: () => 'job_happyhorse',
+        loadJSON: () => null,
+        saveJSON: () => {},
+        loadScript: () => ({
+          id: 'script_1',
+          title: 'HappyHorse 动态镜头',
+          characters: [{ name: '沈清' }],
+        }),
+        loadEpisode: () => ({
+          id: 'episode_1',
+          title: '第一集',
+          shots: [{ id: 'shot_1', scene: '长廊', action: '缓步逼近', dialogue: '', characters: ['沈清'], duration: 4 }],
+        }),
+        buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+        generateAllPrompts: async (shots) =>
+          shots.map((shot) => ({ shotId: shot.id, image_prompt: shot.scene, negative_prompt: 'none' })),
+        generateAllImages: async (prompts) =>
+          prompts.map((prompt) => ({ shotId: prompt.shotId, imagePath: `/tmp/${prompt.shotId}.png`, success: true })),
+        runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+        runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
+        planMotion: async (shots) =>
+          shots.map((shot) => ({
+            shotId: shot.id,
+            shotType: 'dialogue_medium',
+            durationTargetSec: shot.duration,
+            cameraIntent: 'slow_dolly',
+            cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+            videoGenerationMode: 'happyhorse_image_to_video',
+            visualGoal: shot.scene,
+          })),
+        planPerformance: async (motionPlan) =>
+          motionPlan.map((item) => ({
+            shotId: item.shotId,
+            performanceTemplate: 'dialogue_two_shot_tension',
+            actionBeatList: [],
+            cameraMovePlan: { pattern: 'push_in' },
+            generationTier: 'enhanced',
+            variantCount: 1,
+            enhancementHints: [],
+          })),
+        routeVideoShots: async (shots) =>
+          shots.map((shot) => ({
+            shotId: shot.id,
+            shotType: 'dialogue_medium',
+            durationTargetSec: shot.duration,
+            visualGoal: shot.scene,
+            cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
+            referenceImages: [{ type: 'keyframe', path: `/tmp/${shot.id}.png` }],
+            preferredProvider: 'happyhorse',
+            fallbackProviders: ['static_image'],
+            providerRequestHints: { shotId: shot.id, hasReferenceImage: true },
+            qaRules: { mustProbeWithFfprobe: true },
+          })),
+        runPreflightQa: async (shotPackages) => ({
+          reviewedPackages: shotPackages,
+          report: { status: 'pass', passCount: shotPackages.length, warnCount: 0, blockCount: 0, entries: [] },
+        }),
+        runSeedanceVideo: async () => {
+          seedanceCalled = true;
+          return { results: [], report: { status: 'pass', warnings: [], blockers: [] } };
+        },
+        runSora2Video: async () => {
+          sora2Called = true;
+          return { results: [], report: { status: 'pass', warnings: [], blockers: [] } };
+        },
+        runVideoGeneration: async (videoPackages, videoDir, options) => {
+          generationCalls.push({ videoPackages, videoDir, options });
+          return {
+            results: [
+              {
+                shotId: 'shot_1',
+                packageType: 'shot',
+                packageId: 'shot_1',
+                preferredProvider: 'happyhorse',
+                provider: 'happyhorse',
+                status: 'completed',
+                videoPath: '/tmp/shot_1_happyhorse.mp4',
+                targetDurationSec: 4,
+                actualDurationSec: 4,
+              },
+            ],
+            report: { status: 'pass', warnings: [], blockers: [] },
+          };
+        },
+        runMotionEnhancer: async () => [
+          {
+            shotId: 'shot_1',
+            sourceVideoPath: '/tmp/shot_1_happyhorse.mp4',
+            enhancementApplied: false,
+            enhancementProfile: 'none',
+            enhancementActions: [],
+            enhancedVideoPath: '/tmp/shot_1_happyhorse.mp4',
+            durationAdjusted: false,
+            cameraMotionInjected: false,
+            interpolationApplied: false,
+            stabilizationApplied: false,
+            qualityDelta: 'unchanged',
+            status: 'completed',
+            error: null,
+          },
+        ],
+        runShotQa: async () => ({
+          status: 'pass',
+          entries: [{ shotId: 'shot_1', canUseVideo: true, fallbackToImage: false, finalDecision: 'pass' }],
+          engineeringPassedCount: 1,
+          motionPassedCount: 1,
+          fallbackCount: 0,
+          fallbackShots: [],
+          warnings: [],
+        }),
+        normalizeDialogueShots: async (shots) => shots,
+        generateAllAudio: async () => [],
+        runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+        runLipsync: async () => ({ results: [], report: { status: 'pass', blockers: [], warnings: [] } }),
+        composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
+          composeCalls.push(options);
+        },
+      });
+
+      await director.runEpisodePipeline({
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        episodeId: 'episode_1',
+        options: {},
+      });
+
+      assert.equal(seedanceCalled, false);
+      assert.equal(sora2Called, false);
+      assert.equal(generationCalls.length, 1);
+      assert.equal(generationCalls[0].videoPackages.length, 1);
+      assert.equal(generationCalls[0].videoPackages[0].preferredProvider, 'happyhorse');
+      assert.equal(path.basename(generationCalls[0].options.artifactContext.dir), '09d-video-generation-agent');
+      assert.deepEqual(composeCalls[0].videoClips, [
+        {
+          shotId: 'shot_1',
+          videoPath: '/tmp/shot_1_happyhorse.mp4',
+          durationSec: 4,
+          status: 'completed',
+          provider: 'happyhorse',
         },
       ]);
     } finally {

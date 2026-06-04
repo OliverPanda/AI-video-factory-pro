@@ -71,10 +71,10 @@
 
 同时它现在也负责视频 provider 选择：
 
-- 默认 `Seedance Video Agent`
-- `VIDEO_PROVIDER=fallback_video` 时切到用户侧的 `Fallback Video Adapter`
-- 当前内部仍映射到 `sora2` runtime branch，以保持历史 run、缓存和 QA 总览兼容
-- 如果 `shotPackages` 中同时存在不同 provider，`Director` 会按真实路由结果分别调用并合并结果
+- 默认 `VIDEO_PROVIDER=seedance`
+- `VIDEO_PROVIDER` 是 run-level 主视频 provider；shot / bridge / sequence 应保持同一个 provider，不自动换另一个视频模型
+- `VIDEO_PROVIDER=fallback_video` 仅作为历史兼容别名映射到 `sora`
+- 新 provider 走 unified video provider client；未注册 adapter / transport 时应显式失败，而不是降级到已有模型
 
 ## 关键输入
 

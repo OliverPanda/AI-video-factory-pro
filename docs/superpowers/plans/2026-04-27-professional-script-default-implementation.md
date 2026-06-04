@@ -1,4 +1,4 @@
-# Professional Script Default Mode Implementation Plan
+﻿# Professional Script Default Mode Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1160,3 +1160,4 @@ Otherwise no commit is needed.
 ## Execution Handoff
 
 Plan complete when this file is saved and reviewed. Recommended execution is task-by-task with a fresh worker per task because the repo has a dirty worktree and the change touches parser, CLI, artifacts, docs, and tests.
+

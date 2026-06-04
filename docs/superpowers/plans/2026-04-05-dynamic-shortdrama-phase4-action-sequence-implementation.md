@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 4：Action Sequence 连续动作段 MVP Implementation Plan
+﻿# 动态短剧升级 Phase 4：Action Sequence 连续动作段 MVP Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -6,7 +6,7 @@
 
 **Architecture:** Phase 4 继续保留 `Director` 为唯一 orchestrator，普通镜头仍走 Phase 2 主链，cut 点桥接仍走 Phase 3 子链，只在识别到高价值连续动作段时插入 `Action Sequence Planner / Router / Generator / QA` 四个模块。`videoComposer` 继续保持后期层定位，由 `Director` 决定何时用 `sequence clips` 覆盖原有多个 shot 的 timeline 写入。
 
-**Tech Stack:** Node.js、现有 agent runtime、Runway API 复用链路、FFmpeg / ffprobe、Node test runner
+**Tech Stack:** Node.js、现有 agent runtime、Historical Video Provider API 复用链路、FFmpeg / ffprobe、Node test runner
 
 ---
 
@@ -23,7 +23,7 @@
 - Create: `src/agents/sequenceQaAgent.js`
 - Modify: `src/agents/director.js`
 - Modify: `src/agents/videoComposer.js`
-- Modify: `src/agents/runwayVideoAgent.js`（仅在确有必要时抽取 sequence 复用能力）
+- Modify: `src/agents/fallbackVideoAdapter.js`（仅在确有必要时抽取 sequence 复用能力）
 - Modify: `src/utils/runArtifacts.js`
 - Modify: `scripts/resume-from-step.js`
 
@@ -304,7 +304,7 @@ git commit -m "feat: 新增 Phase 4 Action Sequence Router Agent"
 
 - Create: `src/agents/sequenceClipGenerator.js`
 - Create: `tests/sequenceClipGenerator.test.js`
-- Modify: `src/agents/runwayVideoAgent.js`（如需抽公共 provider 调用）
+- Modify: `src/agents/fallbackVideoAdapter.js`（如需抽公共 provider 调用）
 
 - [ ] **Step 1: 写 sequence 生成成功路径失败测试**
 
@@ -364,7 +364,7 @@ Expected: PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/agents/sequenceClipGenerator.js tests/sequenceClipGenerator.test.js src/agents/runwayVideoAgent.js
+git add src/agents/sequenceClipGenerator.js tests/sequenceClipGenerator.test.js src/agents/fallbackVideoAdapter.js
 git commit -m "feat: 新增 Phase 4 Sequence Clip Generator Agent"
 ```
 
@@ -584,3 +584,5 @@ node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.
 - `sequenceClips` 能覆盖对应 shot timeline
 - `sequence QA` 失败时能正确回退
 - resume / artifact / acceptance 全部通过
+
+

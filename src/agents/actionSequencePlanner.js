@@ -7,7 +7,7 @@ import { createActionSequencePlanEntry } from '../utils/actionSequenceProtocol.j
 
 function resolvePreferredSequenceProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;

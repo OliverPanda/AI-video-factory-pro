@@ -119,7 +119,7 @@ test('generateSequenceClips submits polls downloads and writes the minimum seque
   });
 });
 
-test('generateSequenceClips lets providerClient handle a non-runway provider on the success path', async () => {
+test('generateSequenceClips lets providerClient handle a non-seedance provider on the success path', async () => {
   await withTempRoot(async (tempRoot) => {
     const artifactContext = {
       outputsDir: path.join(tempRoot, '1-outputs'),
@@ -186,7 +186,7 @@ test('generateSequenceClips lets providerClient handle a non-runway provider on 
   });
 });
 
-test('generateSequenceClips keeps explicit runway compatibility when requested', async () => {
+test('generateSequenceClips keeps explicit happyhorse compatibility when requested', async () => {
   await withTempRoot(async (tempRoot) => {
     const artifactContext = {
       outputsDir: path.join(tempRoot, '1-outputs'),
@@ -200,17 +200,17 @@ test('generateSequenceClips keeps explicit runway compatibility when requested',
 
     const providerClient = {
       async submit(sequencePackage) {
-        assert.equal(sequencePackage.preferredProvider, 'runway');
+        assert.equal(sequencePackage.preferredProvider, 'happyhorse');
         return {
-          taskId: 'task_runway_001',
-          provider: 'runway',
-          model: 'gen4_turbo',
+          taskId: 'task_happyhorse_001',
+          provider: 'happyhorse',
+          model: 'happyhorse-1.0-r2v',
         };
       },
       async poll() {
         return {
           status: 'COMPLETED',
-          outputUrl: 'https://example.com/runway-sequence.mp4',
+          outputUrl: 'https://example.com/happyhorse-sequence.mp4',
         };
       },
       async download(_outputUrl, outputPath) {
@@ -221,15 +221,15 @@ test('generateSequenceClips keeps explicit runway compatibility when requested',
     const run = await generateSequenceClips(
       [
         {
-          sequenceId: 'seq_runway',
+          sequenceId: 'seq_happyhorse',
           shotIds: ['shot_301', 'shot_302'],
           durationTargetSec: 5.2,
-          preferredProvider: 'runway',
+          preferredProvider: 'happyhorse',
           fallbackProviders: ['bridge'],
           referenceImages: [{ path: '/tmp/shot_301.png' }],
           referenceVideos: [],
           bridgeReferences: [],
-          visualGoal: '显式兼容 runway',
+          visualGoal: '显式兼容 happyhorse',
           cameraSpec: 'tracking',
           continuitySpec: 'keep_motion_flow',
           entryFrameHint: 'entry',
@@ -246,7 +246,7 @@ test('generateSequenceClips keeps explicit runway compatibility when requested',
     );
 
     assert.equal(run.results[0].status, 'completed');
-    assert.equal(run.results[0].provider, 'runway');
+    assert.equal(run.results[0].provider, 'happyhorse');
   });
 });
 
@@ -285,7 +285,7 @@ test('resolveSequenceWorkflow defaults to unified seedance client when sequence 
       {}
     );
 
-    assert.equal(workflow.kind, 'unified_seedance_client');
+    assert.equal(workflow.kind, 'unified_video_client');
   } finally {
     if (previousVideoProvider == null) {
       delete process.env.VIDEO_PROVIDER;
@@ -305,7 +305,7 @@ test('resolveSequenceWorkflow follows fallback_video override when sequence pack
     }
   );
 
-  assert.equal(workflow.kind, 'sora2');
+  assert.equal(workflow.kind, 'unified_video_client');
 });
 
 test('resolveSequenceWorkflow treats seedance main-path sequences as unified client work instead of legacy seedance workflow', () => {
@@ -321,7 +321,7 @@ test('resolveSequenceWorkflow treats seedance main-path sequences as unified cli
       {}
     );
 
-    assert.equal(workflow.kind, 'unified_seedance_client');
+    assert.equal(workflow.kind, 'unified_video_client');
   } finally {
     if (previousVideoProvider == null) {
       delete process.env.VIDEO_PROVIDER;

@@ -44,7 +44,6 @@ const STEP_ALIASES = {
   'video-generation': 'video',
   'performance-planner': 'video',
   'video-router': 'video',
-  'runway-video-agent': 'video',
   'motion-enhancer': 'video',
   'shot-qa': 'video',
   dialogue: 'dialogue',
@@ -204,6 +203,11 @@ const STEP_STATE_KEYS = {
   video: [
     'performancePlan',
     'shotPackages',
+    'preflightShotPackages',
+    'preflightQaReport',
+    'upstreamFailureInsights',
+    'pipelineSummary',
+    'stoppedBeforeVideoAt',
     'rawVideoResults',
     'enhancedVideoResults',
     'videoResults',
@@ -1153,3 +1157,4 @@ export const __testables = {
   executeResumeRun,
   resumeFromStep,
 };
+

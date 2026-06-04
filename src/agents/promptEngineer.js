@@ -183,7 +183,17 @@ function buildChineseDisplayNegativePrompt(style = 'realistic') {
   return '避免低质量、模糊、卡通感、结构畸形';
 }
 
-function buildEnglishFallbackExecutionPrompt(shot, styleBase) {
+function buildEnglishFallbackExecutionPrompt(
+  shot,
+  styleBase,
+  {
+    identityAnchors = '',
+    charTokens = '',
+    forbiddenIdentityTokens = '',
+    propContractPromptTokens = '',
+    propContractNegativeTokens = '',
+  } = {}
+) {
   const cameraType = shot.camera_type || shot.cameraType || null;
   const cameraKw = CAMERA_KEYWORDS[cameraType] || 'medium shot';
   const continuityTokens = keepAsciiExecutionTokens(buildContinuityTokens(shot));
@@ -191,16 +201,27 @@ function buildEnglishFallbackExecutionPrompt(shot, styleBase) {
   const actionHint = keepAsciiExecutionTokens(shot.action);
   const emotionHint = keepAsciiExecutionTokens(shot.emotion);
 
-  return mergePromptSegments([
+  const prompt = mergePromptSegments([
+    identityAnchors,
+    charTokens,
     sceneHint ? `scene ${sceneHint}` : null,
     actionHint ? `action ${actionHint}` : null,
     emotionHint ? `emotion ${emotionHint}` : null,
     continuityTokens,
+    propContractPromptTokens,
     cameraKw,
     'single cinematic frame, clear subject focus',
     styleBase.lighting,
     styleBase.quality,
   ]);
+
+  const negativePrompt = mergePromptSegments([
+    forbiddenIdentityTokens,
+    propContractNegativeTokens,
+    styleBase.negative,
+  ]);
+
+  return { prompt, negativePrompt };
 }
 
 export function applyContinuityRepairHints(basePrompt, report = {}) {
@@ -383,7 +404,7 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
       promptSources.push({ shotId: shot.id, source: 'llm' });
     } catch (err) {
       logger.warn('PromptEngineer', `${shot.id} Prompt生成失败，使用降级方案：${err.message}`);
-      const fallbackResult = fallbackPrompt(shot, style);
+      const fallbackResult = fallbackPrompt(shot, style, characterRegistry, deps);
       results.push(fallbackResult);
       promptSources.push({ shotId: shot.id, source: 'fallback', error: err.message });
       writePromptFallbackEvidence(shot, style, err, fallbackResult, deps.artifactContext);
@@ -396,19 +417,31 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
 }
 
 // 降级方案：基于分镜信息直接组装基础Prompt
-function fallbackPrompt(shot, style) {
+function fallbackPrompt(shot, style, characterRegistry = [], deps = {}) {
   const styleBase = STYLE_BASE[style] || STYLE_BASE.realistic;
-  const fallbackExecutionPrompt = buildEnglishFallbackExecutionPrompt(shot, styleBase);
+  const identityAnchors = getShotCharacterIdentityAnchors(shot, characterRegistry);
+  const charTokens = getShotCharacterTokens(shot, characterRegistry);
+  const forbiddenIdentityTokens = getShotForbiddenIdentityTokens(shot, characterRegistry);
+  const activeProps = getActivePropContracts(shot, deps.corePropRegistry);
+  const propContractPromptTokens = buildPropContractPromptTokens(shot, activeProps);
+  const propContractNegativeTokens = buildPropContractNegativeTokens(activeProps);
+  const { prompt: fallbackExecutionPrompt, negativePrompt } = buildEnglishFallbackExecutionPrompt(shot, styleBase, {
+    identityAnchors,
+    charTokens,
+    forbiddenIdentityTokens,
+    propContractPromptTokens,
+    propContractNegativeTokens,
+  });
   const displayPromptZh = buildChineseDisplayPrompt(shot);
   const displayNegativePromptZh = buildChineseDisplayNegativePrompt(style);
   return {
     shotId: shot.id,
     image_prompt_en: fallbackExecutionPrompt,
-    negative_prompt_en: styleBase.negative,
+    negative_prompt_en: negativePrompt,
     display_prompt_zh: displayPromptZh,
     display_negative_prompt_zh: displayNegativePromptZh,
     image_prompt: fallbackExecutionPrompt,
-    negative_prompt: styleBase.negative,
+    negative_prompt: negativePrompt,
     style_notes: '降级生成（LLM调用失败）',
   };
 }

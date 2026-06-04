@@ -1,4 +1,4 @@
-# 2026-04-05 动态短剧升级 Phase 3 设计：Bridge Shot 与镜头连续性
+﻿# 2026-04-05 动态短剧升级 Phase 3 设计：Bridge Shot 与镜头连续性
 
 ## 1. 目标
 
@@ -24,7 +24,7 @@ Phase 2 已经完成：
 
 因此，Phase 3 MVP 的核心目标固定为：
 
-- 保留当前 `Director + Runway` 主链
+- 保留当前 `Director + Fallback Video` 主链
 - 不重写 Phase 2 视频主路径
 - 在少量高价值 cut 点上插入 `bridge shot` 子链
 - 优先让成片“看起来更顺”，而不是优先追求桥接镜头本身很炫
@@ -103,7 +103,7 @@ continuity analysis
 
 Phase 3 的默认原则固定为：
 
-- 复用现有 `Runway` 主链与现有目录结构
+- 复用现有 `Fallback Video` 主链与现有目录结构
 - 复用现有 artifact / resume / QA / state cache 机制
 - 尽量在现有 `Continuity Checker -> Director -> Composer` 之间插入桥接层
 - 不在 MVP 阶段引入 ComfyUI、Wan、IPAdapter 等第二套正式运行时
@@ -163,7 +163,7 @@ Phase 3 的默认原则固定为：
 边界：
 
 - 负责生成桥接片段
-- MVP 默认复用现有 `Runway` 接口能力
+- MVP 默认复用现有 `Fallback Video` 接口能力
 - 不替代普通镜头视频生成链路
 
 ### 4.4 Bridge QA Agent
@@ -338,10 +338,10 @@ Phase 3 MVP 不允许“默认所有 cut 都生成 bridge shot”。
 
 当前最适合直接吸收进 Phase 3 MVP 的官方能力，是：
 
-1. `Runway image-to-video`
+1. `Fallback Video image-to-video`
    - 适合基础桥接档
 
-2. `Runway / Veo 能力分层`
+2. `Fallback Video / Veo 能力分层`
    - 适合做 bridge shot 的能力感知路由
 
 3. `first and last keyframe`
@@ -423,7 +423,7 @@ Phase 3 MVP 仍锁定当前官方主链，不引入第二套默认运行时。
 
 默认路由口径：
 
-1. 普通桥接 -> 继续走当前 Runway 主链
+1. 普通桥接 -> 继续走当前 Fallback Video 主链
 2. 高风险桥接 -> 走支持 first/last keyframe 的能力档
 3. provider 不满足能力要求 -> 回退保守方案
 
@@ -575,11 +575,11 @@ MVP 只做单个 cut 点桥接。
 
 官方资料：
 
-- Runway API Reference：<https://docs.dev.runwayml.com/api/>
-- Runway API Getting Started：<https://docs.dev.runwayml.com/guides/using-the-api/>
-- Runway Models：<https://docs.dev.runwayml.com/guides/models/>
-- Runway Pricing：<https://docs.dev.runwayml.com/guides/pricing/>
-- Runway Changelog（含 `veo3.1`、`first and last keyframe`、`Reference to Video`）：<https://docs.dev.runwayml.com/api-details/api_changelog/>
+- 历史 provider API 文档：已归档
+- 历史 provider 接入说明：已归档
+- 历史 provider 模型说明：已归档
+- 历史 provider 价格说明：已归档
+- 历史 provider 变更记录：已归档
 - ComfyUI ByteDance First/Last Frame Node：<https://docs.comfy.org/built-in-nodes/ByteDanceFirstLastFrameNode>
 - ComfyUI Wan2.2 FLF2V Workflow：<https://docs.comfy.org/tutorials/video/wan/wan2_2>
 
@@ -588,3 +588,5 @@ MVP 只做单个 cut 点桥接。
 - Reddit: Wan 2.2 best practices to continue videos：<https://www.reddit.com/r/comfyui/comments/1md7egt/wan_22_best_practices_to_continue_videos/>
 - Reddit: Why do I get flashes doing first frame/end frame：<https://www.reddit.com/r/comfyui/comments/1lnczz2/why_do_i_get_flashes_doing_first_frameend_frame/>
 - Reddit: continuity / first-last-frame workflow discussion：<https://www.reddit.com/r/comfyui/comments/1n2s2rk/>
+
+

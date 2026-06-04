@@ -4,13 +4,11 @@ import path from 'node:path';
 import logger from '../utils/logger.js';
 import { buildFunCineForgeRequest, lipsyncWithFunCineForge } from './providers/funcineforgeLipsyncApi.js';
 import { lipsyncWithMock } from './providers/mockLipsyncApi.js';
-import { createLipsyncPlaceholderProvider } from './providers/placeholderLipsyncApi.js';
 
 const DEFAULT_PROVIDER_HANDLERS = {
   mock: lipsyncWithMock,
   funcineforge: lipsyncWithFunCineForge,
   'env-default': lipsyncWithMock,
-  runway: createLipsyncPlaceholderProvider('runway'),
 };
 
 export function resolveLipsyncProvider(options = {}, env = process.env) {

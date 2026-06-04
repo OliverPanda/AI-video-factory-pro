@@ -32,14 +32,14 @@ test('normalizeVideoProviderResult keeps provider metadata stable', () => {
 
 test('normalizeVideoProviderRequest returns auditable provider request summary', () => {
   const request = normalizeVideoProviderRequest({
-    provider: 'runway',
-    request: { model: 'gen4_turbo', duration: 5 },
+    provider: 'happyhorse',
+    request: { model: 'happyhorse-1.0-r2v', duration: 5 },
     metadata: { ratio: '9:16' },
   });
 
   assert.deepEqual(request, {
-    provider: 'runway',
-    providerRequest: { model: 'gen4_turbo', duration: 5 },
+    provider: 'happyhorse',
+    providerRequest: { model: 'happyhorse-1.0-r2v', duration: 5 },
     providerMetadata: { ratio: '9:16' },
   });
 });
@@ -47,14 +47,14 @@ test('normalizeVideoProviderRequest returns auditable provider request summary',
 test('normalizeVideoProviderError keeps standardized provider error fields', () => {
   const error = normalizeVideoProviderError({
     message: 'auth failed',
-    code: 'RUNWAY_AUTH_ERROR',
+    code: 'HAPPYHORSE_AUTH_ERROR',
     category: 'provider_auth_error',
     status: 401,
     details: { requestId: 'req-1' },
   });
 
   assert.equal(error.message, 'auth failed');
-  assert.equal(error.code, 'RUNWAY_AUTH_ERROR');
+  assert.equal(error.code, 'HAPPYHORSE_AUTH_ERROR');
   assert.equal(error.category, 'provider_auth_error');
   assert.equal(error.status, 401);
   assert.deepEqual(error.details, { requestId: 'req-1' });

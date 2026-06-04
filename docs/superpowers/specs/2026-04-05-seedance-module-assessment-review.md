@@ -1,4 +1,4 @@
-# 2026-04-05 Seedance 模块评估复核与整合结论
+﻿# 2026-04-05 Seedance 模块评估复核与整合结论
 
 ## 1. 文档定位
 
@@ -8,7 +8,7 @@
 
 1. 原文的核心判断是否合理。
 2. 当前项目是否存在“过度设计，忽略最新模型能力提升”的问题。
-3. 如果最终视频模型改为 `Seedance` 而不是 `Runway`，哪些模块应保留、降级、替换或暂缓删除。
+3. 如果最终视频模型改为 `Seedance` 而不是 `Fallback Video`，哪些模块应保留、降级、替换或暂缓删除。
 4. 当前项目下一阶段应如何做“面向新模型能力的减法”，而不是继续无边界堆模块。
 
 ## 2. 先给结论
@@ -266,13 +266,13 @@
 
 原因：
 
-- 如果最终目标明确是 `Seedance` 替代 `Runway`，那它就不该继续做复杂 provider 路由。
+- 如果最终目标明确是 `Seedance` 替代 `Fallback Video`，那它就不该继续做复杂 provider 路由。
 - 但它仍然适合作为：
   - `Seedance request builder`
   - 参考素材打包层
   - fallback 策略入口
 
-#### `Runway Video Agent`
+#### `Fallback Video Adapter`
 
 - 结论：`应被 Seedance Video Agent 替换`
 
@@ -284,7 +284,7 @@
 
 原因：
 
-- 如果 Seedance 主链产出本身已明显优于 `Runway + enhancer`，那这个层就不该继续在主链强依赖。
+- 如果 Seedance 主链产出本身已明显优于 `Fallback Video + enhancer`，那这个层就不该继续在主链强依赖。
 - 但短期内仍可保留为：
   - 实验层
   - 某些 provider 输出的兼容修复层
@@ -394,7 +394,7 @@
 
 ### 第一阶段：先替换主视频生成模型，不删保护层
 
-- 把 `Runway Video Agent` 替换为 `Seedance Video Agent`
+- 把 `Fallback Video Adapter` 替换为 `Seedance Video Agent`
 - `Image Generator` 明确降级为参考资产层
 - `Video Router` 简化为 `Seedance request builder`
 - 保留 `Shot QA / Bridge / Action Sequence / Lip-sync`，但先把它们当保护层看
@@ -428,7 +428,7 @@
 | 预生产层 | `Consistency / Continuity` | 降级，不建议直删 | 更适合作为评估/诊断层 |
 | 视频主链 | `Motion / Performance Planner` | 降级 | 从强主链规划层转为提示增强层 |
 | 视频主链 | `Video Router` | 保留但简化 | 改成 Seedance 请求打包层 |
-| 视频主链 | `Runway Video Agent` | 替换 | 由 `Seedance Video Agent` 接管 |
+| 视频主链 | `Fallback Video Adapter` | 替换 | 由 `Seedance Video Agent` 接管 |
 | 视频主链 | `Motion Enhancer` | 降级或旁路 | 不应继续默认强依赖 |
 | 视频主链 | `Shot QA Agent` | 保留 | 工程 QA 始终有价值 |
 | 补桥子链 | `Bridge*` | 短期保留，中期降级 | 暂不建议直接删除 |
@@ -469,7 +469,7 @@
 #### 为什么研发会支持这个决策
 
 - `Seedance` 官方公开能力已经明确覆盖了当前项目最痛的主问题：多模态输入、参考驱动、音画联合生成、镜头控制、多镜头叙事与 lip matching。
-- 这些能力说明它有潜力直接承担比 `Runway` 更多的主链责任，特别是在“让镜头真正动起来”这件事上，方向上更贴近项目目标。
+- 这些能力说明它有潜力直接承担比 `Fallback Video` 更多的主链责任，特别是在“让镜头真正动起来”这件事上，方向上更贴近项目目标。
 - 但研发上不能把“官方展示能力”直接等价为“当前生产线可稳定商用”，因为题材、角色复杂度、古装造型、多人混战、中文对白和批量任务成功率都可能显著拉低真实落地稳定性。
 - 所以合理的工程动作不是“看到模型强就删掉中间层”，而是“先把更强模型接入主路径，再用真实 production 样本决定哪些层还能退场”。
 
@@ -504,7 +504,7 @@
 #### 最终推荐顺序
 
 1. 先验证 `Seedance` 的 API 可得性、商用条款、额度、成本、异步任务模型和下载链路。
-2. 再做 `Runway -> Seedance` 的主视频引擎替换 spec 与最小接入。
+2. 再做 `Fallback Video -> Seedance` 的主视频引擎替换 spec 与最小接入。
 3. 然后用同一批 production-style 样本对比：`Seedance 主链`、`现有 fallback 主链`、`桥接/动作段旁路`。
 4. 最后才决定哪些旧模块从“保留但降级”进一步走向“真正删除”。
 
@@ -516,10 +516,11 @@
 
 如果要给团队或协作者一个最短版本，可以直接用下面这段：
 
-> 当前项目不应继续假设最终视频模型能力长期停留在旧一代水平。接入 Seedance 后，项目应从“不断给离散镜头补中间模块”转向“强化上游输入质量，让更强模型直接承担更多视频生成责任”。但这不等于立即删除中间层。更稳妥的做法是：先用 Seedance 替换 Runway 主视频生成，再把 continuity、bridge、action sequence、lip-sync 等模块逐步降级为保护层、回退层和评估层，而不是一步到位大砍模块。  
+> 当前项目不应继续假设最终视频模型能力长期停留在旧一代水平。接入 Seedance 后，项目应从“不断给离散镜头补中间模块”转向“强化上游输入质量，让更强模型直接承担更多视频生成责任”。但这不等于立即删除中间层。更稳妥的做法是：先用 Seedance 替换 Fallback Video 主视频生成，再把 continuity、bridge、action sequence、lip-sync 等模块逐步降级为保护层、回退层和评估层，而不是一步到位大砍模块。  
 
 ## 10. 参考来源
 
 - ByteDance Seed 官方模型页：<https://seed.bytedance.com/en/seedance2_0>
 - Seedance 官方公开展示页：<https://seedance.cv/>
 - 当前项目原始评估文档：[deepseek模块评估.md](/d:/My-Project/AI-video-factory-pro/deepseek模块评估.md)
+

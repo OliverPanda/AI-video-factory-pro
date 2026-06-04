@@ -1,24 +1,24 @@
-# 2026-04-05 Seedance 主视频引擎替换设计
+﻿# 2026-04-05 Seedance 主视频引擎替换设计
 
 ## 1. 目标
 
 本次设计解决的问题不是“再加一条新视频子链”，而是：
 
 - 在不破坏当前 `Director` 单一 orchestrator、`resume-from-step`、artifact、QA 与 fallback 体系的前提下
-- 把当前单镜头视频主引擎从 `Runway` 平滑切换到 `Seedance`
+- 把当前单镜头视频主引擎从 `Fallback Video` 平滑切换到 `Seedance`
 
 当前系统已经完成：
 
-- `Motion Planner -> Performance Planner -> Video Router -> Runway Video Agent -> Shot QA -> Video Composer` 单镜头视频主链
+- `Motion Planner -> Performance Planner -> Video Router -> Fallback Video Adapter -> Shot QA -> Video Composer` 单镜头视频主链
 - `bridge shot` 子链
 - `action sequence` 子链
 - step 级续跑、状态缓存与 auditable artifact
 
 因此，这次替换的核心不是重写生产线，而是把“视频 provider”从主链实现细节中抽离出来，让主链能够：
 
-- 先支持 `Runway + Seedance` 双 provider 共存
+- 先支持 `Fallback Video + Seedance` 双 provider 共存
 - 再切换默认主 provider
-- 最后把 `Runway` 降级为兼容路径或 fallback
+- 最后把 `Fallback Video` 降级为兼容路径或 fallback
 
 ## 2. 固定架构决策
 
@@ -97,7 +97,7 @@ scriptData / shotPlan
 ```text
 shotPackages
   -> Video Router
-  -> preferredProvider=seedance | runway
+  -> preferredProvider=seedance | fallback_video
   -> concrete provider agent
   -> normalized videoResults
 ```
@@ -166,7 +166,7 @@ Provider 层统一错误分类固定为：
 本次替换必须遵守：
 
 - 原有 `videoResults` 消费方无需大改
-- `Runway` 现有字段继续兼容
+- `Fallback Video` 现有字段继续兼容
 - 新增字段只做补充，不做破坏性删除
 
 这意味着：
@@ -199,7 +199,7 @@ Provider 层统一错误分类固定为：
 - 不直接调用 provider
 - 缺少合格参考资产时可显式路由到静图 fallback
 
-### 5.2 `Runway Video Agent`
+### 5.2 `Fallback Video Adapter`
 
 定位从“默认主视频引擎”调整为：
 
@@ -210,7 +210,7 @@ Provider 层统一错误分类固定为：
 边界：
 
 - 输出必须适配统一 provider 协议
-- 不能再把 `Runway` 私有结构直接泄漏给主链
+- 不能再把 `Fallback Video` 私有结构直接泄漏给主链
 
 ### 5.3 `Seedance Video Agent`
 
@@ -247,7 +247,7 @@ Provider 层统一错误分类固定为：
 先做：
 
 - 新增 provider 协议工具
-- `Runway` 接统一协议
+- `Fallback Video` 接统一协议
 - `Video Router` 输出 provider 无关字段
 
 这阶段不切默认流量。
@@ -267,14 +267,14 @@ Provider 层统一错误分类固定为：
   - 真正的 provider 接入需要根据届时官方可用接口决定是：
     - 直接接入 `Seedance 2.0 API`
     - 先接可 API 化的 `Seedance 1.5 / 相关火山视频能力`
-    - 或保留 `Runway` 作为过渡主 provider
+    - 或保留 `Fallback Video` 作为过渡主 provider
 
 这阶段允许通过配置切换：
 
-- `VIDEO_PROVIDER=runway`
+- `VIDEO_PROVIDER=fallback_video`
 - `VIDEO_PROVIDER=seedance`
 
-默认值仍可先保持 `runway`，用于低风险接入。
+默认值仍可先保持 `fallback_video`，用于低风险接入。
 
 ## 6.3 第三阶段：默认主 provider 切到 `Seedance`
 
@@ -288,7 +288,7 @@ Provider 层统一错误分类固定为：
 切换后：
 
 - 默认主 provider 为 `seedance`
-- `Runway` 降级为 fallback 或兼容路径
+- `Fallback Video` 降级为 fallback 或兼容路径
 
 ## 7. state cache 与 artifact 约束
 
@@ -319,13 +319,13 @@ artifact 层至少要继续记录：
 - shot 级或 sequence 级 CLI 续跑
 - 成本系统大重构
 - 直接删除 `bridge`、`action sequence`、`lipsync`
-- 直接删除 `Runway` 而不经过兼容期
+- 直接删除 `Fallback Video` 而不经过兼容期
 
 ## 9. 验收标准
 
 本次替换的工程验收标准固定为：
 
-- `Runway` 已输出统一 provider 协议
+- `Fallback Video` 已输出统一 provider 协议
 - `Video Router` 已 provider 无关
 - `Seedance` 接入后可产出兼容 `videoResults`
 - `Shot QA`、`resume`、artifact、composer 不因 provider 变化失效
@@ -342,4 +342,7 @@ artifact 层至少要继续记录：
 
 对内外统一说法固定为：
 
-> 当前仓库已具备完整的视频主链工程底座；下一阶段重点不是继续无边界加模块，而是把单镜头视频主引擎从 `Runway` 平滑切换到 `Seedance`。切换过程中，`Director`、QA、resume、artifact 与 composer 这些工程底座保持不变，旧中间层不会被一次性激进删除，而是根据真实样本逐步降级。
+> 当前仓库已具备完整的视频主链工程底座；下一阶段重点不是继续无边界加模块，而是把单镜头视频主引擎从 `Fallback Video` 平滑切换到 `Seedance`。切换过程中，`Director`、QA、resume、artifact 与 composer 这些工程底座保持不变，旧中间层不会被一次性激进删除，而是根据真实样本逐步降级。
+
+
+

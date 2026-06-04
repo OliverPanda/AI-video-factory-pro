@@ -1,4 +1,4 @@
-# 2026-04-04 动态短剧升级 Phase 1 设计
+﻿# 2026-04-04 动态短剧升级 Phase 1 设计
 
 ## 1. 目标
 
@@ -32,7 +32,7 @@ Phase 1 继续保留 `Director` 作为唯一 orchestrator，不引入第二个�
 
 1. `Motion Planner Agent`
 2. `Video Router Agent`
-3. `Runway Video Agent`
+3. `Fallback Video Adapter`
 4. `Shot QA Agent`
 
 新的高层数据流固定为：
@@ -55,7 +55,7 @@ flowchart LR
     B --> C[Motion Planner]
     B --> D[Video Router]
     C --> D
-    D --> E[Runway Video Agent]
+    D --> E[Fallback Video Adapter]
     E --> F[Shot QA Agent]
     F --> G[Video Composer]
     B -. fallback static image .-> G
@@ -218,10 +218,10 @@ flowchart TD
 
 - 负责组装 provider request 所需的标准件
 - 不直接向 provider 发请求
-- Phase 1 的主 provider 固定为 `Runway`
+- Phase 1 的主 provider 固定为 `Fallback Video`
 - 协议层允许未来扩展 `Veo / Luma`，但本次不落地
 
-### 5.3 Runway Video Agent
+### 5.3 Fallback Video Adapter
 
 输入：
 
@@ -276,7 +276,7 @@ Phase 1 验收规则固定为：
 
 - `09a-motion-planner`
 - `09b-video-router`
-- `09c-runway-video-agent`
+- `09c-fallback-video-adapter`
 - `09d-shot-qa`
 
 原 `videoComposer` 顺延为：
@@ -312,7 +312,7 @@ Phase 1 验收规则固定为：
 
 - `resume-from-step --step=compose` 必须保留 `videoResults`
 - `resume-from-step --step=video` 只清掉视频生成及其后续状态
-- `Runway` 单镜头失败时允许同 shot 内部重试
+- `Fallback Video` 单镜头失败时允许同 shot 内部重试
 - 若仍失败，必须标注 `failed_provider` / 失败分类，并由 `Director` 统一决定是否 fallback 到静图
 
 续跑与 fallback 的关系图：
@@ -346,7 +346,7 @@ flowchart TD
 - `image generator` 成为参考图/首帧层，而不是默认交付层
 - `video composer` 成为后期总装层
 - 新 agent 全部进入现有 artifact / QA / resume 体系
-- 没有 `RUNWAY_API_KEY` 或视频生成失败时，系统仍可显式 fallback 到静图路径继续交付
+- 没有 `VIDEO_FALLBACK_API_KEY` 或视频生成失败时，系统仍可显式 fallback 到静图路径继续交付
 
 ## 10. 验收入口
 
@@ -360,3 +360,5 @@ Phase 1 收口与最终验收结论见：
 - 工程验收与产品验收的边界
 - 最终验收命令集
 - 进入 Phase 2 的门槛
+
+

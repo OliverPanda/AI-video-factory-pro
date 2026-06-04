@@ -1,12 +1,12 @@
-# Seedance 主视频引擎替换 Implementation Plan
+﻿# Seedance 主视频引擎替换 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在不破坏当前 `Director`、`resume-from-step`、artifact、QA 与 fallback 体系的前提下，把当前单镜头视频主引擎从 `Runway` 平滑切换到 `Seedance`。
+**Goal:** 在不破坏当前 `Director`、`resume-from-step`、artifact、QA 与 fallback 体系的前提下，把当前单镜头视频主引擎从 `Fallback Video` 平滑切换到 `Seedance`。
 
-**Architecture:** 保持 `Director` 为唯一 orchestrator，不引入新的调度中心。现有 `Video Router -> Runway Video Agent -> Shot QA -> Video Composer` 主链改造为“协议先行、provider 适配隔离、渐进切换”的模式：先抽象视频 provider 协议与 router 输出，再新增 `Seedance Video Agent`，最后把主链默认 provider 从 `Runway` 切到 `Seedance`，同时保留 `Runway` 和静图/bridge/sequence/lipsync 作为工程保护层。
+**Architecture:** 保持 `Director` 为唯一 orchestrator，不引入新的调度中心。现有 `Video Router -> Fallback Video Adapter -> Shot QA -> Video Composer` 主链改造为“协议先行、provider 适配隔离、渐进切换”的模式：先抽象视频 provider 协议与 router 输出，再新增 `Seedance Video Agent`，最后把主链默认 provider 从 `Fallback Video` 切到 `Seedance`，同时保留 `Fallback Video` 和静图/bridge/sequence/lipsync 作为工程保护层。
 
-**Tech Stack:** Node.js、原生 `node:test`、现有 agent 架构、FFmpeg/ffprobe、外部视频 provider API（当前实现 `Runway`，目标接入 `Seedance`）
+**Tech Stack:** Node.js、原生 `node:test`、现有 agent 架构、FFmpeg/ffprobe、外部视频 provider API（当前实现 `Fallback Video`，目标接入 `Seedance`）
 
 ---
 
@@ -18,7 +18,7 @@
   - 新增或扩展视频 provider API 封装
   - 负责请求构造、任务提交、轮询、下载、错误分类
 - `src/agents/`
-  - `videoRouter.js`：从“Runway request builder”升级为“视频 provider 路由与请求打包层”
+  - `videoRouter.js`：从“Fallback Video request builder”升级为“视频 provider 路由与请求打包层”
   - 新增 `seedanceVideoAgent.js`
   - 可能抽出 provider 无关的 `shotPackage -> provider request` 转换逻辑
 - `src/utils/`
@@ -27,7 +27,7 @@
   - 控制默认主视频引擎、缓存与 summary 记账、resume 兼容
 - `src/agents/videoComposer.js`
   - 继续优先消费 `sequenceClips -> videoResults -> bridgeClips -> ...`
-  - 不感知底层是 `Runway` 还是 `Seedance`
+  - 不感知底层是 `Fallback Video` 还是 `Seedance`
 - `tests/`
   - provider API / agent / router / director / resume / acceptance 回归
 - `README.md`
@@ -35,7 +35,7 @@
 - `.env.example`
   - 只保留当前代码实际读取的变量；对未接入但已确定方向的 `Seedance` 仅做说明，不伪造未实现变量
 - `docs/agents/*.md`
-  - 在接入落地时同步更新 `video-router`、`runway-video-agent`、未来的 `seedance-video-agent`、`director`、`video-composer`
+  - 在接入落地时同步更新 `video-router`、`fallback-video-adapter`、未来的 `seedance-video-agent`、`director`、`video-composer`
 
 ## Task 1: 固定 Seedance 替换边界与协议
 
@@ -71,7 +71,7 @@ Spec 中固定 3 段式切换：
 
 1. 协议抽象与双 provider 共存
 2. 接入 `Seedance` 但不默认切流
-3. 默认主 provider 切到 `Seedance`，`Runway` 降级 fallback
+3. 默认主 provider 切到 `Seedance`，`Fallback Video` 降级 fallback
 
 - [ ] **Step 4: 提交 spec 文档**
 
@@ -86,8 +86,8 @@ git commit -m "docs: 明确 Seedance 替换主视频引擎的设计边界"
 
 **Files:**
 - Create: `src/apis/videoProviderProtocol.js`
-- Modify: `src/apis/runwayVideoApi.js`
-- Test: `tests/videoProviderProtocol.test.js`, `tests/runwayVideoApi.test.js`
+- Modify: `src/apis/fallbackVideoApi.js`
+- Test: `tests/videoProviderProtocol.test.js`, `tests/fallbackVideoApi.test.js`
 
 - [ ] **Step 1: 先写 provider 协议测试**
 
@@ -126,23 +126,23 @@ Expected: FAIL，提示协议工具尚不存在。
 - provider 错误类型标准化
 - provider request 摘要序列化
 
-- [ ] **Step 4: 回归 `Runway` API 封装**
+- [ ] **Step 4: 回归 `Fallback Video` API 封装**
 
-确保 `runwayVideoApi` 输出能适配新协议，不改变现有功能。
+确保 `fallbackVideoApi` 输出能适配新协议，不改变现有功能。
 
-- [ ] **Step 5: 跑协议与 Runway API 测试**
+- [ ] **Step 5: 跑协议与 Historical Video Provider API 测试**
 
 Run:
 
 ```bash
-node --test tests/videoProviderProtocol.test.js tests/runwayVideoApi.test.js
+node --test tests/videoProviderProtocol.test.js tests/fallbackVideoApi.test.js
 ```
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add src/apis/videoProviderProtocol.js src/apis/runwayVideoApi.js tests/videoProviderProtocol.test.js tests/runwayVideoApi.test.js
-git commit -m "refactor: 抽象视频 provider 协议并兼容 Runway"
+git add src/apis/videoProviderProtocol.js src/apis/fallbackVideoApi.js tests/videoProviderProtocol.test.js tests/fallbackVideoApi.test.js
+git commit -m "refactor: 抽象视频 provider 协议并兼容 Fallback Video"
 ```
 
 ## Task 3: 改造 Video Router 为 provider 无关打包层
@@ -156,7 +156,7 @@ git commit -m "refactor: 抽象视频 provider 协议并兼容 Runway"
 
 补至少 3 个 case：
 
-- 默认主 provider 为 `runway`
+- 默认兼容 provider 为 `fallback_video`
 - 配置切换后主 provider 为 `seedance`
 - 缺少可用参考图时路由到静图 fallback
 
@@ -251,7 +251,7 @@ node --test tests/seedanceVideoApi.test.js tests/seedanceVideoAgent.test.js
 
 短期先支持：
 
-- `VIDEO_PROVIDER=runway`
+- `VIDEO_PROVIDER=fallback_video`
 - `VIDEO_PROVIDER=seedance`
 
 默认值先不切，避免一次性扩大改动面。
@@ -303,7 +303,7 @@ node --test tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFr
 修改点：
 
 - `Shot QA` 对 provider 无关
-- `videoComposer` 不写死 `Runway`
+- `videoComposer` 不写死 `Fallback Video`
 - `resume-from-step` 清理逻辑保持 step 级，不升级成 sequence/shot 级 CLI
 
 - [ ] **Step 4: 跑测试**
@@ -321,7 +321,7 @@ git add src/agents/shotQaAgent.js src/agents/videoComposer.js scripts/resume-fro
 git commit -m "refactor: 保持 QA Composer Resume 与视频 provider 解耦"
 ```
 
-## Task 6: 默认主 provider 切到 Seedance 并保留 Runway fallback
+## Task 6: 默认主 provider 切到 Seedance 并保留 Fallback Video fallback
 
 **Files:**
 - Modify: `src/agents/director.js`
@@ -350,7 +350,7 @@ node --test tests/director.project-run.test.js tests/pipeline.acceptance.test.js
 当代码和文档都准备好之后：
 
 - 默认主 provider 改为 `seedance`
-- `Runway` 降级为 fallback / compatibility provider
+- `Fallback Video` 降级为 fallback / compatibility provider
 
 - [ ] **Step 4: 跑回归**
 
@@ -364,7 +364,7 @@ node --test tests/videoRouter.test.js tests/seedanceVideoApi.test.js tests/seeda
 
 ```bash
 git add src/agents/director.js src/agents/videoRouter.js tests/director.project-run.test.js tests/pipeline.acceptance.test.js
-git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Runway 回退"
+git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Fallback Video 回退"
 ```
 
 ## Task 7: 更新文档与运行口径
@@ -374,7 +374,7 @@ git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Runwa
 - Modify: `.env.example`
 - Modify: `docs/agents/README.md`
 - Modify: `docs/agents/video-router.md`
-- Modify: `docs/agents/runway-video-agent.md`
+- Modify: `docs/agents/fallback-video-adapter.md`
 - Create: `docs/agents/seedance-video-agent.md`
 - Modify: `docs/agents/director.md`
 - Modify: `docs/agents/video-composer.md`
@@ -385,7 +385,7 @@ git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Runwa
 
 - 当前实现
 - 目标方向
-- 何时需要 `RUNWAY_API_KEY`
+- 何时需要 `VIDEO_FALLBACK_API_KEY`
 - 何时需要未来的 `SEEDANCE_*` 配置
 
 - [ ] **Step 2: 更新 `.env.example`**
@@ -399,7 +399,7 @@ git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Runwa
 
 把 provider 相关说明统一为：
 
-- 当前单镜头视频 provider：`Runway`
+- 当前单镜头视频 provider：`Fallback Video`
 - 下一阶段主引擎方向：`Seedance`
 - `Video Router` 是 provider 无关打包层
 
@@ -408,12 +408,12 @@ git commit -m "feat: 将 Seedance 切为默认主视频 provider 并保留 Runwa
 手工核对：
 
 - 文档不出现“已经接好 Seedance”这种误导表述
-- 也不出现“Runway 是永久方案”这种过时表述
+- 也不出现“Fallback Video 是永久方案”这种过时表述
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add README.md .env.example docs/agents/README.md docs/agents/video-router.md docs/agents/runway-video-agent.md docs/agents/seedance-video-agent.md docs/agents/director.md docs/agents/video-composer.md
+git add README.md .env.example docs/agents/README.md docs/agents/video-router.md docs/agents/fallback-video-adapter.md docs/agents/seedance-video-agent.md docs/agents/director.md docs/agents/video-composer.md
 git commit -m "docs: 更新主视频引擎切换口径与运行说明"
 ```
 
@@ -422,7 +422,7 @@ git commit -m "docs: 更新主视频引擎切换口径与运行说明"
 - [ ] **Step 1: 跑 provider 与主链协议测试**
 
 ```bash
-node --test tests/videoProviderProtocol.test.js tests/videoRouter.test.js tests/runwayVideoApi.test.js tests/seedanceVideoApi.test.js tests/seedanceVideoAgent.test.js tests/shotQaAgent.test.js
+node --test tests/videoProviderProtocol.test.js tests/videoRouter.test.js tests/fallbackVideoApi.test.js tests/seedanceVideoApi.test.js tests/seedanceVideoAgent.test.js tests/shotQaAgent.test.js
 ```
 
 - [ ] **Step 2: 跑 orchestration / resume / composer 回归**
@@ -440,7 +440,7 @@ node --test tests/pipeline.acceptance.test.js
 - [ ] **Step 4: 跑一次总收口命令**
 
 ```bash
-node --test tests/videoProviderProtocol.test.js tests/videoRouter.test.js tests/runwayVideoApi.test.js tests/seedanceVideoApi.test.js tests/seedanceVideoAgent.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/videoProviderProtocol.test.js tests/videoRouter.test.js tests/fallbackVideoApi.test.js tests/seedanceVideoApi.test.js tests/seedanceVideoAgent.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 - [ ] **Step 5: 收口提交**
@@ -449,3 +449,5 @@ node --test tests/videoProviderProtocol.test.js tests/videoRouter.test.js tests/
 git add .
 git commit -m "feat: 完成 Seedance 主视频引擎替换一期收口"
 ```
+
+

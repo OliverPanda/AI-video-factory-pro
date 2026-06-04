@@ -45,6 +45,8 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
     toShotRef: { shotId: 'shot_002', videoPath: '/tmp/shot_002.mp4' },
     fromReferenceImage: '/tmp/shot_001.png',
     toReferenceImage: '/tmp/shot_002.png',
+    fromReferenceImageMeta: {},
+    toReferenceImageMeta: {},
     promptDirectives: [
       'transition brief: create a motion_carry bridge that carry_action_across_cut',
       'camera and timing: follow_through_motion, duration 1.8 seconds',
@@ -57,12 +59,13 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
     providerCapabilityRequirement: 'first_last_keyframe',
     firstLastFrameMode: 'required',
     preferredProvider: 'seedance',
-    fallbackProviders: ['sora2', 'direct_cut'],
+    fallbackProviders: [],
     qaRules: {
       mustProbeWithFfprobe: true,
       mustConnectFromShot: true,
       mustConnectToShot: true,
       canFallbackToDirectCut: true,
+      canFallbackToOtherVideoProvider: false,
     },
   });
 });

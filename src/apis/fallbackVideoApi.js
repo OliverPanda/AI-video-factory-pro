@@ -8,6 +8,7 @@ import axios from 'axios';
 import logger from '../utils/logger.js';
 import { saveBuffer } from '../utils/fileHelper.js';
 import { ensureEnglishPrompt } from '../utils/translatePrompt.js';
+import { resolveSingleReferenceAsset, selectSoraReferenceImages } from '../utils/referenceImageAsset.js';
 import {
   normalizeVideoProviderError,
   normalizeVideoProviderRequest,
@@ -24,6 +25,7 @@ const DEFAULT_SEQUENCE_RETRY_ATTEMPTS = 2;
 const FALLBACK_VIDEO_DEFAULT_POLL_INTERVAL_MS = Number.parseInt(process.env.VIDEO_FALLBACK_POLL_INTERVAL_MS || '5000', 10);
 const FALLBACK_VIDEO_DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.VIDEO_FALLBACK_TIMEOUT_MS || '300000', 10);
 const FALLBACK_VIDEO_PROTOCOL_OPENAI = 'openai_videos';
+const FALLBACK_VIDEO_PROTOCOL_MEDIA_TASK = 'media_task';
 const FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2 = 'relay_seedance_v2';
 
 function resolveVideoFallbackBaseUrl(options = {}, env = process.env) {
@@ -46,12 +48,24 @@ function autoDetectFallbackVideoProtocol(options = {}, env = process.env) {
   if (baseUrl.includes('ai.t8star.cn') && model.includes('seedance')) {
     return FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2;
   }
+  if (
+    baseUrl.includes('api.lingkeai.ai') ||
+    baseUrl.includes('zdai88.com') ||
+    baseUrl.includes('api.lk888.ai') ||
+    baseUrl.includes('api.lk666.ai')
+  ) {
+    return FALLBACK_VIDEO_PROTOCOL_MEDIA_TASK;
+  }
   return FALLBACK_VIDEO_PROTOCOL_OPENAI;
 }
 
 function resolveFallbackVideoProtocol(options = {}, env = process.env) {
   const configured = String(options.protocol || env.VIDEO_FALLBACK_PROTOCOL || '').trim().toLowerCase();
-  if (configured === FALLBACK_VIDEO_PROTOCOL_OPENAI || configured === FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2) {
+  if (
+    configured === FALLBACK_VIDEO_PROTOCOL_OPENAI ||
+    configured === FALLBACK_VIDEO_PROTOCOL_MEDIA_TASK ||
+    configured === FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2
+  ) {
     return configured;
   }
   return autoDetectFallbackVideoProtocol(options, env);
@@ -214,7 +228,13 @@ async function buildPromptText(shotPackage) {
 }
 
 export async function buildFallbackVideoRequest(shotPackage, env = process.env) {
-  const referenceImage = shotPackage?.referenceImages?.[0]?.path || null;
+  const selectedReferenceImages = selectSoraReferenceImages(shotPackage?.referenceImages || []);
+  const referenceAsset = await resolveSingleReferenceAsset(selectedReferenceImages, {
+    tempDir: path.join(process.env.TEMP_DIR || './temp', 'video-reference-assets'),
+    preferDataUrl: false,
+    forceComposite: selectedReferenceImages.length > 1,
+  });
+  const referenceImage = referenceAsset?.path || selectedReferenceImages?.[0]?.path || null;
   const ratio = inferRatio(shotPackage, env);
   const size = normalizeVideoFallbackSize(inferVideoSize(shotPackage, env), {}, env);
 
@@ -222,6 +242,8 @@ export async function buildFallbackVideoRequest(shotPackage, env = process.env) 
     model: resolveFallbackVideoModel(shotPackage, env),
     prompt: await buildPromptText(shotPackage),
     imagePath: referenceImage,
+    inputReferenceUrl: referenceAsset?.url || referenceAsset?.dataUrl || null,
+    selectedReferenceImages,
     ratio,
     duration: normalizeDurationBucket(shotPackage?.durationTargetSec),
     seconds: resolveRequestedSeconds(shotPackage, env),
@@ -465,6 +487,59 @@ function buildRelaySeedanceV2Body(request) {
   return payload;
 }
 
+function inferImageMimeType(imagePath) {
+  const lower = String(imagePath || '').toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/png';
+}
+
+function encodeImageAsDataUrl(imagePath) {
+  return `data:${inferImageMimeType(imagePath)};base64,${fs.readFileSync(imagePath).toString('base64')}`;
+}
+
+function resolveFallbackReferenceUrl(request) {
+  const candidates = [request?.inputReferenceUrl, request?.referenceUrl, request?.imagePath];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || '').trim();
+    if (
+      normalized.startsWith('http://') ||
+      normalized.startsWith('https://') ||
+      normalized.startsWith('data:image/')
+    ) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function normalizeMediaTaskDuration(seconds) {
+  const target = Number(seconds);
+  if (!Number.isFinite(target) || target <= 4) return '4';
+  if (target <= 8) return '8';
+  return '12';
+}
+
+function inferMediaTaskOrientation(ratio) {
+  return String(ratio || '9:16').trim() === '16:9' ? 'landscape' : 'portrait';
+}
+
+function buildMediaTaskBody(request) {
+  const payload = {
+    model: request.model,
+    prompt: request.prompt,
+    params: {
+      duration: normalizeMediaTaskDuration(request.seconds),
+      orientation: inferMediaTaskOrientation(request.ratio),
+    },
+  };
+  const referenceUrl = resolveFallbackReferenceUrl(request);
+  if (referenceUrl) {
+    payload.params.input_reference = referenceUrl;
+  }
+  return payload;
+}
+
 function extractRelaySeedanceVideoUrl(task) {
   return task?.data?.output || task?.data?.video_url || task?.video_url || null;
 }
@@ -501,6 +576,9 @@ function buildFallbackRequestSummary(shotPackage, requestBody) {
       shotId: shotPackage?.shotId || null,
       sequenceId: shotPackage?.sequenceId || null,
       referenceImageCount: Array.isArray(shotPackage?.referenceImages) ? shotPackage.referenceImages.length : 0,
+      selectedReferenceImageCount: Array.isArray(requestBody?.selectedReferenceImages)
+        ? requestBody.selectedReferenceImages.length
+        : 0,
       protocol: requestBody.protocol || FALLBACK_VIDEO_PROTOCOL_OPENAI,
     },
   });
@@ -576,11 +654,78 @@ export async function fallbackImageToVideo(shotPackage, outputPath, options = {}
       const requestBody = {
         ...attemptPlan.request,
         protocol,
+        inputReferenceUrl:
+          attemptPlan.request?.selectedReferenceImages?.[0]?.url ||
+          attemptPlan.request?.selectedReferenceImages?.[0]?.publicUrl ||
+          attemptPlan.request?.selectedReferenceImages?.[0]?.remoteUrl ||
+          null,
       };
       attemptedModels.push(requestBody.model);
       attemptedRequests.push(buildAttemptMetadata(shotPackage, attemptPlan, requestBody));
 
       try {
+        if (protocol === FALLBACK_VIDEO_PROTOCOL_MEDIA_TASK) {
+          const submitPath = options.submitPath || env.VIDEO_FALLBACK_SUBMIT_PATH || '/v1/media/generate';
+          const pollPath = options.pollPath || env.VIDEO_FALLBACK_POLL_PATH || '/v1/media/status';
+          const createResponse = await httpClient.postJson(submitPath, buildMediaTaskBody(requestBody));
+          const taskId = createResponse?.data?.data?.task_id || createResponse?.data?.task_id || createResponse?.data?.data?.id || null;
+          if (!taskId) {
+            throw createProviderError('Media task 未返回任务 ID', {
+              code: 'SORA2_INVALID_RESPONSE',
+              category: 'provider_generation_failed',
+              details: createResponse?.data || null,
+            });
+          }
+
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < overallTimeoutMs) {
+            await sleep(pollIntervalMs);
+            const taskResponse = await httpClient.get(`${pollPath}?task_id=${encodeURIComponent(taskId)}`);
+            const taskEnvelope = taskResponse?.data || {};
+            const task = taskEnvelope?.data || taskEnvelope;
+            const state = String(task?.state || '').trim().toLowerCase();
+            const isFinal = task?.is_final === true;
+
+            if (isFinal && state === 'success') {
+              const videoUrl = task?.result_url || null;
+              if (!videoUrl) {
+                throw createProviderError('Media task 任务成功但未返回视频地址', {
+                  code: 'SORA2_MISSING_OUTPUT',
+                  category: 'provider_generation_failed',
+                  details: taskEnvelope,
+                });
+              }
+              const binary = await httpClient.getBinary(videoUrl);
+              saveBuffer(outputPath, Buffer.from(binary.data));
+              const requestSummary = buildFallbackRequestSummary(shotPackage, requestBody);
+              return buildFallbackVideoResult(
+                shotPackage,
+                requestBody,
+                outputPath,
+                taskId,
+                videoUrl,
+                requestSummary,
+                attemptedModels,
+                attemptedRequests,
+                { progress: task?.progress || null, protocol: FALLBACK_VIDEO_PROTOCOL_MEDIA_TASK }
+              );
+            }
+
+            if (isFinal && state === 'failed') {
+              throw createProviderError(task?.error || taskEnvelope?.msg || 'Media task failed', {
+                code: 'SORA2_TASK_FAILED',
+                category: 'provider_generation_failed',
+                details: taskEnvelope,
+              });
+            }
+          }
+
+          throw createProviderError('Media task 任务轮询超时', {
+            code: 'SORA2_TIMEOUT',
+            category: 'provider_timeout',
+          });
+        }
+
         if (protocol === FALLBACK_VIDEO_PROTOCOL_RELAY_SEEDANCE_V2) {
           const baseHost = stripKnownApiSuffix(resolveVideoFallbackBaseUrl(options, env));
           const createResponse = await httpClient.postJson(`${baseHost}/v2/videos/generations`, buildRelaySeedanceV2Body(requestBody));
@@ -727,6 +872,7 @@ export const __testables = {
   buildFallbackVideoAttemptPlans,
   buildFallbackVideoRequestCandidates,
   buildFallbackVideoModelCandidates,
+  buildMediaTaskBody,
   classifyFallbackVideoError,
   createProviderError,
   inferRatio,

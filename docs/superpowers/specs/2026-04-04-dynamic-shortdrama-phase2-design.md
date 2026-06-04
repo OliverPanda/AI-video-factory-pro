@@ -1,4 +1,4 @@
-# 2026-04-04 动态短剧升级 Phase 2 设计
+﻿# 2026-04-04 动态短剧升级 Phase 2 设计
 
 ## 1. 目标
 
@@ -69,7 +69,7 @@ Phase 2 继续保留 `Director` 作为唯一 orchestrator，不引入第二个�
 Phase 2 不走“纯 provider 生成”路线，也不走“纯后处理修补”路线，而是固定采用混合路线：
 
 - `Performance Planner` 负责把镜头规划升级为可执行表演镜头计划
-- `Runway Video Agent` 负责生成基础动态镜头
+- `Fallback Video Adapter` 负责生成基础动态镜头
 - `Motion Enhancer` 负责做时长修正、平滑、轻运镜和编码规范化
 - `Shot QA v2` 负责双层验收与回退决策
 
@@ -97,7 +97,7 @@ flowchart LR
     C --> D[Performance Planner]
     B --> E[Video Router]
     D --> E
-    E --> F[Runway Video Agent]
+    E --> F[Fallback Video Adapter]
     F --> G[Motion Enhancer]
     G --> H[Shot QA v2]
     H --> I[Video Composer]
@@ -273,10 +273,10 @@ Phase 2 在 Phase 1 `shotPackage` 的基础上扩展为更适合视频生成的�
 
 - 继续负责组装标准化 provider request
 - 不直接向 provider 发请求
-- Phase 2 默认 provider 仍固定为 `Runway`
+- Phase 2 默认 provider 仍固定为 `Fallback Video`
 - 允许基于 `generationTier` 和 `variantCount` 做镜头分层路由
 
-### 5.3 Runway Video Agent
+### 5.3 Fallback Video Adapter
 
 输入：
 
@@ -382,7 +382,7 @@ Phase 2 的视频主路径 artifact 编号固定为：
 - `09a-motion-planner`
 - `09b-performance-planner`
 - `09c-video-router`
-- `09d-runway-video-agent`
+- `09d-fallback-video-adapter`
 - `09e-motion-enhancer`
 - `09f-shot-qa`
 - `10-video-composer`
@@ -405,7 +405,7 @@ Phase 2 的视频主路径 artifact 编号固定为：
 新增核心产物建议包括：
 
 - `09b-performance-planner/1-outputs/performance-plan.json`
-- `09d-runway-video-agent/1-outputs/raw-video-results.json`
+- `09d-fallback-video-adapter/1-outputs/raw-video-results.json`
 - `09e-motion-enhancer/1-outputs/enhanced-video-results.json`
 - `09f-shot-qa/2-metrics/shot-qa-report-v2.json`
 
@@ -476,7 +476,7 @@ Phase 2 MVP 的测试重点固定为三类：
 Phase 2 MVP 的建议验收命令固定为：
 
 ```bash
-node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js
+node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/fallbackVideoAdapter.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js
 ```
 
 ```bash
@@ -490,7 +490,7 @@ node --test tests/pipeline.acceptance.test.js
 一次性收口命令：
 
 ```bash
-node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/fallbackVideoAdapter.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 ## 10. 成功标准
@@ -517,3 +517,5 @@ Phase 2 的默认口径固定为：
 也就是说，Phase 2 的定位是：
 
 > 在不推翻 Phase 1 架构的前提下，完成单镜头动态质量的第一轮系统升级。
+
+

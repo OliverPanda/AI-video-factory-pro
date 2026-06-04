@@ -620,12 +620,32 @@ function createParticipant(character, relation = null, fallbackName = '') {
   };
 }
 
+function normalizeLegacyCharacterRef(entry) {
+  if (!entry) return { identity: '', name: '' };
+  if (typeof entry === 'string') {
+    return { identity: '', name: entry };
+  }
+  if (typeof entry === 'object') {
+    const identity =
+      entry.episodeCharacterId ||
+      entry.characterId ||
+      entry.id ||
+      '';
+    const name = entry.name || entry.characterName || '';
+    return { identity: String(identity || '').trim(), name: String(name || '').trim() };
+  }
+  return { identity: '', name: String(entry || '').trim() };
+}
+
 function resolveLegacyParticipants(shot, registry = [], relations = []) {
   if (!Array.isArray(shot?.characters) || shot.characters.length === 0) return [];
 
   return shot.characters
-    .map((name, index) => {
-      const character = findCharacterByName(registry, name);
+    .map((entry, index) => {
+      const { identity, name } = normalizeLegacyCharacterRef(entry);
+      const character =
+        findCharacterByIdentity(registry, identity) ||
+        findCharacterByName(registry, name);
       const relation = relations[index] ?? null;
       return createParticipant(character, relation, name);
     })
@@ -662,6 +682,46 @@ export function getShotCharacterCards(shot, registry = []) {
   return resolveShotParticipants(shot, registry)
     .map((participant) => participant.character)
     .filter(Boolean);
+}
+
+export function getContextualShotCharacterCards(shot, registry = [], options = {}) {
+  const directCards = getShotCharacterCards(shot, registry);
+  const maxCards = Number.isInteger(options.maxCards) && options.maxCards > 0 ? options.maxCards : 3;
+  const seen = new Set();
+  const cards = [];
+
+  function pushCard(card) {
+    if (!card) return;
+    const key = resolveCharacterIdentity(card) || normalizeNameKey(card.name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    cards.push(card);
+  }
+
+  directCards.forEach(pushCard);
+  if (cards.length >= maxCards) {
+    return cards;
+  }
+
+  const shots = Array.isArray(options.shots) ? options.shots : [];
+  const shotIndex = Number.isInteger(options.shotIndex) ? options.shotIndex : -1;
+  if (shotIndex < 0 || shots.length === 0) {
+    return cards;
+  }
+
+  const currentScene = normalizeNameKey(shot?.scene);
+  const neighborIndices = [shotIndex - 1, shotIndex + 1];
+  for (const neighborIndex of neighborIndices) {
+    if (cards.length >= maxCards) break;
+    if (neighborIndex < 0 || neighborIndex >= shots.length) continue;
+    const neighborShot = shots[neighborIndex];
+    if (currentScene && normalizeNameKey(neighborShot?.scene) !== currentScene) {
+      continue;
+    }
+    getShotCharacterCards(neighborShot, registry).forEach(pushCard);
+  }
+
+  return cards;
 }
 
 export function getShotCharacterNames(shot, registry = []) {
@@ -739,4 +799,5 @@ export const __testables = {
   findCharacterByName,
   joinUniquePromptTokens,
   sanitizeCharacterIdentityTokens,
+  getContextualShotCharacterCards,
 };

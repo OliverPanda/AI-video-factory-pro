@@ -9,7 +9,9 @@
 - `Director` 是唯一调度中心。
 - 生产链路大致是：预生产 -> 视频 -> 音频/口型 -> 合成。
 - `TTS_PROVIDER` 负责 TTS 上层合同，`TTS_TRANSPORT_PROVIDER` 负责具体供应商切换。
-- `VIDEO_PROVIDER=seedance` 是当前主视频口径，`shot / sequence / bridge` 共用同一条底层 client。
+- 视频链路按三层理解：`VIDEO_PROVIDER` 表示业务模型意图，`VIDEO_TRANSPORT_PROVIDER` 表示真实提交通道，`VIDEO_MODEL_*` 表示各子链实际模型。
+- 后续接入新模型或中转站，优先复用通用 `provider + transport + model + path` 架构，不再为站点名单独创造新的顶层 provider。
+- 现在多了一套只读 `Workbench`，用于查看 run、QA 和 artifact，不直接改写主生产链路。
 
 ## 文档入口
 
@@ -129,10 +131,149 @@ Phase 4 的最小增量位置固定为：
 
 关于视频模型路线：
 
-- 当前默认口径：`VIDEO_PROVIDER=seedance`
-- 当前推荐理解：你只维护一个主视频中转站 / relay，`shot / sequence / bridge` 共用同一套底层 client
-- 兼容别名：`VIDEO_PROVIDER=fallback_video`
-- 当前实现现状：兼容别名仍可用，但它不是第二条视频链路；用户侧应始终按“一个主 provider”来理解
+- 当前默认业务模型意图仍是 `VIDEO_PROVIDER=seedance`
+- `VIDEO_PROVIDER` 是全链路主视频模型意图：`shot / bridge / sequence` 都应保持同一个 provider，不会自动降级到另一个视频模型
+- 当前主口径是 `seedance / veo / sora / happyhorse`
+- 兼容别名 `sora2 / fallback_video` 当前仍会归一到 `sora` 这条历史兼容链路，不代表第二条独立视频系统
+- `VIDEO_TRANSPORT_PROVIDER` 才表示真实请求怎么发：当前可走 `official / relay_openai / relay_media_task / relay_seedance_v2 / dashscope_async / vercel_ai_gateway`
+- `VIDEO_MODEL_SHOT / VIDEO_MODEL_SEQUENCE / VIDEO_MODEL_BRIDGE` 用来区分单镜头、连续动作段、bridge 的实际模型
+- 新接入站点优先落在 `VIDEO_TRANSPORT_*` 和 `VIDEO_MODEL_*` 上，不要把 `zdai88`、`lingkeai` 这类站点名抬升为新的顶层 provider
+
+## Video Provider / Transport / Model 三层语义
+
+推荐把视频配置理解成 3 层：
+
+1. `VIDEO_PROVIDER`
+   业务意图层，表达这轮希望使用哪类视频模型能力。当前建议使用：
+   - `seedance`
+   - `veo`
+   - `sora`
+   - `happyhorse`
+2. `VIDEO_TRANSPORT_PROVIDER`
+   提交通道层，表达请求发往哪里、走什么协议。当前实现里常见值：
+   - `official`
+   - `relay_openai`
+   - `relay_media_task`
+   - `relay_seedance_v2`
+   - `dashscope_async`
+   - `vercel_ai_gateway`
+3. `VIDEO_MODEL_SHOT / VIDEO_MODEL_SEQUENCE / VIDEO_MODEL_BRIDGE`
+   实际模型层，分别控制 `shot / sequence / bridge` 三条子链用哪个模型。
+
+推荐原则：
+
+- 换模型：优先改 `VIDEO_MODEL_*`
+- 换中转站：优先改 `VIDEO_TRANSPORT_PROVIDER + VIDEO_TRANSPORT_BASE_URL + VIDEO_TRANSPORT_*_PATH`
+- 换业务能力：才改 `VIDEO_PROVIDER`
+- 不要因为中转站域名变化，就新增 `VIDEO_PROVIDER=zdai88` 这类站点语义
+
+当前仓库里的归一逻辑：
+
+- `VIDEO_PROVIDER=sora2` 会按兼容别名归一到 `sora`
+- `VIDEO_PROVIDER=fallback_video` 会按兼容别名归一到 `sora`
+也就是说，站点和模型的变化应尽量收敛在 transport / model 配置，不要把用户侧 provider 继续做散。
+
+## Sora / 通用 Relay 接入说明
+
+`sora` 这条链路现在优先通过通用视频路由接入，而不是做站点定制 provider。
+
+当前已支持的主路径：
+
+- `VIDEO_PROVIDER=sora`
+- `VIDEO_TRANSPORT_PROVIDER=relay_media_task`
+- `VIDEO_MODEL_*` 指向真实模型，例如 `sora-2`
+
+如果 `VIDEO_TRANSPORT_BASE_URL` 指向以下域名之一，系统也会自动推断 `relay_media_task`：
+
+- `zdai88.com`
+- `api.lingkeai.ai`
+- `api.lk888.ai`
+- `api.lk666.ai`
+
+但生产环境仍建议显式配置 `VIDEO_TRANSPORT_PROVIDER=relay_media_task`，避免环境变量历史值造成误判。
+
+一个典型示例：
+
+```bash
+VIDEO_PROVIDER=sora
+VIDEO_TRANSPORT_PROVIDER=relay_media_task
+VIDEO_TRANSPORT_BASE_URL=https://zdai88.com
+VIDEO_TRANSPORT_API_KEY=你的中转站Key
+VIDEO_TRANSPORT_SUBMIT_PATH=/v1/media/generate
+VIDEO_TRANSPORT_POLL_PATH=/v1/media/status
+VIDEO_MODEL_SHOT=sora-2
+VIDEO_MODEL_SEQUENCE=sora-2
+VIDEO_MODEL_BRIDGE=sora-2
+```
+
+如果 relay 只接受一张参考图，当前链路会自动做以下处理：
+
+- 优先直接使用可访问的 HTTP URL
+- 没有公网 URL 时，把本地参考图转成 `data URL / base64`
+- 参考图多于 1 张时，自动合成单张 composite 图后再提交
+
+这套策略同样走通用适配层，不需要为某个站点再额外写一套独立 provider。
+
+## HappyHorse / 百炼接入说明
+
+HappyHorse 走同一套 unified video provider 架构，不需要在业务 agent 旁边单独调用百炼。配置时把业务能力写成 `happyhorse`，真实提交协议写成 `dashscope_async`：
+
+```bash
+VIDEO_PROVIDER=happyhorse
+VIDEO_TRANSPORT_PROVIDER=dashscope_async
+VIDEO_TRANSPORT_BASE_URL=https://dashscope.aliyuncs.com
+VIDEO_TRANSPORT_API_KEY=你的百炼APIKey
+VIDEO_MODEL_SHOT=happyhorse-1.0-r2v
+VIDEO_MODEL_SEQUENCE=happyhorse-1.0-r2v
+VIDEO_MODEL_BRIDGE=happyhorse-1.0-r2v
+HAPPYHORSE_RESOLUTION=720P
+HAPPYHORSE_RATIO=9:16
+HAPPYHORSE_WATERMARK=false
+HAPPYHORSE_ALLOW_DATA_URL_REFERENCES=true
+```
+
+也可以用兼容变量 `DASHSCOPE_API_KEY / DASHSCOPE_BASE_URL / HAPPYHORSE_MODEL_ID`。百炼要求模型、Endpoint URL 和 API Key 属于同一地域；北京地域默认 Endpoint 是 `https://dashscope.aliyuncs.com`，提交路径为 `/api/v1/services/aigc/video-generation/video-synthesis`，轮询路径为 `/api/v1/tasks/{task_id}`。
+
+HappyHorse 官方支持 base64/data URL 入参，因此默认 `HAPPYHORSE_ALLOW_DATA_URL_REFERENCES=true`，本地参考图会自动转成 data URL；如你的目标环境只允许公网/OSS URL，可显式设为 `false`。
+
+## Prompt 翻译层
+
+视频 prompt 进入 provider 前，会先走 `ensureEnglishPrompt(...)`：
+
+- 纯英文 prompt 直接透传
+- 检测到中文时，自动先翻译成英文再提交给视频 provider
+- 默认 provider 是 `llm`
+- 当配置了 `PROMPT_TRANSLATION_BASE_URL` 时，会自动按 `libretranslate` 兼容接口调用 `${BASE_URL}/translate`
+- 非 LLM 翻译失败时，会自动回退到 LLM 翻译
+
+当前可用环境变量：
+
+```bash
+PROMPT_TRANSLATION_PROVIDER=llm
+PROMPT_TRANSLATION_BASE_URL=
+PROMPT_TRANSLATION_API_KEY=
+PROMPT_TRANSLATION_SOURCE_LANG=auto
+PROMPT_TRANSLATION_TARGET_LANG=en
+```
+
+兼容旧变量名：
+
+- `SORA2_TRANSLATION_PROVIDER`
+- `SORA2_TRANSLATION_BASE_URL`
+- `SORA2_TRANSLATION_API_KEY`
+
+如果你准备把 `sora` 链路挂到第三方 relay，建议同时把翻译层独立配置好，不要把“翻译”和“视频中转站”绑死在同一套 provider 语义里。
+
+## Sora 参考图策略
+
+当前 `sora` 链路对参考图不再是“有图就随便传”，而是有固定优先级：
+
+1. 当前镜头 keyframe / first frame
+2. 角色一致性参考图（默认最多取 2 张）
+3. 其他非相邻补充参考图
+4. 相邻镜头参考图兜底
+
+同时 `Director` 会先把角色卡参考图和当前镜头出图结果固化进 `promptList.referenceImages`，后续视频路由统一消费，不再依赖下游临时猜测。
 
 ## 快速开始
 
@@ -141,6 +282,19 @@ Phase 4 的最小增量位置固定为：
 ```bash
 npm install
 ```
+
+安装根目录依赖即可。
+
+### 1.5 快速运行只读 Workbench API
+
+```bash
+npm run workbench
+```
+
+启动后常用入口：
+
+- Workbench API：`http://127.0.0.1:4180/api/workbench`
+- Workbench 根地址：`http://127.0.0.1:4180/`
 
 ### 2. 配置环境变量
 
@@ -171,6 +325,25 @@ cp .env.example .env
 - `VERCEL_AI_GATEWAY_API_KEY` 或 `AI_GATEWAY_API_KEY`
 - `VIDEO_MODEL_SHOT` / `VIDEO_MODEL_SEQUENCE` / `VIDEO_MODEL_BRIDGE`
 
+如果要把 `sora` 挂到通用 relay / 中转站，再补这些：
+
+- `VIDEO_PROVIDER=sora`
+- `VIDEO_TRANSPORT_PROVIDER=relay_media_task`
+- `VIDEO_TRANSPORT_BASE_URL`
+- `VIDEO_TRANSPORT_API_KEY`
+- `VIDEO_TRANSPORT_SUBMIT_PATH`
+- `VIDEO_TRANSPORT_POLL_PATH`
+- `VIDEO_TRANSPORT_DOWNLOAD_PATH`（按站点需要选填）
+- `VIDEO_MODEL_SHOT` / `VIDEO_MODEL_SEQUENCE` / `VIDEO_MODEL_BRIDGE`
+
+如果 `sora` prompt 需要先翻译，再补这些：
+
+- `PROMPT_TRANSLATION_PROVIDER`
+- `PROMPT_TRANSLATION_BASE_URL`
+- `PROMPT_TRANSLATION_API_KEY`
+- `PROMPT_TRANSLATION_SOURCE_LANG`
+- `PROMPT_TRANSLATION_TARGET_LANG`
+
 说明：
 
 - `TTS_PROVIDER` 当前默认是 `minimax`，也可以切到 `openai_compat` 作为统一合同入口
@@ -180,10 +353,16 @@ cp .env.example .env
 - `ARK_API_KEY / SEEDANCE_API_KEY` 对应当前默认的火山方舟 `Seedance` provider
 - `VIDEO_FALLBACK_API_KEY + VIDEO_FALLBACK_*` 是沿用的历史变量名，本质上仍是在配置同一个主视频 relay / provider；若 `VIDEO_FALLBACK_BASE_URL` 指向 `laozhang`，也可继续复用 `LAOZHANG_API_KEY`
 - `VIDEO_TRANSPORT_PROVIDER` 是“底层提交通道”，与 `VIDEO_PROVIDER` 这个业务语义口径分离；例如可保持 `VIDEO_PROVIDER=seedance`，但把 transport 切到 `vercel_ai_gateway`
+- `VIDEO_TRANSPORT_BASE_URL` 是中转站基础地址的优先配置入口；以后换 relay，优先改这里，而不是新造站点名 provider
+- `VIDEO_TRANSPORT_SUBMIT_PATH / VIDEO_TRANSPORT_POLL_PATH / VIDEO_TRANSPORT_DOWNLOAD_PATH` 用来适配站点 API 细节；优先通过 path 配置做兼容，不要继续分叉 provider
+- `relay_media_task` 当前默认路径是 `/v1/media/generate` 和 `/v1/media/status`
+- `VIDEO_PROVIDER=sora2 / fallback_video` 当前会被归一到 `sora`；推荐新配置直接写 `VIDEO_PROVIDER=sora`
 - `IMAGE_TRANSPORT_PROVIDER` 只影响图像请求怎么提交，不改变 `REALISTIC_IMAGE_MODEL / THREED_IMAGE_MODEL / IMAGE_EDIT_MODEL` 的模型路由语义
 - 当前仓库里的 `VERCEL_AI_GATEWAY_VIDEO_SUBMIT_PATH` / `VERCEL_AI_GATEWAY_IMAGE_SUBMIT_PATH` 是本项目适配层约定，主要用于后续接正式 SDK 或服务端代理前的过渡集成
 - `VIDEO_FALLBACK_SEQUENCE_*` 只作用于连续动作段 sequence 子链，不影响普通单镜头视频请求
 - `VIDEO_FALLBACK_SIZE` 现在是可选覆盖项；默认优先按 `VIDEO_WIDTH / VIDEO_HEIGHT` 自动推断，不用手填
+- `PROMPT_TRANSLATION_BASE_URL` 一旦配置，翻译层会按 `libretranslate` 兼容接口工作；没配时默认走 LLM 翻译
+- `SORA2_TRANSLATION_*` 仍可兼容，但推荐迁移到 `PROMPT_TRANSLATION_*`
 - 推荐配置项见 [`.env.example`](.env.example)
 
 推荐默认值见 [`.env.example`](.env.example)。
@@ -202,6 +381,14 @@ ffprobe -version
 ```
 
 ### 4. 运行
+
+先初始化项目模式样例：
+
+```bash
+node scripts/init-sample-project.js
+```
+
+这个命令会把 `samples/project-example/` 复制到 `temp/projects/project-example/`，方便直接跑项目模式。
 
 兼容模式：
 
@@ -232,6 +419,18 @@ node scripts/run.js samples/source.txt --style=realistic --input-format=auto
 ```bash
 node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
+
+抽样跑前 N 个分镜，适合先验证 prompt、出图和视频链路是否通：
+
+```bash
+node scripts/run.js samples/双生囚笼.txt --style=realistic --max-shots=2 --stop-before-video
+```
+
+说明：
+
+- `--max-shots=<number>` 只处理前 N 个分镜，适合真实样本小流量验证
+- `--stop-before-video` 会停在视频生成前，保留一致性 / 连贯性 / prompt / 图片结果给人复核
+- 两个参数一起用，适合先做低成本冒烟
 
 跳过一致性检查：
 
@@ -283,6 +482,36 @@ $env:VIDEO_MODEL_BRIDGE="bytedance/seedance-v1.5-pro"
 node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
+走通用 `sora` relay，例如 `zdai88` 这一类 `media_task` 站点：
+
+```bash
+$env:VIDEO_PROVIDER="sora"
+$env:VIDEO_TRANSPORT_PROVIDER="relay_media_task"
+$env:VIDEO_TRANSPORT_BASE_URL="https://zdai88.com"
+$env:VIDEO_TRANSPORT_API_KEY="你的RelayKey"
+$env:VIDEO_TRANSPORT_SUBMIT_PATH="/v1/media/generate"
+$env:VIDEO_TRANSPORT_POLL_PATH="/v1/media/status"
+$env:VIDEO_MODEL_SHOT="sora-2"
+$env:VIDEO_MODEL_SEQUENCE="sora-2"
+$env:VIDEO_MODEL_BRIDGE="sora-2"
+node scripts/run.js samples/双生囚笼.txt --style=realistic
+```
+
+如果 `sora` prompt 主要是中文，建议同时显式打开翻译层：
+
+```bash
+$env:PROMPT_TRANSLATION_PROVIDER="llm"
+node scripts/run.js samples/双生囚笼.txt --style=realistic
+```
+
+如果你有独立的翻译中转站，也可以这样配：
+
+```bash
+$env:PROMPT_TRANSLATION_BASE_URL="https://your-translate-relay.example.com"
+$env:PROMPT_TRANSLATION_API_KEY="你的TranslateKey"
+node scripts/run.js samples/双生囚笼.txt --style=realistic
+```
+
 仍要复用旧变量名 / 旧 relay 时：
 
 ```bash
@@ -294,6 +523,8 @@ node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
 ```
 
 如果你只是沿用旧环境变量名，不需要把 `VIDEO_PROVIDER` 改成 `fallback_video`；保留 `seedance` 更符合当前主链口径。
+
+如果你已经决定长期走通用 relay，建议尽快切到 `VIDEO_TRANSPORT_*` 这一组新口径，避免业务 provider、站点地址、具体模型三件事继续缠在一起。
 
 如果是 sequence 真实样本调优，推荐再补这两个可选项：
 
@@ -316,14 +547,27 @@ $env:VIDEO_FALLBACK_SEQUENCE_RETRY_ATTEMPTS="2"
 ```bash
 node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --dry-run --style=realistic
 node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --style=realistic
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic --confirm-paid-video
+```
+
+`video` 续跑现在有显式付费保护：
+
+- `--step=video` 默认不会清缓存，也不会真的提交视频生成
+- 必须显式加 `--confirm-paid-video` 才会执行
+- 建议先跑一次 `--dry-run` 看恢复计划，再正式提交
+
+例如：
+
+```bash
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --dry-run --style=realistic
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic --confirm-paid-video
 ```
 
 按指定历史 run 严格绑定续跑：
 
 ```bash
 node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --dry-run --style=realistic
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --style=realistic
+node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --style=realistic --confirm-paid-video
 ```
 
 `--run-id` 当前不是“尽量参考这次 run”，而是“严格绑定这次 run”：
@@ -340,6 +584,27 @@ node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run
 ```bash
 node scripts/resume-from-step.js --step=audio --style=realistic
 ```
+
+## Workbench
+
+当前仓库只保留本地只读 Workbench API，用来浏览项目、run、QA 和 artifact。
+
+启动：
+
+```bash
+npm run workbench
+```
+
+默认地址：
+
+- Workbench API：`http://127.0.0.1:4180/api/workbench`
+- 根地址：`http://127.0.0.1:4180/`
+
+当前 Workbench 边界：
+
+- 只读展示本地 `temp/projects/...` 下的运行产物
+- 可查看项目、分集、run、QA 概览、artifact 摘要
+- 不直接触发生成、不直接改写状态、不替代 `run.js` / `resume-from-step.js`
 
 Seedance 替换旧兼容视频路径的后续实现计划：
 
@@ -407,9 +672,12 @@ src/
   apis/        Provider Router 与外部服务接入
   domain/      Project / Asset / Character 等模型
   utils/       state、run-job、qa-summary、artifact 工具
+  workbench/   Workbench 的数据源、路由与视图模型
 scripts/
   run.js
   resume-from-step.js
+  init-sample-project.js
+  workbench-server.js
 docs/
   agents/
   runtime/
@@ -484,11 +752,13 @@ motionPlan
 
 也就是说：
 
-- 配了同一个视频 relay 的 `VIDEO_FALLBACK_*` 配置后，`shot / sequence / bridge` 都会共用它
-- 即使你沿用 `VIDEO_FALLBACK_*` 这组旧变量名，也仍然是在维护同一个主视频 provider
-- 若 `VIDEO_PROVIDER=fallback_video`，也只是兼容别名切换，不代表你需要再单独维护第二套会员或第二个视频链路
+- `shot / sequence / bridge` 共用同一套视频路由语义：`VIDEO_PROVIDER + VIDEO_TRANSPORT_PROVIDER + VIDEO_MODEL_*`
+- 即使你沿用 `VIDEO_FALLBACK_*` 这组旧变量名，也仍然是在维护同一个主视频 relay，只是配置口径更老
+- 若 `VIDEO_PROVIDER=sora2 / fallback_video`，当前会归一到 `sora` 兼容分支，不代表你需要再单独维护第二套视频链路
+- 具体 provider 名称不会再自动归一到其他模型；接新模型时要补 adapter / transport / harness 测试，而不是靠别名偷跑老模型
 - `videoComposer` 不直接理解 `rawVideoResults / enhancedVideoResults`，而是消费 `Director` 桥接后的 `videoResults + bridgeClips`
 - 没有视频结果或 QA 不通过时，系统会显式回退到旧的静图/口型/动画路径
+- `sora` 路径提交前会先做 prompt 英文化，并按“keyframe -> 角色参考图 -> 其他补充图 -> 相邻镜头兜底”的顺序选参考图
 
 对应 run package 目录：
 

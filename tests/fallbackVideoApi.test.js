@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 
 import { __testables, fallbackImageToVideo } from '../src/apis/fallbackVideoApi.js';
 
@@ -197,6 +198,56 @@ test('buildFallbackVideoRequest keeps dimension size for non-grok models on t8st
     );
 
     assert.equal(request.size, '720x1280');
+  });
+});
+
+test('buildMediaTaskBody wraps request into generic media protocol payload', async () => {
+  const body = __testables.buildMediaTaskBody({
+    model: 'sora-2',
+    prompt: 'a cinematic scene',
+    seconds: 3,
+    ratio: '9:16',
+    inputReferenceUrl: 'https://cdn.example.com/shot.jpg',
+  });
+
+  assert.equal(body.model, 'sora-2');
+  assert.equal(body.params.duration, '4');
+  assert.equal(body.params.orientation, 'portrait');
+  assert.equal(body.params.input_reference, 'https://cdn.example.com/shot.jpg');
+});
+
+test('buildFallbackVideoRequest prioritizes current keyframe and character sheets for sora2 instead of adjacent-shot noise', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const keyframePath = path.join(tempRoot, 'shot.jpg');
+    const characterPath = path.join(tempRoot, 'char.jpg');
+    const adjacentPath = path.join(tempRoot, 'adjacent.jpg');
+    await sharp({ create: { width: 16, height: 16, channels: 3, background: { r: 220, g: 0, b: 0 } } }).jpeg().toFile(keyframePath);
+    await sharp({ create: { width: 16, height: 16, channels: 3, background: { r: 0, g: 220, b: 0 } } }).jpeg().toFile(characterPath);
+    await sharp({ create: { width: 16, height: 16, channels: 3, background: { r: 0, g: 0, b: 220 } } }).jpeg().toFile(adjacentPath);
+
+    const request = await __testables.buildFallbackVideoRequest(
+      {
+        durationTargetSec: 4,
+        visualGoal: '红光警报中人物被强制绑定',
+        cameraSpec: { ratio: '9:16' },
+        referenceImages: [
+          { type: 'keyframe', path: keyframePath, shotId: 'shot_004' },
+          { type: 'character_reference', path: characterPath, characterId: 'char_luyan' },
+          { type: 'adjacent_shot', path: adjacentPath, shotId: 'shot_003' },
+        ],
+      },
+      {
+        VIDEO_FALLBACK_MODEL: 'sora-2',
+      }
+    );
+
+    assert.deepEqual(
+      request.selectedReferenceImages.map((entry) => ({ type: entry.type, path: entry.path })),
+      [
+        { type: 'keyframe', path: keyframePath },
+        { type: 'character_reference', path: characterPath },
+      ]
+    );
   });
 });
 
@@ -642,5 +693,78 @@ test('fallbackImageToVideo retries the same sequence request before degrading to
         { seconds: 12, attempt: 2 },
       ]
     );
+  });
+});
+
+test('fallbackImageToVideo supports media task protocol for sora2 relay sites', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const imagePath = path.join(tempRoot, 'shot.jpg');
+    const outputPath = path.join(tempRoot, 'shot-media-task.mp4');
+    fs.writeFileSync(imagePath, 'jpeg-binary');
+
+    const calls = [];
+    const httpClient = {
+      async postJson(url, body) {
+        calls.push(['postJson', url, body.model, body.params?.orientation, body.params?.duration]);
+        return {
+          data: {
+            code: 200,
+            data: {
+              task_id: 'media_task_123',
+            },
+          },
+        };
+      },
+      async get(url) {
+        calls.push(['get', url]);
+        return {
+          data: {
+            code: 200,
+            data: {
+              task_id: 'media_task_123',
+              state: 'success',
+              is_final: true,
+              result_url: 'https://example.com/media-task.mp4',
+            },
+          },
+        };
+      },
+      async getBinary(url) {
+        calls.push(['download', url]);
+        return { data: Buffer.from('fake-mp4') };
+      },
+    };
+
+    const result = await fallbackImageToVideo(
+      {
+        durationTargetSec: 3,
+        visualGoal: '蓝色数据流向上涌动',
+        cameraSpec: { moveType: 'slow_drift', framing: 'wide', ratio: '9:16' },
+        referenceImages: [{ path: imagePath, publicUrl: 'https://cdn.example.com/shot.jpg' }],
+      },
+      outputPath,
+      {
+        apiKey: 'demo-key',
+        httpClient,
+        sleep: async () => {},
+        pollIntervalMs: 1,
+        overallTimeoutMs: 50,
+      },
+      {
+        VIDEO_FALLBACK_PROTOCOL: 'media_task',
+        VIDEO_FALLBACK_SUBMIT_PATH: '/v1/media/generate',
+        VIDEO_FALLBACK_POLL_PATH: '/v1/media/status',
+        VIDEO_FALLBACK_MODEL: 'sora-2',
+      }
+    );
+
+    assert.equal(result.provider, 'sora2');
+    assert.equal(result.taskId, 'media_task_123');
+    assert.equal(fs.existsSync(outputPath), true);
+    assert.deepEqual(calls, [
+      ['postJson', '/v1/media/generate', 'sora-2', 'portrait', '4'],
+      ['get', '/v1/media/status?task_id=media_task_123'],
+      ['download', 'https://example.com/media-task.mp4'],
+    ]);
   });
 });

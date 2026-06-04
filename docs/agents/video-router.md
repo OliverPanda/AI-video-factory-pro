@@ -48,8 +48,9 @@
 
 - 有参考图时优先当前 `VIDEO_PROVIDER`，默认 `seedance`
 - 没有参考图时直接路由到 `static_image`
-- 当前主 provider 用户侧可为 `fallback_video` 或 `seedance`
-- `fallback_video` 当前内部仍映射到 `sora2` runtime branch，以保持兼容
+- `VIDEO_PROVIDER` 是全链路主视频 provider；shot / bridge / sequence 都应保持同一个 provider
+- `fallbackProviders` 现在保持为空数组；失败由 QA / Director 显式处理，不自动换另一个视频模型
+- `fallback_video` 仅作为历史兼容别名映射到 `sora`，新 provider 不应通过这个别名接入
 - `providerRequestHints` 会把时长、画幅、动势级别、镜头类型等 provider 请求提示一起写入，供下游具体视频 agent 适配各自 API
 - `performancePlan` 会补充：
   - `performanceTemplate`

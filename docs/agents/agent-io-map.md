@@ -161,7 +161,7 @@ flowchart LR
 | Motion Planner | `shots + continuity context` | `motionPlan` | `09a-motion-planner/` | Video Router、Director |
 | Performance Planner | `scriptData + shotPlan + motionPlan + continuity context` | `performancePlan` | `09b-performance-planner/` | Video Router、Director |
 | Video Router | `motionPlan + performancePlan + imageResults + promptList` | `shotPackages + videoRoutingDecisions` | `09c-video-router/` | Fallback Video Adapter、Seedance Video Agent、Director |
-| Fallback Video Adapter | `shotPackages(preferredProvider=sora2 或 fallback_video 别名)` | `rawVideoResults` | `09d-sora2-video-agent/` | Motion Enhancer、Director |
+| Fallback Video Adapter | `shotPackages(preferredProvider=sora / sora2 / happyhorse 等非 seedance provider)` | `rawVideoResults` | `09d-sora2-video-agent/` | Motion Enhancer、Director |
 | Seedance Video Agent | `shotPackages(preferredProvider=seedance)` | `rawVideoResults` | `09d-seedance-video-agent/` | Motion Enhancer、Director |
 | Motion Enhancer | `rawVideoResults + shotPackages + performancePlan` | `enhancedVideoResults` | `09e-motion-enhancer/` | Shot QA、Director |
 | Shot QA Agent | `enhancedVideoResults` | `shotQaReportV2 + final video bridge decision` | `09f-shot-qa/` | Director、Video Composer |
@@ -572,7 +572,7 @@ Director 会在 run 根目录再汇总一层：
 输入：
 
 - `shotPackages`
-- 仅消费 `preferredProvider=runway` 的镜头
+- 消费 `preferredProvider !== seedance` 的统一 provider 视频镜头，并走 fallback / relay 适配层
 
 输出：
 
@@ -693,7 +693,7 @@ runs/<runDir>/
   09a-motion-planner/manifest.json
   09b-performance-planner/manifest.json
   09c-video-router/manifest.json
-  09d-runway-video-agent/manifest.json
+  09d-sora2-video-agent/manifest.json
   09d-seedance-video-agent/manifest.json
   09e-motion-enhancer/manifest.json
   09f-shot-qa/manifest.json

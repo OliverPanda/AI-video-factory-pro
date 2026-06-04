@@ -1,4 +1,4 @@
-# Project Voice Cast Implementation Plan
+﻿# Project Voice Cast Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -408,3 +408,4 @@ Expected: plan matches the approved spec without introducing unrelated scope
 git add docs/superpowers/specs/2026-03-31-project-voice-cast-design.md docs/superpowers/plans/2026-03-31-project-voice-cast-implementation.md
 git commit -m "docs: finalize project voice cast design and plan"
 ```
+

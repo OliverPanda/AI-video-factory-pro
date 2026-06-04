@@ -1,4 +1,4 @@
-# 2026-04-05 动态短剧升级 Phase 4 设计：Action Sequence 连续动作段 MVP
+﻿# 2026-04-05 动态短剧升级 Phase 4 设计：Action Sequence 连续动作段 MVP
 
 ## 1. 目标
 
@@ -139,7 +139,7 @@ continuity / performance / bridge context
 
 Phase 4 的默认原则固定为：
 
-- 复用现有 `Runway` 主链、目录结构、state cache、artifact 和 resume 机制
+- 复用现有 `Fallback Video` 主链、目录结构、state cache、artifact 和 resume 机制
 - 尽量在现有 `Shot QA -> Bridge QA -> Composer` 之间插入 sequence 层
 - 不把 sequence 做成独立项目模式
 - 不要求 composer 直接理解 sequence 规划逻辑
@@ -603,3 +603,4 @@ Phase 4 MVP 产品验收未承诺内容应明确写明：
 一句话口径固定为：
 
 > Phase 4 完成的是“连续动作段主路径”的工程升级，不等于已经完成商用级群战表演系统。
+

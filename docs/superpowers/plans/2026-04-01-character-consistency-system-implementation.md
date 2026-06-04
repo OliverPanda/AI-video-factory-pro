@@ -1,4 +1,4 @@
-# 2026-04-01 Character Consistency System Implementation
+﻿# 2026-04-01 Character Consistency System Implementation
 
 ## Goal
 
@@ -184,3 +184,4 @@ node --test --test-isolation=none tests/characterBibleModel.test.js tests/charac
 - `Continuity Checker` 新增
 
 这四项是整个方案最核心的控制点。
+

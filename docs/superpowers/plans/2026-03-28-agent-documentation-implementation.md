@@ -490,3 +490,4 @@ git commit -m "docs: refine agent documentation set"
 - Do not create separate docs for `imageGenerator`, `ttsAgent`, or standalone `consistencyChecker` in this phase.
 - Prefer boundary explanations over long code walkthroughs.
 - Where `docs/agents` overlaps with `skills/project`, keep `docs/agents` focused on structure and flow, not rule templates.
+

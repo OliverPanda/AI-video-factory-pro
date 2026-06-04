@@ -43,9 +43,9 @@
 
 ## 当前生成规则
 
-- `preferredProvider !== runway` 时直接 `skipped`
+- `preferredProvider` 为 `fallback_direct_cut`，或 bridge package 明确声明 `providerCapabilityRequirement=none` 时直接 `skipped`
 - `providerCapabilityRequirement` 不满足时直接 `failed`
-- 默认把 bridge package 转成兼容 Runway 的 shot package 再生成
+- 默认把 bridge package 转成兼容当前统一视频 provider 合同的 shot package 再生成
 - 失败会保留标准化错误信息，不假成功
 
 ## 当前可审计产物

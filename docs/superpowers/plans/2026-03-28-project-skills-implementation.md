@@ -445,3 +445,4 @@ git commit -m "docs: add initial project skill set"
 - Do not move runtime code into `skills/`.
 - Prefer concise, directive writing over narrative explanation inside each `SKILL.md`.
 - If current code and current docs disagree, record the rule that matches runtime behavior and note the source file explicitly.
+

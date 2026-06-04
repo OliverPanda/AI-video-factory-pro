@@ -1,4 +1,4 @@
-# Multi-Project Story Factory Implementation Plan
+﻿# Multi-Project Story Factory Implementation Plan
 
 > Status sync on `2026-03-31`: Tasks `1-10` are implemented on this branch. This document now acts as a compact execution ledger rather than a future-only checklist.
 
@@ -47,3 +47,4 @@ Task 11 completed with three outcomes:
 1. Reconcile README with the actual episode-level runtime model.
 2. Keep the design doc honest about what is implemented vs. still deferred.
 3. Preserve the distinction between focused unit tests and the API-backed `pnpm test` smoke run.
+

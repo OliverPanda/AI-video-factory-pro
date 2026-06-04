@@ -8,16 +8,11 @@ import { __testables, createLipsyncClip } from '../src/apis/lipsyncApi.js';
 import { lipsyncWithMock } from '../src/apis/providers/mockLipsyncApi.js';
 import { lipsyncWithFunCineForge } from '../src/apis/providers/funcineforgeLipsyncApi.js';
 
-test('lipsync provider router resolves placeholder providers explicitly', () => {
-  const provider = __testables.resolveLipsyncProvider({ provider: 'runway' }, {});
-  const handler = __testables.getLipsyncProviderHandler(provider);
+test('lipsync provider router rejects removed providers explicitly', () => {
+  const provider = __testables.resolveLipsyncProvider({ provider: 'removed_provider' }, {});
 
-  assert.equal(provider, 'runway');
-  assert.equal(typeof handler, 'function');
-  assert.rejects(
-    () => handler({}, 'out.mp4', {}),
-    /尚未接入|not implemented/i
-  );
+  assert.equal(provider, 'removed_provider');
+  assert.throws(() => __testables.getLipsyncProviderHandler(provider), /未知 Lip-sync Provider/);
 });
 
 test('createLipsyncClip dispatches mock provider through the router', async () => {
@@ -133,7 +128,7 @@ test('createLipsyncClip exposes provider chain errors after all fallbacks fail',
         'tmp-chain-fail.mp4',
         {
           provider: 'funcineforge',
-          fallbackProviders: ['runway'],
+          fallbackProviders: ['mock'],
           providerHandlers: {
             funcineforge: async () => {
               const error = new Error('funcineforge failed');
@@ -142,18 +137,18 @@ test('createLipsyncClip exposes provider chain errors after all fallbacks fail',
               error.category = 'provider_5xx';
               throw error;
             },
-            runway: async () => {
-              throw new Error('runway failed');
+            mock: async () => {
+              throw new Error('mock failed');
             },
           },
         }
       ),
     (error) => {
-      assert.deepEqual(error.attemptedProviders, ['funcineforge', 'runway']);
+      assert.deepEqual(error.attemptedProviders, ['funcineforge', 'mock']);
       assert.equal(Array.isArray(error.providerErrors), true);
       assert.equal(error.providerErrors.length, 2);
       assert.equal(error.providerErrors[0].provider, 'funcineforge');
-      assert.equal(error.providerErrors[1].provider, 'runway');
+      assert.equal(error.providerErrors[1].provider, 'mock');
       return true;
     }
   );

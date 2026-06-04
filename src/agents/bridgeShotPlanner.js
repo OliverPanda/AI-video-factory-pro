@@ -5,6 +5,14 @@ import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { shapeBridgeShotPlanEntry } from '../utils/bridgeShotProtocol.js';
 
+function resolvePreferredBridgeProvider(options = {}) {
+  const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
+  if (rawProvider === 'fallback_video') {
+    return 'sora2';
+  }
+  return rawProvider;
+}
+
 function normalizeText(value) {
   return String(value || '').trim();
 }
@@ -190,6 +198,7 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
   const motionPlanMap = buildMotionPlanMap(options.motionPlan);
   const flaggedTransitionMap = buildFlaggedTransitionMap(options.continuityFlaggedTransitions);
   const sequenceCoverageMap = buildSequenceCoverageMap(options.actionSequencePlan);
+  const preferredProvider = resolvePreferredBridgeProvider(options);
   const bridgePlan = [];
 
   for (let index = 1; index < shots.length; index += 1) {
@@ -229,8 +238,8 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
         environmentContinuityTargets: buildEnvironmentTargets(bridgeType, previousShot, currentShot),
         mustPreserveElements: buildMustPreserveElements(previousShot, currentShot),
         bridgeGenerationMode: buildBridgeGenerationMode(bridgeType, continuityRisk),
-        preferredProvider: buildBridgeGenerationMode(bridgeType, continuityRisk) === 'first_last_keyframe' ? 'seedance' : 'sora2',
-        fallbackStrategy: 'direct_cut',
+        preferredProvider,
+        fallbackStrategy: 'none',
       })
     );
   }
@@ -290,6 +299,7 @@ export const __testables = {
   buildBridgeGoal,
   buildCameraTransitionIntent,
   buildContinuityRisk,
+  resolvePreferredBridgeProvider,
   inferBridgeType,
 };
 

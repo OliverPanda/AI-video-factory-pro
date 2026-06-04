@@ -1,4 +1,4 @@
-# Seedance 2.0 Prompt Architecture
+﻿# Seedance 2.0 Prompt Architecture
 
 ## 背景
 
@@ -212,3 +212,4 @@
 ```bash
 node --test tests/seedancePromptAgent.test.js tests/seedanceVideoApi.test.js tests/actionSequenceRouter.test.js tests/bridgeShotRouter.test.js tests/bridgeClipGenerator.test.js tests/sequenceClipGenerator.test.js tests/seedanceVideoAgent.test.js tests/videoRouter.test.js
 ```
+

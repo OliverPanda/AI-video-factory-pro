@@ -7,6 +7,15 @@ function findAssetByShotId(items = [], shotId) {
   return (Array.isArray(items) ? items : []).find((entry) => entry?.shotId === shotId) || null;
 }
 
+function pickReferenceUrlFields(entry = {}) {
+  const fields = {};
+  if (entry?.url) fields.url = entry.url;
+  if (entry?.publicUrl) fields.publicUrl = entry.publicUrl;
+  if (entry?.remoteUrl) fields.remoteUrl = entry.remoteUrl;
+  if (entry?.sourceUrl) fields.sourceUrl = entry.sourceUrl;
+  return fields;
+}
+
 function buildPromptDirectives(planEntry) {
   const preserve = (Array.isArray(planEntry.mustPreserveElements) ? planEntry.mustPreserveElements : []).join(', ');
   const continuityTargets = [
@@ -23,6 +32,7 @@ function buildPromptDirectives(planEntry) {
 }
 
 function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
+  const preferredProvider = planEntry.preferredProvider || 'seedance';
   if (!fromReferenceImage || !toReferenceImage) {
     return {
       preferredProvider: 'fallback_direct_cut',
@@ -34,16 +44,16 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
 
   if (planEntry.bridgeGenerationMode === 'first_last_keyframe') {
     return {
-      preferredProvider: planEntry.preferredProvider || 'seedance',
-      fallbackProviders: ['sora2', 'direct_cut'],
+      preferredProvider,
+      fallbackProviders: [],
       providerCapabilityRequirement: 'first_last_keyframe',
       firstLastFrameMode: 'required',
     };
   }
 
   return {
-    preferredProvider: planEntry.preferredProvider || 'sora2',
-    fallbackProviders: ['direct_cut'],
+    preferredProvider,
+    fallbackProviders: [],
     providerCapabilityRequirement: 'image_to_video',
     firstLastFrameMode: 'disabled',
   };
@@ -64,6 +74,8 @@ function buildBridgeShotPackage(planEntry, options = {}) {
     toShotRef: toVideoResult ? { shotId: planEntry.toShotId, videoPath: toVideoResult.videoPath } : { shotId: planEntry.toShotId },
     fromReferenceImage,
     toReferenceImage,
+    fromReferenceImageMeta: fromReferenceImage ? pickReferenceUrlFields(fromImageResult) : null,
+    toReferenceImageMeta: toReferenceImage ? pickReferenceUrlFields(toImageResult) : null,
     promptDirectives: buildPromptDirectives(planEntry),
     negativePromptDirectives: ['identity drift', 'flash frame', 'axis break'],
     durationTargetSec: planEntry.durationTargetSec,
@@ -76,6 +88,7 @@ function buildBridgeShotPackage(planEntry, options = {}) {
       mustConnectFromShot: true,
       mustConnectToShot: true,
       canFallbackToDirectCut: true,
+      canFallbackToOtherVideoProvider: false,
     },
   };
 }

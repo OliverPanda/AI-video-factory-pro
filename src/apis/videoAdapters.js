@@ -1,13 +1,55 @@
 import fs from 'node:fs';
 
 import { normalizeVideoProviderError, normalizeVideoProviderRequest } from './videoProviderProtocol.js';
+import { ensureEnglishPrompt } from '../utils/translatePrompt.js';
+import { resolveSingleReferenceAsset, selectSoraReferenceImages } from '../utils/referenceImageAsset.js';
 
 function ensurePrompt(request) {
   return String(request?.prompt || '').trim();
 }
 
-function ensureFirstImagePath(request) {
-  return request?.referenceImages?.[0]?.path || null;
+async function resolveReferenceAsset(request, outputMode = 'path') {
+  const selectedReferenceImages =
+    request?.provider === 'sora'
+      ? selectSoraReferenceImages(request?.referenceImages || [])
+      : (Array.isArray(request?.referenceImages) ? request.referenceImages : []);
+  return resolveSingleReferenceAsset(selectedReferenceImages, {
+    tempDir: request?.params?.tempDir,
+    preferDataUrl: outputMode === 'data_url',
+    forceComposite: selectedReferenceImages.length > 1,
+  });
+}
+
+function resolveReferenceUrl(referenceImage) {
+  const candidates = [
+    referenceImage?.url,
+    referenceImage?.publicUrl,
+    referenceImage?.remoteUrl,
+    referenceImage?.sourceUrl,
+    referenceImage?.path,
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || '').trim();
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+async function encodeReferenceImageToDataUrl(imagePath) {
+  return `data:image/png;base64,${fs.readFileSync(imagePath).toString('base64')}`;
+}
+
+function normalizeMediaTaskDuration(durationSec) {
+  const target = Number(durationSec);
+  if (!Number.isFinite(target) || target <= 4) return '4';
+  if (target <= 8) return '8';
+  return '12';
+}
+
+function inferOrientation(request) {
+  return String(request?.ratio || '9:16').trim() === '16:9' ? 'landscape' : 'portrait';
 }
 
 function inferVideoSize(request) {
@@ -27,9 +69,10 @@ function createAdapterError(message, details = null) {
   });
 }
 
-function buildRelayOpenAiRequest(request) {
-  const prompt = ensurePrompt(request);
-  const imagePath = ensureFirstImagePath(request);
+async function buildRelayOpenAiRequest(request) {
+  const prompt = await ensureEnglishPrompt(ensurePrompt(request));
+  const referenceAsset = await resolveReferenceAsset(request, 'path');
+  const imagePath = referenceAsset?.path || null;
   if (!imagePath) {
     throw createAdapterError('relay_openai 需要至少一张 reference image', {
       requestId: request?.requestId || null,
@@ -48,9 +91,10 @@ function buildRelayOpenAiRequest(request) {
   };
 }
 
-function buildRelaySeedanceV2Request(request) {
-  const prompt = ensurePrompt(request);
-  const imagePath = ensureFirstImagePath(request);
+async function buildRelaySeedanceV2Request(request) {
+  const prompt = await ensureEnglishPrompt(ensurePrompt(request));
+  const referenceAsset = await resolveReferenceAsset(request, 'path');
+  const imagePath = referenceAsset?.path || null;
   if (!imagePath) {
     throw createAdapterError('relay_seedance_v2 需要至少一张 reference image', {
       requestId: request?.requestId || null,
@@ -68,12 +112,83 @@ function buildRelaySeedanceV2Request(request) {
   };
 }
 
+async function buildRelayMediaTaskRequest(request) {
+  const prompt = await ensureEnglishPrompt(ensurePrompt(request));
+  const selectedReferenceImages = selectSoraReferenceImages(request?.referenceImages || []);
+  const referenceAsset = await resolveReferenceAsset(request, 'data_url');
+  const firstReferenceImage = selectedReferenceImages[0] || null;
+  const referenceUrl = referenceAsset?.url || referenceAsset?.dataUrl || resolveReferenceUrl(firstReferenceImage);
+
+  return {
+    model: request.model,
+    prompt,
+    params: {
+      duration: normalizeMediaTaskDuration(request.durationSec),
+      orientation: inferOrientation(request),
+      ...(referenceUrl ? { input_reference: referenceUrl } : {}),
+    },
+  };
+}
+
+async function buildDashScopeHappyHorseRequest(request) {
+  const prompt = await ensureEnglishPrompt(ensurePrompt(request));
+  const referenceImages = Array.isArray(request.referenceImages) ? request.referenceImages.slice(0, 9) : [];
+  const providerParams = request.params?.providerParams || {};
+  if (!prompt || referenceImages.length === 0) {
+    throw createAdapterError('happyhorse 需要 prompt 和至少一张 reference image', {
+      requestId: request?.requestId || null,
+      packageId: request?.packageId || null,
+    });
+  }
+
+  const media = [];
+  for (const referenceImage of referenceImages) {
+    const resolvedUrl = resolveReferenceUrl(referenceImage);
+    const localPath =
+      providerParams.allowDataUrlReferences && referenceImage?.path && fs.existsSync(referenceImage.path)
+        ? referenceImage.path
+        : null;
+    const url = resolvedUrl || (localPath ? await encodeReferenceImageToDataUrl(localPath) : null);
+    if (url) {
+      media.push({
+        type: 'reference_image',
+        url,
+      });
+    }
+  }
+
+  if (media.length === 0) {
+    throw createAdapterError('happyhorse reference image 需要可访问的 HTTP/HTTPS URL', {
+      requestId: request?.requestId || null,
+      packageId: request?.packageId || null,
+      allowDataUrlReferences: Boolean(providerParams.allowDataUrlReferences),
+    });
+  }
+
+  return {
+    model: request.model,
+    input: {
+      prompt,
+      media,
+    },
+    parameters: {
+      resolution: providerParams.resolution || '720P',
+      ratio: request.ratio || providerParams.ratio || '9:16',
+      duration: Number.isFinite(Number(request.durationSec))
+        ? Math.min(Math.max(Math.round(Number(request.durationSec)), 3), 15)
+        : 5,
+      watermark: providerParams.watermark === true,
+      ...(Number.isInteger(providerParams.seed) ? { seed: providerParams.seed } : {}),
+    },
+  };
+}
+
 export const seedanceAdapter = {
   name: 'SeedanceAdapter',
   supportedProviders: ['seedance'],
-  buildProviderRequest(request) {
+  async buildProviderRequest(request) {
     if (request.transport === 'official') {
-      const prompt = ensurePrompt(request);
+      const prompt = await ensureEnglishPrompt(ensurePrompt(request));
       const content = [];
       if (prompt) {
         content.push({ type: 'text', text: prompt });
@@ -118,7 +233,7 @@ export const seedanceAdapter = {
     }
 
     if (request.transport === 'relay_openai') {
-      const requestBody = buildRelayOpenAiRequest(request);
+      const requestBody = await buildRelayOpenAiRequest(request);
       return {
         requestBody,
         requestSummary: normalizeVideoProviderRequest({
@@ -134,7 +249,7 @@ export const seedanceAdapter = {
     }
 
     if (request.transport === 'relay_seedance_v2') {
-      const requestBody = buildRelaySeedanceV2Request(request);
+      const requestBody = await buildRelaySeedanceV2Request(request);
       return {
         requestBody,
         requestSummary: normalizeVideoProviderRequest({
@@ -192,8 +307,8 @@ export const seedanceAdapter = {
   },
 };
 
-function buildOpenAiRelayAdapter(provider, request) {
-  const requestBody = buildRelayOpenAiRequest(request);
+async function buildOpenAiRelayAdapter(provider, request) {
+  const requestBody = await buildRelayOpenAiRequest(request);
   return {
     requestBody,
     requestSummary: normalizeVideoProviderRequest({
@@ -211,7 +326,7 @@ function buildOpenAiRelayAdapter(provider, request) {
 export const veoAdapter = {
   name: 'VeoAdapter',
   supportedProviders: ['veo'],
-  buildProviderRequest(request) {
+  async buildProviderRequest(request) {
     if (request.transport === 'relay_openai' || request.transport === 'gateway') {
       return buildOpenAiRelayAdapter('veo', request);
     }
@@ -225,7 +340,22 @@ export const veoAdapter = {
 export const soraAdapter = {
   name: 'SoraAdapter',
   supportedProviders: ['sora'],
-  buildProviderRequest(request) {
+  async buildProviderRequest(request) {
+    if (request.transport === 'relay_media_task') {
+      const requestBody = await buildRelayMediaTaskRequest(request);
+      return {
+        requestBody,
+        requestSummary: normalizeVideoProviderRequest({
+          provider: 'sora',
+          request: requestBody,
+          metadata: {
+            resolvedAdapter: 'SoraAdapter',
+            transport: request.transport,
+            protocol: 'media_task',
+          },
+        }),
+      };
+    }
     if (request.transport === 'relay_openai' || request.transport === 'gateway') {
       return buildOpenAiRelayAdapter('sora', request);
     }
@@ -234,5 +364,35 @@ export const soraAdapter = {
       packageId: request?.packageId || null,
     });
   },
+};
+
+export const happyHorseAdapter = {
+  name: 'HappyHorseAdapter',
+  supportedProviders: ['happyhorse'],
+  async buildProviderRequest(request) {
+    if (request.transport === 'dashscope_async') {
+      const requestBody = await buildDashScopeHappyHorseRequest(request);
+      return {
+        requestBody,
+        requestSummary: normalizeVideoProviderRequest({
+          provider: 'happyhorse',
+          request: requestBody,
+          metadata: {
+            resolvedAdapter: 'HappyHorseAdapter',
+            transport: request.transport,
+            protocol: 'dashscope_async',
+          },
+        }),
+      };
+    }
+    throw createAdapterError(`HappyHorseAdapter 不支持 transport=${request.transport}`, {
+      requestId: request?.requestId || null,
+      packageId: request?.packageId || null,
+    });
+  },
+};
+
+export const __testables = {
+  buildDashScopeHappyHorseRequest,
 };
 

@@ -1,4 +1,4 @@
-# Resume Run Binding Design
+﻿# Resume Run Binding Design
 
 **Goal:** 修复 `resume-from-step` 在指定历史 `run-id` 时可能混用其他 run 参考图的问题，确保“按某次 run 的分镜图继续跑图生视频”具备严格、可审计、可复现的语义。
 
@@ -148,3 +148,4 @@
 3. 不会再出现“run_id1 的 video 续跑实际用了 run_id2 图片”的情况。
 4. `--dry-run` 能直观看到绑定来源。
 5. 未传 `--run-id` 的旧流程行为不被破坏。
+

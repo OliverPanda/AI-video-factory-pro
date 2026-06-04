@@ -72,16 +72,16 @@ test('runEpisodePipeline integrates the bridge subchain in order and persists br
         flaggedTransitions: [{ previousShotId: 'shot_001', shotId: 'shot_002', continuityScore: 5 }],
       }),
       planMotion: async () => [
-        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '起势', videoGenerationMode: 'runway_image_to_video' },
-        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '落刀', videoGenerationMode: 'runway_image_to_video' },
+        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '起势', videoGenerationMode: 'happyhorse_image_to_video' },
+        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '落刀', videoGenerationMode: 'happyhorse_image_to_video' },
       ],
       planPerformance: async () => [
         { shotId: 'shot_001', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
         { shotId: 'shot_002', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
       ],
       routeVideoShots: async () => [
-        { shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 },
-        { shotId: 'shot_002', preferredProvider: 'runway', durationTargetSec: 2 },
+        { shotId: 'shot_001', preferredProvider: 'happyhorse', durationTargetSec: 2 },
+        { shotId: 'shot_002', preferredProvider: 'happyhorse', durationTargetSec: 2 },
       ],
       runSora2Video: async () => ({
         results: [
@@ -115,7 +115,7 @@ test('runEpisodePipeline integrates the bridge subchain in order and persists br
       routeBridgeShots: async (bridgeShotPlan) => {
         bridgeCallOrder.push('route');
         assert.equal(bridgeShotPlan.length, 1);
-        return [{ bridgeId: bridgeShotPlan[0].bridgeId, preferredProvider: 'runway', durationTargetSec: 1.8 }];
+        return [{ bridgeId: bridgeShotPlan[0].bridgeId, preferredProvider: 'happyhorse', durationTargetSec: 1.8 }];
       },
       generateBridgeClips: async (bridgeShotPackages) => {
         bridgeCallOrder.push('generate');
@@ -159,7 +159,7 @@ test('runEpisodePipeline integrates the bridge subchain in order and persists br
     assert.equal(composeCalls[0][0].bridgeId, 'bridge_shot_001_shot_002');
     const state = stateByFile.get(path.join(dirs.root, 'state.json'));
     assert.deepEqual(state.bridgeShotPlan, [{ bridgeId: 'bridge_shot_001_shot_002', fromShotId: 'shot_001', toShotId: 'shot_002' }]);
-    assert.deepEqual(state.bridgeShotPackages, [{ bridgeId: 'bridge_shot_001_shot_002', preferredProvider: 'runway', durationTargetSec: 1.8 }]);
+    assert.deepEqual(state.bridgeShotPackages, [{ bridgeId: 'bridge_shot_001_shot_002', preferredProvider: 'happyhorse', durationTargetSec: 1.8 }]);
     assert.deepEqual(state.bridgeClipResults, [{ bridgeId: 'bridge_shot_001_shot_002', status: 'completed', videoPath: '/tmp/bridge.mp4', targetDurationSec: 1.8 }]);
     assert.equal(state.bridgeQaReport.passedCount, 1);
   });
@@ -181,12 +181,12 @@ test('runEpisodePipeline reuses cached bridge state and does not rerun the bridg
         continuityReport: [],
         continuityFlaggedTransitions: [],
         bridgeShotPlan: [{ bridgeId: 'bridge_cached', fromShotId: 'shot_001', toShotId: 'shot_002' }],
-        bridgeShotPackages: [{ bridgeId: 'bridge_cached', preferredProvider: 'runway', durationTargetSec: 1.8 }],
+        bridgeShotPackages: [{ bridgeId: 'bridge_cached', preferredProvider: 'happyhorse', durationTargetSec: 1.8 }],
         bridgeClipResults: [{ bridgeId: 'bridge_cached', status: 'completed', videoPath: '/tmp/bridge.mp4', targetDurationSec: 1.8 }],
         bridgeQaReport: { status: 'pass', entries: [{ bridgeId: 'bridge_cached', finalDecision: 'pass' }], passedCount: 1, fallbackCount: 0, manualReviewCount: 0, warnings: [], blockers: [] },
-        motionPlan: [{ shotId: 'shot_001', shotType: 'dialogue_medium', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'slow_dolly', visualGoal: '对视', videoGenerationMode: 'runway_image_to_video' }],
+        motionPlan: [{ shotId: 'shot_001', shotType: 'dialogue_medium', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'slow_dolly', visualGoal: '对视', videoGenerationMode: 'happyhorse_image_to_video' }],
         performancePlan: [{ shotId: 'shot_001', performanceTemplate: 'dialogue', generationTier: 'enhanced', variantCount: 1 }],
-        shotPackages: [{ shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 }],
+        shotPackages: [{ shotId: 'shot_001', preferredProvider: 'happyhorse', durationTargetSec: 2 }],
         rawVideoResults: [{ shotId: 'shot_001', status: 'completed', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 }],
         enhancedVideoResults: [{ shotId: 'shot_001', status: 'completed', videoPath: '/tmp/shot_001.mp4', enhancedVideoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 }],
         shotQaReport: { entries: [{ shotId: 'shot_001', finalDecision: 'pass', canUseVideo: true }] },
@@ -240,3 +240,4 @@ test('runEpisodePipeline reuses cached bridge state and does not rerun the bridg
     assert.equal(finalState.bridgeQaReport.passedCount, 1);
   });
 });
+

@@ -341,7 +341,6 @@ TTS_TRANSPORT_PROVIDER=fish-speech
 
 - 已接入：`mock`
 - 已预留：`funcineforge`
-- 已显式占位：`runway`
 
 其中 `funcineforge` 现在已经支持正式 HTTP 调用、超时控制、有限重试和错误分类；同时 `lipsyncApi` 也支持 provider chain，会按：
 

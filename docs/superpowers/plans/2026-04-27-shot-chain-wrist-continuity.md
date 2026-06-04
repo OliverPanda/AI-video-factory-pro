@@ -1,4 +1,4 @@
-# Shot Chain Wrist Continuity Implementation Plan
+﻿# Shot Chain Wrist Continuity Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -431,3 +431,4 @@ Expected: chain is attached to visible wrists, not neck/collar.
 git add docs/superpowers/plans/2026-04-27-shot-chain-wrist-continuity.md
 git commit -m "docs: plan chain wrist continuity fix"
 ```
+

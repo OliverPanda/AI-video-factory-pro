@@ -36,7 +36,7 @@ test('createActionSequencePlanEntry fills the minimal Phase 4 protocol fields', 
     entryConstraint: '接住上一镜的挥臂姿态',
     exitConstraint: '落到对峙停顿',
     generationMode: 'provider-assisted',
-    preferredProvider: 'runway',
+    preferredProvider: 'happyhorse',
     fallbackStrategy: 'fallback_to_shot_and_bridge',
   });
 
@@ -60,7 +60,7 @@ test('createActionSequencePackage and sequence result helpers preserve Phase 4 p
     entryFrameHint: 'hero_entering_frame_left',
     exitFrameHint: 'hero_exiting_frame_right',
     audioBeatHints: ['impact_on_beat_3'],
-    preferredProvider: 'runway',
+    preferredProvider: 'happyhorse',
     fallbackProviders: ['bridge'],
     providerRequestHints: {
       referenceTier: 'video',
@@ -73,7 +73,7 @@ test('createActionSequencePackage and sequence result helpers preserve Phase 4 p
   const clipResult = createSequenceClipResult({
     sequenceId: 'seq_001',
     status: 'completed',
-    provider: 'runway',
+    provider: 'happyhorse',
     model: 'gen-4',
     videoPath: 'temp/sequence-001.mp4',
     coveredShotIds: ['shot_001', 'shot_002'],
@@ -129,7 +129,7 @@ test('shape validators reject malformed array fields', () => {
       entryConstraint: 'entry',
       exitConstraint: 'exit',
       generationMode: 'provider-assisted',
-      preferredProvider: 'runway',
+      preferredProvider: 'happyhorse',
       fallbackStrategy: 'fallback_to_shot_and_bridge',
     }),
     false
@@ -151,7 +151,7 @@ test('shape validators reject malformed array fields', () => {
       entryFrameHint: 'entry',
       exitFrameHint: 'exit',
       audioBeatHints: [],
-      preferredProvider: 'runway',
+      preferredProvider: 'happyhorse',
       fallbackProviders: [],
       providerRequestHints: {},
       qaRules: [],
@@ -163,7 +163,7 @@ test('shape validators reject malformed array fields', () => {
     isSequenceClipResult({
       sequenceId: 'seq_001',
       status: 'completed',
-      provider: 'runway',
+      provider: 'happyhorse',
       model: 'gen-4',
       videoPath: 'temp/sequence-001.mp4',
       coveredShotIds: 'shot_001',

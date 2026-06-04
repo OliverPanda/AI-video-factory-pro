@@ -27,3 +27,39 @@ test('attachShotReferenceImagesToPrompts injects character reference stacks into
     },
   ]);
 });
+
+test('attachShotReferenceImagesToPrompts inherits contextual character refs for character-less shots and preserves existing refs', () => {
+  const prompts = [
+    {
+      shotId: 'shot_004',
+      image_prompt: 'warning flash',
+      negative_prompt: 'neg',
+      referenceImages: ['refs/existing.png'],
+    },
+  ];
+  const shots = [
+    { id: 'shot_003', scene: '虚空蓝光', characters: ['陆衍'] },
+    { id: 'shot_004', scene: '虚空蓝光', characters: [] },
+    { id: 'shot_005', scene: '虚空蓝光', characters: ['陆衍'] },
+  ];
+  const characterRegistry = [
+    {
+      id: 'char_1',
+      episodeCharacterId: 'char_1',
+      name: '陆衍',
+      referenceImagePath: 'refs/luyan-sheet.png',
+      referenceImages: [],
+    },
+  ];
+
+  const enriched = __testables.attachShotReferenceImagesToPrompts(prompts, shots, characterRegistry);
+
+  assert.deepEqual(enriched, [
+    {
+      shotId: 'shot_004',
+      image_prompt: 'warning flash',
+      negative_prompt: 'neg',
+      referenceImages: ['refs/existing.png', 'refs/luyan-sheet.png'],
+    },
+  ]);
+});

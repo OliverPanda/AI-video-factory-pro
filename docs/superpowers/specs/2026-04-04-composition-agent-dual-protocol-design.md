@@ -1,4 +1,4 @@
-# 2026-04-04 Composition Agent Dual Protocol Design
+﻿# 2026-04-04 Composition Agent Dual Protocol Design
 
 ## 1. Goal
 
@@ -126,3 +126,4 @@ V1 默认允许没有 `subtitle asset`。
 - 输出从字符串升级为结构化结果
 - 当前 artifact 文件结构保持不变
 - QA block/warn 规则能在 composer 层正确表达
+

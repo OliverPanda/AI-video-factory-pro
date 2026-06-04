@@ -1,4 +1,4 @@
-# Project Voice Cast Design
+﻿# Project Voice Cast Design
 
 **Goal:** 为 AI Video Factory Pro 增加“项目级声音库 + 分集角色选声”能力，使配音决策权从 `.env` 默认音色迁移到 `EpisodeCharacter -> voicePresetId`，同时为后续“试听、筛选、沉淀声音资产”保留清晰演进路径。
 
@@ -264,3 +264,4 @@ EpisodeCharacter -> 选择 VoicePreset -> 试听确认 -> 正式 TTS
 4. 未命中时回退到 `.env`
 
 这样既满足“每个项目/每个角色配音不同”的核心诉求，也为后续“试听、筛选、沉淀声音资产”搭好了结构基础。
+

@@ -1,4 +1,4 @@
-# Queue Execution Policy Implementation Plan
+﻿# Queue Execution Policy Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -391,3 +391,4 @@ git commit -m "feat: add shared queue execution policy for test and production"
 2. 生产态 image queue 默认并发是否为 5
 3. 重试日志和错误 artifact 是否保持兼容
 4. agent 是否仍然残留直接依赖生产级 queue 实现细节
+

@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 1 验收报告
+﻿# 动态短剧升级 Phase 1 验收报告
 
 基于：
 
@@ -26,12 +26,12 @@
 | 类别 | 条目 | 状态 | 结论 |
 | --- | --- | --- | --- |
 | 架构目标 | `Director` 仍是唯一 orchestrator | `done` | 当前主流程仍由 `src/agents/director.js` 单点编排，没有引入第二个调度中心。 |
-| 架构目标 | 新四个模块进入主链 | `done` | `Motion Planner / Video Router / Runway Video Agent / Shot QA Agent` 已进入主流程与流程图。 |
+| 架构目标 | 新四个模块进入主链 | `done` | `Motion Planner / Video Router / Fallback Video Adapter / Shot QA Agent` 已进入主流程与流程图。 |
 | 架构目标 | `image generator` 降级为参考图/回退来源 | `done` | 当前 Phase 1 中它负责参考图、首帧与静图 fallback，不再是默认交付视觉。 |
 | 架构目标 | `video composer` 降级为后期总装层 | `done` | composer 已改为优先消费 `videoResults`，负责 timeline 合成与最终交付。 |
 | 公共协议 | `motionPlan` 最小结构 | `done` | 已在主链生成并有单测覆盖。 |
 | 公共协议 | `shotPackage` 最小结构 | `done` | 已由 `videoRouter` 组装并有规则测试。 |
-| 公共协议 | `videoResults` 最小结构 | `done` | 已由 `runwayVideoAgent` 输出，并被 `Director` 与 `Shot QA` 消费。 |
+| 公共协议 | `videoResults` 最小结构 | `done` | 已由 `fallbackVideoAdapter` 输出，并被 `Director` 与 `Shot QA` 消费。 |
 | 公共协议 | `shotQaReport` 最小结构 | `done` | 已落盘并进入 composer 前桥接逻辑。 |
 | 公共协议 | compose 优先级 | `done` | 现行为 `videoResults > lipsyncResults > animationClips > imageResults`。 |
 | Artifact / Resume | `09a~09d`、`10-video-composer` | `done` | 编号已写入 artifact layout、测试和文档。 |
@@ -79,7 +79,7 @@
 1. 协议与核心模块
 
 ```bash
-node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/runwayVideoApi.test.js tests/runwayVideoAgent.test.js tests/shotQaAgent.test.js
+node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/fallbackVideoApi.test.js tests/fallbackVideoAdapter.test.js tests/shotQaAgent.test.js
 ```
 
 2. composer / resume / director 集成
@@ -97,7 +97,7 @@ node --test tests/pipeline.acceptance.test.js
 ### 一次性收口命令
 
 ```bash
-node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/runwayVideoApi.test.js tests/runwayVideoAgent.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/fallbackVideoApi.test.js tests/fallbackVideoAdapter.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 ## 本轮验收结果
@@ -107,7 +107,7 @@ node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/runwayVi
 执行命令：
 
 ```bash
-node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/runwayVideoApi.test.js tests/runwayVideoAgent.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/fallbackVideoApi.test.js tests/fallbackVideoAdapter.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 执行结果：
@@ -137,6 +137,8 @@ node --test tests/motionPlanner.test.js tests/videoRouter.test.js tests/runwayVi
 
 本轮收口默认采用以下口径：
 
-- `RUNWAY_API_KEY` 缺失时走 fallback 仍属于 Phase 1 合规行为
+- `VIDEO_FALLBACK_API_KEY` 缺失时走 fallback 仍属于 Phase 1 合规行为
 - 当前目标不是继续做 Phase 2 功能，而是把 Phase 1 收口成“决策完成、状态清晰”的里程碑
 - 当前仓库最近三笔提交已覆盖 Phase 1 主实现，不需要再进行大规模补代码
+
+

@@ -1,4 +1,4 @@
-# Composition Agent Dual Protocol Implementation Plan
+﻿# Composition Agent Dual Protocol Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -309,3 +309,4 @@ Confirm:
 git add src/agents/videoComposer.js src/agents/director.js tests/videoComposer.test.js tests/videoComposer.artifacts.test.js tests/director.project-run.test.js tests/pipeline.acceptance.test.js docs/agents/video-composer.md docs/superpowers/specs/2026-04-04-composition-agent-dual-protocol-design.md docs/superpowers/plans/2026-04-04-composition-agent-dual-protocol-implementation.md
 git commit -m "feat: add dual protocol composition pipeline"
 ```
+

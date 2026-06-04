@@ -13,12 +13,12 @@ function normalizeError(error, fallbackCode, fallbackMessage) {
     message: error?.message || fallbackMessage,
     code: error?.code || fallbackCode,
     category:
-      status && status >= 400 && status < 500
-        ? 'provider_invalid_request'
-        : status === 401 || status === 403
-          ? 'provider_auth_error'
-          : status === 429
-            ? 'provider_rate_limit'
+      status === 401 || status === 403
+        ? 'provider_auth_error'
+        : status === 429
+          ? 'provider_rate_limit'
+          : status && status >= 400 && status < 500
+            ? 'provider_invalid_request'
             : error?.category || 'provider_generation_failed',
     status,
     details: error?.response?.data || error?.details || null,
@@ -34,6 +34,20 @@ function buildAxiosClient(baseURL, apiKey, timeoutMs, extraHeaders = {}) {
       ...extraHeaders,
     },
   });
+}
+
+function isTransientNetworkError(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNABORTED' ||
+    code === 'EAI_AGAIN' ||
+    message.includes('socket disconnected') ||
+    message.includes('secure tls connection') ||
+    message.includes('network error')
+  );
 }
 
 export function createOfficialSeedanceVideoTransport(options = {}) {
@@ -129,6 +143,106 @@ function buildMultipartBody(requestBody) {
     form.append('image', new Blob([buffer]), 'reference.png');
   }
   return form;
+}
+
+export function createRelayMediaTaskTransport(options = {}) {
+  const env = options.env || process.env;
+  const timeoutMs = options.timeoutMs || Number.parseInt(env.VIDEO_FALLBACK_TIMEOUT_MS || '300000', 10);
+  const pollIntervalMs = options.pollIntervalMs || Number.parseInt(env.VIDEO_FALLBACK_POLL_INTERVAL_MS || '5000', 10);
+  const sleep = options.sleep || ((ms) => sleepTimeout(ms));
+  const defaultSubmitPath = '/v1/media/generate';
+  const defaultPollPath = '/v1/media/status';
+
+  return {
+    name: 'RelayMediaTaskTransport',
+    async submit(requestBody, context = {}) {
+      const httpClient = options.httpClient || buildAxiosClient(context.baseUrl, context.apiKey, timeoutMs, {
+        'Content-Type': 'application/json',
+      });
+      try {
+        const response = await httpClient.post(context.submitPath || defaultSubmitPath, requestBody);
+        const data = response?.data || {};
+        if (Number(data?.code) && Number(data.code) !== 200) {
+          throw {
+            message: data?.msg || 'Media task create failed',
+            response: {
+              status: 400,
+              data,
+            },
+          };
+        }
+        return {
+          taskId: data?.data?.task_id || data?.task_id || data?.data?.id || data?.id || null,
+          outputUrl: data?.data?.result_url || data?.result_url || null,
+          providerResponse: data,
+        };
+      } catch (error) {
+        throw normalizeError(error, 'RELAY_MEDIA_TASK_SUBMIT_FAILED', 'Relay media task submit failed');
+      }
+    },
+    async poll(taskId, context = {}) {
+      const httpClient = options.httpClient || buildAxiosClient(context.baseUrl, context.apiKey, timeoutMs);
+      const startedAt = Date.now();
+      try {
+        while (Date.now() - startedAt < timeoutMs) {
+          await sleep(pollIntervalMs);
+          let response;
+          try {
+            response = await httpClient.get(context.pollPath || defaultPollPath, {
+              params: { task_id: taskId },
+            });
+          } catch (error) {
+            if (isTransientNetworkError(error)) {
+              continue;
+            }
+            throw error;
+          }
+          const task = response?.data?.data || response?.data || {};
+          const state = String(task?.state || '').trim().toLowerCase();
+          const isFinal = task?.is_final === true;
+          if (isFinal && state === 'success') {
+            return {
+              status: 'COMPLETED',
+              taskId,
+              outputUrl: task?.result_url || null,
+              actualDurationSec: Number.isFinite(Number(task?.duration)) ? Number(task.duration) : null,
+              providerResponse: response?.data || task,
+            };
+          }
+          if (isFinal && state === 'failed') {
+            throw normalizeVideoProviderError({
+              message: task?.error || task?.msg || 'Relay media task failed',
+              code: 'RELAY_MEDIA_TASK_FAILED',
+              category: 'provider_generation_failed',
+              details: response?.data || task,
+            });
+          }
+        }
+        throw normalizeVideoProviderError({
+          message: 'Relay media task poll timeout',
+          code: 'RELAY_MEDIA_TASK_TIMEOUT',
+          category: 'provider_timeout',
+        });
+      } catch (error) {
+        throw normalizeError(error, 'RELAY_MEDIA_TASK_POLL_FAILED', 'Relay media task poll failed');
+      }
+    },
+    async download(outputUrl, outputPath, context = {}) {
+      try {
+        const resolvedUrl = String(outputUrl || '').startsWith('http')
+          ? outputUrl
+          : `${String(context.baseUrl).replace(/\/+$/, '')}${outputUrl}`;
+        const response = await (options.binaryHttpClient || axios).get(resolvedUrl, {
+          responseType: 'arraybuffer',
+          headers: context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : undefined,
+        });
+        fs.writeFileSync(outputPath, Buffer.from(response.data));
+        return { outputPath };
+      } catch (error) {
+        throw normalizeError(error, 'RELAY_MEDIA_TASK_DOWNLOAD_FAILED', 'Relay media task download failed');
+      }
+    },
+  };
 }
 
 export function createRelayOpenAiVideoTransport(options = {}) {
@@ -358,9 +472,105 @@ export function createRelaySeedanceV2VideoTransport(options = {}) {
 }
 
 export const __testables = {
+  normalizeError,
   buildRelaySeedanceV2Body,
   encodeRelaySeedanceReferenceImage,
 };
+
+function extractDashScopeTaskId(data = {}) {
+  return data?.output?.task_id || data?.task_id || data?.id || null;
+}
+
+function extractDashScopeVideoUrl(data = {}) {
+  return data?.output?.video_url || data?.output?.video_urls?.[0] || data?.video_url || data?.video_urls?.[0] || null;
+}
+
+export function createDashScopeAsyncVideoTransport(options = {}) {
+  const env = options.env || process.env;
+  const timeoutMs = options.timeoutMs || Number.parseInt(env.VIDEO_FALLBACK_TIMEOUT_MS || '600000', 10);
+  const pollIntervalMs = options.pollIntervalMs || Number.parseInt(env.VIDEO_FALLBACK_POLL_INTERVAL_MS || '15000', 10);
+  const sleep = options.sleep || ((ms) => sleepTimeout(ms));
+  const defaultSubmitPath = '/api/v1/services/aigc/video-generation/video-synthesis';
+  const defaultPollPath = '/api/v1/tasks';
+
+  return {
+    name: 'DashScopeAsyncVideoTransport',
+    async submit(requestBody, context = {}) {
+      const httpClient = options.httpClient || buildAxiosClient(context.baseUrl, context.apiKey, timeoutMs, {
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+      });
+      try {
+        const response = await httpClient.post(context.submitPath || defaultSubmitPath, requestBody);
+        const data = response?.data || {};
+        if (data?.code && !extractDashScopeTaskId(data)) {
+          throw {
+            message: data?.message || 'DashScope async task create failed',
+            response: { status: 400, data },
+          };
+        }
+        return {
+          taskId: extractDashScopeTaskId(data),
+          outputUrl: extractDashScopeVideoUrl(data),
+          providerResponse: data,
+        };
+      } catch (error) {
+        throw normalizeError(error, 'DASHSCOPE_ASYNC_SUBMIT_FAILED', 'DashScope async submit failed');
+      }
+    },
+    async poll(taskId, context = {}) {
+      const httpClient = options.httpClient || buildAxiosClient(context.baseUrl, context.apiKey, timeoutMs);
+      const startedAt = Date.now();
+      try {
+        while (Date.now() - startedAt < timeoutMs) {
+          await sleep(pollIntervalMs);
+          const response = await httpClient.get(`${context.pollPath || defaultPollPath}/${taskId}`);
+          const task = response?.data || {};
+          const output = task?.output || {};
+          const status = String(output?.task_status || task?.task_status || task?.status || '').trim().toUpperCase();
+          if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
+            return {
+              status: 'COMPLETED',
+              taskId,
+              outputUrl: extractDashScopeVideoUrl(task),
+              actualDurationSec: Number.isFinite(Number(task?.usage?.output_video_duration || task?.usage?.duration))
+                ? Number(task?.usage?.output_video_duration || task?.usage?.duration)
+                : null,
+              providerResponse: task,
+            };
+          }
+          if (status === 'FAILED' || status === 'CANCELED' || status === 'CANCELLED' || status === 'UNKNOWN') {
+            throw normalizeVideoProviderError({
+              message: output?.message || task?.message || `DashScope task ${status}`,
+              code: output?.code || task?.code || 'DASHSCOPE_ASYNC_TASK_FAILED',
+              category: status === 'UNKNOWN' ? 'provider_invalid_request' : 'provider_generation_failed',
+              details: task,
+            });
+          }
+        }
+        throw normalizeVideoProviderError({
+          message: 'DashScope async poll timeout',
+          code: 'DASHSCOPE_ASYNC_TIMEOUT',
+          category: 'provider_timeout',
+        });
+      } catch (error) {
+        throw normalizeError(error, 'DASHSCOPE_ASYNC_POLL_FAILED', 'DashScope async poll failed');
+      }
+    },
+    async download(outputUrl, outputPath, context = {}) {
+      try {
+        const response = await (options.binaryHttpClient || axios).get(outputUrl, {
+          responseType: 'arraybuffer',
+          headers: context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : undefined,
+        });
+        fs.writeFileSync(outputPath, Buffer.from(response.data));
+        return { outputPath };
+      } catch (error) {
+        throw normalizeError(error, 'DASHSCOPE_ASYNC_DOWNLOAD_FAILED', 'DashScope async download failed');
+      }
+    },
+  };
+}
 
 export function createGatewayVideoTransport(options = {}) {
   const gatewayTransport = createVercelAiGatewayVideoTransport(options);

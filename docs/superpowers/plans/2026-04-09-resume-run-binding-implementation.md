@@ -1,4 +1,4 @@
-# Resume Run Binding Implementation Plan
+﻿# Resume Run Binding Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -138,3 +138,4 @@ Expected: 无语法错误
 
 Run: `node --test tests/resumeFromStep.test.js tests/runCli.test.js`
 Expected: 通过
+

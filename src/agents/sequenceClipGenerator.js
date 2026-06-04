@@ -274,7 +274,7 @@ function normalizeSequenceStatus(status) {
 
 function resolveDefaultSequenceProvider(options = {}) {
   const rawProvider = options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;
@@ -282,13 +282,18 @@ function resolveDefaultSequenceProvider(options = {}) {
 
 function getPreferredSequenceProvider(sequencePackage = {}, options = {}) {
   const rawProvider = sequencePackage.preferredProvider || resolveDefaultSequenceProvider(options);
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;
 }
 
 function resolveSequenceWorkflow(sequencePackage, options) {
+  const preferredProvider = getPreferredSequenceProvider(sequencePackage, options);
+  if (preferredProvider === 'skip' || preferredProvider === 'static_image' || preferredProvider === 'fallback_direct_cut') {
+    return null;
+  }
+
   if (options.providerClient) {
     return {
       kind: 'providerClient',
@@ -303,25 +308,14 @@ function resolveSequenceWorkflow(sequencePackage, options) {
     };
   }
 
-  if (getPreferredSequenceProvider(sequencePackage, options) === 'seedance') {
-    return {
-      kind: 'unified_seedance_client',
-      run: (outputPath) =>
-        runProviderClientWorkflow(sequencePackage, outputPath, {
-          ...options,
-          providerClient: createUnifiedVideoProviderClient(),
-        }),
-    };
-  }
-
-  if (getPreferredSequenceProvider(sequencePackage, options) === 'sora2') {
-    return {
-      kind: 'sora2',
-      run: (outputPath) => runSora2Workflow(sequencePackage, outputPath, options),
-    };
-  }
-
-  return null;
+  return {
+    kind: 'unified_video_client',
+    run: (outputPath) =>
+      runProviderClientWorkflow(sequencePackage, outputPath, {
+        ...options,
+        providerClient: createUnifiedVideoProviderClient(),
+      }),
+  };
 }
 
 async function runProviderClientWorkflow(sequencePackage, outputPath, options) {
@@ -565,10 +559,12 @@ export async function generateSequenceClips(actionSequencePackages = [], videoDi
   );
 
   const report = buildSequenceClipReport(results);
-  writeArtifacts(results, report, {
-    ...options.artifactContext,
-    sequencePackages: actionSequencePackages,
-  });
+  if (options.artifactContext) {
+    writeArtifacts(results, report, {
+      ...options.artifactContext,
+      sequencePackages: actionSequencePackages,
+    });
+  }
 
   return {
     results,

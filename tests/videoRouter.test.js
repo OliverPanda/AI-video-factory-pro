@@ -55,7 +55,7 @@ test('buildShotPackages assembles complete shotPackage and prefers configured vi
     cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
     referenceImages: [{ type: 'keyframe', path: '/tmp/shot_001.png', shotId: 'shot_001' }],
     preferredProvider: 'seedance',
-    fallbackProviders: ['static_image'],
+    fallbackProviders: [],
     providerRequestHints: {
       shotId: 'shot_001',
       scene: '大殿',
@@ -99,7 +99,7 @@ test('buildShotPackages assembles complete shotPackage and prefers configured vi
     qaRules: {
       mustProbeWithFfprobe: true,
       mustHaveNonZeroDuration: true,
-      canFallbackToStaticImage: true,
+      canFallbackToStaticImage: false,
     },
   });
 });
@@ -327,13 +327,83 @@ test('buildShotPackages collects character reference images by stable character 
   ]);
 });
 
+test('buildShotPackages adds contextual character reference images for character-less transition shots', () => {
+  const shotPackages = __testables.buildShotPackages(
+    [
+      { id: 'shot_003', scene: '虚空蓝光', action: '角色现身', characters: ['陆衍'] },
+      { id: 'shot_004', scene: '虚空蓝光', action: '红光警报', characters: [] },
+      { id: 'shot_005', scene: '虚空蓝光', action: '锁链缠腕', characters: ['陆衍'] },
+    ],
+    [
+      { shotId: 'shot_003', shotType: 'medium', durationTargetSec: 4, visualGoal: '角色现身', cameraSpec: { ratio: '9:16' } },
+      { shotId: 'shot_004', shotType: 'transition', durationTargetSec: 3, visualGoal: '红光警报', cameraSpec: { ratio: '9:16' } },
+      { shotId: 'shot_005', shotType: 'closeup', durationTargetSec: 4, visualGoal: '锁链缠腕', cameraSpec: { ratio: '9:16' } },
+    ],
+    [
+      { shotId: 'shot_003', imagePath: '/tmp/shot_003.png', success: true },
+      { shotId: 'shot_004', imagePath: '/tmp/shot_004.png', success: true },
+      { shotId: 'shot_005', imagePath: '/tmp/shot_005.png', success: true },
+    ],
+    {
+      characterRegistry: [
+        { episodeCharacterId: 'char_luyan', name: '陆衍', referenceImagePath: '/tmp/luyan_ref.png' },
+      ],
+      performancePlan: [],
+      promptList: [{ shotId: 'shot_004', image_prompt: '红光警报', negative_prompt: '' }],
+    }
+  );
+
+  const transitionPackage = shotPackages.find((entry) => entry.shotId === 'shot_004');
+  const characterReferences = transitionPackage.referenceImages.filter((entry) => entry.type === 'character_reference');
+  assert.deepEqual(characterReferences, [
+    { type: 'character_reference', path: '/tmp/luyan_ref.png', characterId: 'char_luyan' },
+  ]);
+});
+
+test('buildShotPackages preserves public reference URLs for relay-based video providers', () => {
+  const shotPackages = __testables.buildShotPackages(
+    [{ id: 'shot_public_url', scene: '虚空蓝光', action: '人物抬眼' }],
+    [
+      {
+        shotId: 'shot_public_url',
+        shotType: 'closeup',
+        durationTargetSec: 4,
+        visualGoal: '人物抬眼',
+        cameraSpec: { moveType: 'push_in', framing: 'close', ratio: '9:16' },
+      },
+    ],
+    [
+      {
+        shotId: 'shot_public_url',
+        imagePath: '/tmp/shot_public_url.png',
+        publicUrl: 'https://cdn.example.com/shot_public_url.png',
+        success: true,
+      },
+    ],
+    {
+      videoProvider: 'sora2',
+      performancePlan: [],
+      promptList: [{ shotId: 'shot_public_url', image_prompt: '人物抬眼', negative_prompt: '' }],
+    }
+  );
+
+  assert.deepEqual(shotPackages[0].referenceImages, [
+    {
+      type: 'keyframe',
+      path: '/tmp/shot_public_url.png',
+      shotId: 'shot_public_url',
+      publicUrl: 'https://cdn.example.com/shot_public_url.png',
+    },
+  ]);
+});
+
 test('resolvePreferredVideoProvider defaults to seedance and allows explicit override', () => {
   const previousVideoProvider = process.env.VIDEO_PROVIDER;
   delete process.env.VIDEO_PROVIDER;
   try {
     assert.equal(__testables.resolvePreferredVideoProvider({}), 'seedance');
     assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'seedance' }), 'seedance');
-    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'runway' }), 'sora2');
+    assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'happyhorse' }), 'happyhorse');
     assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'fallback_video' }), 'sora2');
   } finally {
     if (previousVideoProvider == null) {
@@ -365,7 +435,7 @@ test('buildShotPackages routes to seedance when VIDEO_PROVIDER is seedance and a
 
     assert.equal(shotPackages.length, 1);
     assert.equal(shotPackages[0].preferredProvider, 'seedance');
-    assert.deepEqual(shotPackages[0].fallbackProviders, ['static_image']);
+    assert.deepEqual(shotPackages[0].fallbackProviders, []);
   } finally {
     if (previousVideoProvider == null) {
       delete process.env.VIDEO_PROVIDER;

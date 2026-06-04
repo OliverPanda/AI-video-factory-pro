@@ -1,4 +1,4 @@
-# Seedance 2.0 Sequence / Bridge Architecture Review
+﻿# Seedance 2.0 Sequence / Bridge Architecture Review
 
 日期：2026-04-14
 
@@ -183,3 +183,4 @@
 配套 agent 执行方案见：
 
 - [2026-04-14-seedance2-single-provider-sequence-first-implementation.md](d:/My-Project/AI-video-factory-pro/docs/superpowers/plans/2026-04-14-seedance2-single-provider-sequence-first-implementation.md)
+

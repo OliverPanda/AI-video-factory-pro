@@ -290,16 +290,16 @@ test('runEpisodePipeline falls back to shot path when sequence QA does not appro
       runConsistencyCheck: async () => ({ needsRegeneration: [] }),
       runContinuityCheck: async () => ({ reports: [], flaggedTransitions: [] }),
       planMotion: async () => [
-        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '逼近', videoGenerationMode: 'runway_image_to_video' },
-        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '出刀', videoGenerationMode: 'runway_image_to_video' },
+        { shotId: 'shot_001', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '逼近', videoGenerationMode: 'happyhorse_image_to_video' },
+        { shotId: 'shot_002', shotType: 'fight_wide', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'tracking', visualGoal: '出刀', videoGenerationMode: 'happyhorse_image_to_video' },
       ],
       planPerformance: async () => [
         { shotId: 'shot_001', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
         { shotId: 'shot_002', performanceTemplate: 'combat', generationTier: 'enhanced', variantCount: 1 },
       ],
       routeVideoShots: async () => [
-        { shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 },
-        { shotId: 'shot_002', preferredProvider: 'runway', durationTargetSec: 2 },
+        { shotId: 'shot_001', preferredProvider: 'happyhorse', durationTargetSec: 2 },
+        { shotId: 'shot_002', preferredProvider: 'happyhorse', durationTargetSec: 2 },
       ],
       runSora2Video: async () => ({
         results: [
@@ -319,14 +319,14 @@ test('runEpisodePipeline falls back to shot path when sequence QA does not appro
       routeBridgeShots: async () => [],
       generateBridgeClips: async () => ({ results: [] }),
       runBridgeQa: async () => ({ status: 'pass', entries: [], passedCount: 0, fallbackCount: 0, manualReviewCount: 0, warnings: [], blockers: [] }),
-      planActionSequences: async () => [{ sequenceId: 'sequence_001_002', shotIds: ['shot_001', 'shot_002'], durationTargetSec: 4, preferredProvider: 'runway' }],
-      routeActionSequencePackages: async () => [{ sequenceId: 'sequence_001_002', shotIds: ['shot_001', 'shot_002'], durationTargetSec: 4, preferredProvider: 'runway' }],
+      planActionSequences: async () => [{ sequenceId: 'sequence_001_002', shotIds: ['shot_001', 'shot_002'], durationTargetSec: 4, preferredProvider: 'happyhorse' }],
+      routeActionSequencePackages: async () => [{ sequenceId: 'sequence_001_002', shotIds: ['shot_001', 'shot_002'], durationTargetSec: 4, preferredProvider: 'happyhorse' }],
       generateSequenceClips: async () => ({
         results: [
           {
             sequenceId: 'sequence_001_002',
             status: 'completed',
-            provider: 'runway',
+            provider: 'happyhorse',
             videoPath: '/tmp/sequence_001_002.mp4',
             coveredShotIds: ['shot_001', 'shot_002'],
             targetDurationSec: 4,
@@ -399,14 +399,14 @@ test('runEpisodePipeline reruns lipsync when cached lipsync key no longer matche
       continuityCheckDone: true,
       continuityReport: [],
       continuityFlaggedTransitions: [],
-      motionPlan: [{ shotId: 'shot_001', shotType: 'dialogue_medium', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'slow_dolly', visualGoal: '对视', videoGenerationMode: 'runway_image_to_video' }],
+      motionPlan: [{ shotId: 'shot_001', shotType: 'dialogue_medium', durationTargetSec: 2, cameraSpec: { ratio: '9:16' }, cameraIntent: 'slow_dolly', visualGoal: '对视', videoGenerationMode: 'happyhorse_image_to_video' }],
       performancePlan: [{ shotId: 'shot_001', performanceTemplate: 'dialogue', generationTier: 'enhanced', variantCount: 1 }],
-      shotPackages: [{ shotId: 'shot_001', preferredProvider: 'runway', durationTargetSec: 2 }],
+      shotPackages: [{ shotId: 'shot_001', preferredProvider: 'happyhorse', durationTargetSec: 2 }],
       rawVideoResults: [{ shotId: 'shot_001', status: 'completed', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 }],
       enhancedVideoResults: [{ shotId: 'shot_001', status: 'completed', enhancedVideoPath: '/tmp/shot_001.mp4', actualDurationSec: 2, targetDurationSec: 2 }],
       shotQaReport: { entries: [{ shotId: 'shot_001', finalDecision: 'pass', canUseVideo: true }], fallbackCount: 0 },
       shotQaReportV2: { entries: [{ shotId: 'shot_001', finalDecision: 'pass', canUseVideo: true }], fallbackCount: 0 },
-      videoResults: [{ shotId: 'shot_001', status: 'completed', provider: 'runway', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 }],
+      videoResults: [{ shotId: 'shot_001', status: 'completed', provider: 'happyhorse', videoPath: '/tmp/shot_001.mp4', targetDurationSec: 2 }],
       bridgeShotPlan: [],
       bridgeShotPackages: [],
       bridgeClipResults: [],
@@ -647,3 +647,4 @@ test('runEpisodePipeline does not pass sequence-internal bridge clips into compo
     );
   });
 });
+

@@ -1,4 +1,4 @@
-# Professional Script Default Input Mode Design
+﻿# Professional Script Default Input Mode Design
 
 ## Goal
 
@@ -280,3 +280,4 @@ Regression guard:
 - Should professional mode split one `【画面N】` containing multiple dialogue turns into sub-shots, or preserve one authored picture beat as one shot? Current decision: preserve one picture beat as one shot.
 - Should `【tag】` and worldbuilding blocks feed character/prompt context? Current decision: preserve them in script/episode context but do not turn them into shots.
 - Should full 30-episode scripts be split and only the requested episode run by default? Current decision: professional parser should create episode records from all episodes, but a run should target a selected episode when project mode is used.
+

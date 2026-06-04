@@ -25,7 +25,7 @@ test('runBridgeQa passes valid bridge clips with readable ffprobe and acceptable
         {
           bridgeId: 'bridge_ok',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath,
           targetDurationSec: 1.8,
@@ -149,7 +149,7 @@ test('runBridgeQa writes bridge-qa-report artifacts', async (t) => {
       {
         bridgeId: 'bridge_artifact',
         status: 'completed',
-        provider: 'runway',
+        provider: 'happyhorse',
         model: 'gen4_turbo',
         videoPath,
         targetDurationSec: 1.8,

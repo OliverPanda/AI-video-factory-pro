@@ -1,4 +1,4 @@
-# Multi-Project Story Factory Design
+﻿# Multi-Project Story Factory Design
 
 **Goal:** 将 AI Video Factory Pro 从“单剧本任务流水线”升级为“多剧组、多剧集、分镜动画工厂”的最小可用版本，并以尽量少的破坏逐层迁移现有 `director / scriptParser / promptEngineer / ttsAgent / videoComposer`。
 
@@ -83,3 +83,4 @@ temp/projects/<projectId>/scripts/<scriptId>/episodes/<episodeId>/run-jobs/<runJ
 当前仓库的 `pnpm test` 不是离线单测，而是直接执行 `node scripts/run.js samples/test_script.txt`。因此它依赖真实 LLM / 图像 / TTS 凭证；在未配置可用凭证的环境里会报 `401`。
 
 本次多项目升级的稳定验证依赖新增的 focused `node:test` 用例，而不是 `pnpm test`。
+

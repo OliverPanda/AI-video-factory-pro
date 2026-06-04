@@ -1,4 +1,4 @@
-# Seedance Single-Provider Sequence-First Refactor Implementation Plan
+﻿# Seedance Single-Provider Sequence-First Refactor Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -407,3 +407,4 @@ git commit -m "chore: verify seedance single provider sequence first refactor"
 - `bridge` 只处理段间与高风险切口
 - 底层视频 API 调用统一到一个 provider client
 - 现有 artifact、resume、QA 和 compose 闭环继续可用
+

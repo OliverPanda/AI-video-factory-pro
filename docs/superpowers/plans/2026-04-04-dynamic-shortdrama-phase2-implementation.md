@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 2 Implementation Plan
+﻿# 动态短剧升级 Phase 2 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -6,7 +6,7 @@
 
 **Architecture:** Phase 2 继续沿用 Phase 1 的单 orchestrator 架构，把新能力插入现有 `motionPlan -> shotPackages -> videoResults -> shotQaReport -> composer` 主链。新增 `Performance Planner Agent`、`Motion Enhancer Agent` 和 `Shot QA v2`，并通过 `rawVideoResults / enhancedVideoResults / videoResults` 三层结果桥接，保持 `composer` 仍只消费 `videoResults`。
 
-**Tech Stack:** Node.js、现有 agent runtime、FFmpeg / ffprobe、Runway API、Node test runner
+**Tech Stack:** Node.js、现有 agent runtime、FFmpeg / ffprobe、Historical Video Provider API、Node test runner
 
 ---
 
@@ -19,7 +19,7 @@
 - Create: `src/agents/performancePlanner.js`
 - Create: `src/agents/motionEnhancer.js`
 - Modify: `src/agents/videoRouter.js`
-- Modify: `src/agents/runwayVideoAgent.js`
+- Modify: `src/agents/fallbackVideoAdapter.js`
 - Modify: `src/agents/shotQaAgent.js`
 - Modify: `src/agents/director.js`
 - Modify: `src/agents/videoComposer.js`
@@ -32,7 +32,7 @@
 - Create: `tests/performancePlanner.test.js`
 - Create: `tests/motionEnhancer.test.js`
 - Modify: `tests/videoRouter.test.js`
-- Modify: `tests/runwayVideoAgent.test.js`
+- Modify: `tests/fallbackVideoAdapter.test.js`
 - Modify: `tests/shotQaAgent.test.js`
 - Modify: `tests/videoComposer.test.js`
 - Modify: `tests/resumeFromStep.test.js`
@@ -234,12 +234,12 @@ git add src/agents/videoRouter.js tests/videoRouter.test.js
 git commit -m "feat: 升级视频路由以支持 Phase 2 镜头包协议"
 ```
 
-## Task 4：升级 Runway Video Agent 输出 rawVideoResults
+## Task 4：升级 Fallback Video Adapter 输出 rawVideoResults
 
 **Files:**
 
-- Modify: `src/agents/runwayVideoAgent.js`
-- Modify: `tests/runwayVideoAgent.test.js`
+- Modify: `src/agents/fallbackVideoAdapter.js`
+- Modify: `tests/fallbackVideoAdapter.test.js`
 
 - [ ] **Step 1: 写 `rawVideoResults` 失败测试**
 
@@ -258,12 +258,12 @@ git commit -m "feat: 升级视频路由以支持 Phase 2 镜头包协议"
 
 - [ ] **Step 3: 运行失败测试**
 
-Run: `node --test tests/runwayVideoAgent.test.js`
+Run: `node --test tests/fallbackVideoAdapter.test.js`
 Expected: FAIL
 
 - [ ] **Step 4: 更新 agent 输出结构**
 
-修改 [runwayVideoAgent.js](/d:/My-Project/AI-video-factory-pro/src/agents/runwayVideoAgent.js)：
+修改 [fallbackVideoAdapter.js](/d:/My-Project/AI-video-factory-pro/src/agents/fallbackVideoAdapter.js)：
 
 - 输出 `rawVideoResults`
 - 保留现有错误分类
@@ -272,14 +272,14 @@ Expected: FAIL
 
 - [ ] **Step 5: 运行测试确认通过**
 
-Run: `node --test tests/runwayVideoAgent.test.js`
+Run: `node --test tests/fallbackVideoAdapter.test.js`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/agents/runwayVideoAgent.js tests/runwayVideoAgent.test.js
-git commit -m "feat: 扩展 Runway 视频产物以支持原始结果分层"
+git add src/agents/fallbackVideoAdapter.js tests/fallbackVideoAdapter.test.js
+git commit -m "feat: 扩展 Fallback Video 视频产物以支持原始结果分层"
 ```
 
 ## Task 5：新增 Motion Enhancer Agent
@@ -412,7 +412,7 @@ git commit -m "feat: 升级镜头质检为 Phase 2 双层验收"
 - `motionPlanner`
 - `performancePlanner`
 - `videoRouter`
-- `runwayVideoAgent`
+- `fallbackVideoAdapter`
 - `motionEnhancer`
 - `shotQaAgent`
 
@@ -521,7 +521,7 @@ git commit -m "feat: 保持合成器兼容并验证 Phase 2 视频主路径"
 - `09a-motion-planner`
 - `09b-performance-planner`
 - `09c-video-router`
-- `09d-runway-video-agent`
+- `09d-fallback-video-adapter`
 - `09e-motion-enhancer`
 - `09f-shot-qa`
 - `10-video-composer`
@@ -602,7 +602,7 @@ git commit -m "chore: 升级 Phase 2 运行包编号与续跑清理规则"
 Run:
 
 ```bash
-node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/fallbackVideoAdapter.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 Expected: 全绿
@@ -618,7 +618,7 @@ git commit -m "docs: 同步 Phase 2 实施计划与运行文档"
 
 - [ ] 协议层：`performancePlan` 字段完整，`shotPackage v2` 正确消费表演计划
 - [ ] Router：`generationTier / variantCount / firstLastFramePolicy` 规则正确
-- [ ] Runway Agent：输出 `rawVideoResults`，多候选与时长记账正确
+- [ ] Fallback Video Agent：输出 `rawVideoResults`，多候选与时长记账正确
 - [ ] Motion Enhancer：增强决策正确，最小 FFmpeg 管线稳定，坏片段不会被误增强
 - [ ] Shot QA v2：工程可用和动态可用双层判定正确，按模板分桶阈值有效，`manual_review` 有显式记账
 - [ ] Director：新主链顺序正确，`videoResults` 由 QA 决策后统一桥接，run summary 新字段完整
@@ -629,7 +629,9 @@ git commit -m "docs: 同步 Phase 2 实施计划与运行文档"
 
 ## Notes
 
-- Phase 2 默认仍锁 `Runway` 为 provider，不在本计划中扩展多 provider 自动路由
+- Phase 2 默认仍锁 `Fallback Video` 为 provider，不在本计划中扩展多 provider 自动路由
 - `FILM / Real-ESRGAN` 仅作为未来可选增强插件，不纳入 Phase 2 MVP 必做项
 - `manual-review-shots.json` 作为 `manual_review` 的最小落盘产物必须写出
 - 所有任务默认遵循 TDD：先补失败测试，再做最小实现，再跑通过，再提交
+
+

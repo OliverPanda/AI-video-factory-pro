@@ -1,4 +1,4 @@
-# TTS Provider Selection For Chinese Short-Drama Pipeline
+﻿# TTS Provider Selection For Chinese Short-Drama Pipeline
 
 日期：2026-04-15
 
@@ -324,3 +324,4 @@ Cartesia 官方定价页显示：
 本结论基于 2026-04-15 官方公开文档与定价页整理。  
 其中关于“中文短剧听感是否更优”的部分属于基于产品定位、能力说明和成本结构的工程判断，不是已经完成项目内盲测后的最终结论。  
 因此，最稳妥的下一步仍然是：尽快在当前项目里做一轮标准化 A/B 试听。
+

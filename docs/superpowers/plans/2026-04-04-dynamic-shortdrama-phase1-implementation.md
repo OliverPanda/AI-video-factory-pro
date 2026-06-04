@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 1 实施计划
+﻿# 动态短剧升级 Phase 1 实施计划
 
 > **Goal:** 在不重写 orchestrator 的前提下，把当前系统的默认视觉主路径从 `imageResults` 切换到 `videoResults`，并保持现有审计、续跑与交付机制可用。
 
@@ -21,7 +21,7 @@
 - [ ] 定义 `shotPackage` 最小字段结构并锁定 `preferredProvider / fallbackProviders`
 - [ ] 定义 `videoResults` 与 `shotQaReport` 最小字段
 - [ ] 将 `motionPlan / shotPackages / videoResults / shotQaReport` 纳入 state cache
-- [ ] 将 `09a-motion-planner / 09b-video-router / 09c-runway-video-agent / 09d-shot-qa / 10-video-composer` 纳入 artifact layout
+- [ ] 将 `09a-motion-planner / 09b-video-router / 09c-fallback-video-adapter / 09d-shot-qa / 10-video-composer` 纳入 artifact layout
 - [ ] 为 `resume-from-step` 增加 `video` 续跑阶段与缓存清理规则
 
 ## Task 2：新增 Motion Planner
@@ -50,21 +50,21 @@
 
 - [ ] 组装 `motionPlan + imageResults + promptList -> shotPackage`
 - [ ] 规则固定：
-  - 有合格参考图时，`preferredProvider = runway`
+  - 有合格参考图时，`preferredProvider = fallback_video`
   - 缺少参考图时，允许回退到 `static_image`
 - [ ] 输出可审计 `shot-packages.json`
 - [ ] 记录 provider 选择分布 metrics
 
-## Task 4：新增 Runway Video Agent
+## Task 4：新增 Fallback Video Adapter
 
 **Files**
 
-- 新增或修改：`src/apis/runwayVideoApi.js`
-- 新增或修改：`src/agents/runwayVideoAgent.js`
-- 测试：`tests/runwayVideoApi.test.js`
-- 测试：`tests/runwayVideoAgent.test.js`
+- 新增或修改：`src/apis/fallbackVideoApi.js`
+- 新增或修改：`src/agents/fallbackVideoAdapter.js`
+- 测试：`tests/fallbackVideoApi.test.js`
+- 测试：`tests/fallbackVideoAdapter.test.js`
 
-- [ ] 实现官方 Runway API 的最小 `image-to-video` 路径
+- [ ] 实现官方 Historical Video Provider API 的最小 `image-to-video` 路径
 - [ ] 支持任务提交、轮询、下载
 - [ ] 输出 `videoResults`
 - [ ] 稳定分类错误：
@@ -103,7 +103,7 @@
 - 测试：`tests/director.artifacts.test.js`
 - 测试：`tests/pipeline.acceptance.test.js`
 
-- [ ] `Director` 接入 `motion planner / video router / runway video agent / shot QA`
+- [ ] `Director` 接入 `motion planner / video router / fallback video adapter / shot QA`
 - [ ] `Director` 把 `videoResults / shotQaReport` 写入 state cache
 - [ ] `Director` 生成 `videoClips` bridge，只把 QA 通过的视频送入 composer
 - [ ] `videoComposer` 固定视觉优先级：
@@ -121,7 +121,7 @@
 ## Test Plan
 
 - [ ] 协议与规划：`motionPlan` 覆盖正确，`shotPackage` 字段完整
-- [ ] Runway Agent：成功提交、轮询超时、4xx/5xx 分类、下载文件校验
+- [ ] Fallback Video Agent：成功提交、轮询超时、4xx/5xx 分类、下载文件校验
 - [ ] Shot QA：合法 mp4 通过、空文件失败、伪文件失败、时长异常失败、fallback 记录正确
 - [ ] Director 集成：有 `videoResults` 时走视频主路径，缺失时回退，缓存命中不重复生成
 - [ ] Resume：`--step=compose` 保留 `videoResults`，`--step=video` 只清视频及后续状态
@@ -138,6 +138,8 @@
 - 修改：`docs/agents/video-composer.md`
 
 - [ ] README 说明新增 video 阶段与续跑规则
-- [ ] Agent 文档补充 `motion planner / video router / runway video / shot QA`
+- [ ] Agent 文档补充 `motion planner / video router / fallback video / shot QA`
 - [ ] `video-composer` 文档明确新主路径优先级
-- [ ] 说明 `RUNWAY_API_KEY` 为启用动态镜头的关键配置项
+- [ ] 说明 `VIDEO_FALLBACK_API_KEY` 为启用动态镜头的关键配置项
+
+

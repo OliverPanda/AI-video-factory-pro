@@ -1,4 +1,4 @@
-# 2026-04-02 Continuity Checker V2 Design
+﻿# 2026-04-02 Continuity Checker V2 Design
 
 ## Goal
 
@@ -539,3 +539,4 @@ Repair Planning 把规则层和视觉层合并成统一决策。
 - 为第二阶段后处理能力预留结构接口
 
 这条路线与当前的 `continuity-checker.md`、`ShotContinuityState`、`Prompt Engineer`、`Director` 和 auditable run package 都能自然衔接，不需要推倒重来。
+

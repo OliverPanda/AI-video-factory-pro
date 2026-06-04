@@ -1,16 +1,32 @@
 import path from 'node:path';
 
-import { findCharacterByIdentity, resolveCharacterIdentity } from './characterRegistry.js';
+import { getContextualShotCharacterCards } from './characterRegistry.js';
 import { buildSeedancePromptPackages } from './seedancePromptAgent.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 
 function resolvePreferredVideoProvider(options = {}) {
   const rawProvider = options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;
+}
+
+function toReferenceImageEntry(base = {}, overrides = {}) {
+  const entry = {
+    ...overrides,
+    path: overrides.path || base.path || null,
+  };
+  const url = overrides.url || base.url || null;
+  const publicUrl = overrides.publicUrl || base.publicUrl || null;
+  const remoteUrl = overrides.remoteUrl || base.remoteUrl || null;
+  const sourceUrl = overrides.sourceUrl || base.sourceUrl || null;
+  if (url) entry.url = url;
+  if (publicUrl) entry.publicUrl = publicUrl;
+  if (remoteUrl) entry.remoteUrl = remoteUrl;
+  if (sourceUrl) entry.sourceUrl = sourceUrl;
+  return entry;
 }
 
 function resolveExecutionPrompt(promptEntry, motionEntry) {
@@ -79,17 +95,39 @@ function buildProviderRequestHints({
 function collectReferenceImages(shot, imageResult, shotIndex, shots, imageResults, options = {}) {
   const images = [];
   if (imageResult?.imagePath) {
-    images.push({ type: 'keyframe', path: imageResult.imagePath, shotId: shot.id });
+    images.push(
+      toReferenceImageEntry(
+        {
+          url: imageResult.url,
+          publicUrl: imageResult.publicUrl,
+          remoteUrl: imageResult.remoteUrl,
+          sourceUrl: imageResult.sourceUrl,
+        },
+        { type: 'keyframe', path: imageResult.imagePath, shotId: shot.id }
+      )
+    );
   }
   const characterRegistry = Array.isArray(options.characterRegistry) ? options.characterRegistry : [];
-  const shotCharacterIds = (Array.isArray(shot.characters) ? shot.characters : [])
-    .map((c) => resolveCharacterIdentity(c))
-    .filter(Boolean);
-  for (const charId of shotCharacterIds) {
+  const shotCharacterCards = getContextualShotCharacterCards(shot, characterRegistry, {
+    shotIndex,
+    shots,
+    maxCards: 3,
+  });
+  for (const card of shotCharacterCards) {
     if (images.length >= 9) break;
-    const card = findCharacterByIdentity(characterRegistry, charId);
+    const charId = card?.episodeCharacterId || card?.characterId || card?.id || card?.name || null;
     if (card?.referenceImagePath) {
-      images.push({ type: 'character_reference', path: card.referenceImagePath, characterId: charId });
+      images.push(
+        toReferenceImageEntry(
+          {
+            path: card.referenceImagePath,
+            publicUrl: card.referenceImagePublicUrl || null,
+            remoteUrl: card.referenceImageRemoteUrl || null,
+            sourceUrl: card.referenceImageSourceUrl || null,
+          },
+          { type: 'character_reference', path: card.referenceImagePath, characterId: charId }
+        )
+      );
     }
   }
   const adjacentIndices = [shotIndex - 1, shotIndex + 1];
@@ -98,7 +136,17 @@ function collectReferenceImages(shot, imageResult, shotIndex, shots, imageResult
     if (adjIdx >= 0 && adjIdx < shots.length) {
       const adjResult = imageResults.find((r) => r.shotId === shots[adjIdx].id);
       if (adjResult?.imagePath) {
-        images.push({ type: 'adjacent_shot', path: adjResult.imagePath, shotId: shots[adjIdx].id });
+        images.push(
+          toReferenceImageEntry(
+            {
+              url: adjResult.url,
+              publicUrl: adjResult.publicUrl,
+              remoteUrl: adjResult.remoteUrl,
+              sourceUrl: adjResult.sourceUrl,
+            },
+            { type: 'adjacent_shot', path: adjResult.imagePath, shotId: shots[adjIdx].id }
+          )
+        );
       }
     }
   }
@@ -112,7 +160,7 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
   const executionNegativePrompt = resolveExecutionNegativePrompt(promptEntry);
   const preferredVideoProvider = resolvePreferredVideoProvider(options);
   const preferredProvider = hasReferenceImage ? preferredVideoProvider : 'static_image';
-  const fallbackProviders = hasReferenceImage ? ['static_image'] : [];
+  const fallbackProviders = [];
   const referenceImages = hasReferenceImage
     ? collectReferenceImages(
         shot,
@@ -149,13 +197,13 @@ function buildShotPackage(shot, motionEntry, imageResult, promptEntry, options =
     generationTier: performanceEntry?.generationTier || 'base',
     variantCount: performanceEntry?.variantCount || 1,
     candidateSelectionRule: performanceEntry?.candidateSelectionRule || 'single_best',
-    regenPolicy: performanceEntry?.regenPolicy || 'retry_once_then_fallback',
+    regenPolicy: performanceEntry?.regenPolicy || 'retry_once_then_fail',
     firstLastFramePolicy: performanceEntry?.firstLastFramePolicy || 'first_frame_required',
     enhancementHints: performanceEntry?.enhancementHints || [],
     qaRules: {
       mustProbeWithFfprobe: true,
       mustHaveNonZeroDuration: true,
-      canFallbackToStaticImage: true,
+      canFallbackToStaticImage: false,
     },
   };
 }

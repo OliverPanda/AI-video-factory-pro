@@ -25,7 +25,7 @@ test('runSequenceQa passes a readable mp4-like clip with non-zero duration and c
         {
           sequenceId: 'seq_pass',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath,
           coveredShotIds: ['shot_001', 'shot_002'],
@@ -76,7 +76,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
         {
           sequenceId: 'seq_empty',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: emptyPath,
           coveredShotIds: ['shot_010', 'shot_011'],
@@ -88,7 +88,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
         {
           sequenceId: 'seq_pseudo',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: pseudoPath,
           coveredShotIds: ['shot_012', 'shot_013'],
@@ -100,7 +100,7 @@ test('runSequenceQa fails empty files pseudo files and abnormal durations', asyn
         {
           sequenceId: 'seq_duration',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: badDurationPath,
           coveredShotIds: ['shot_014', 'shot_015'],
@@ -309,7 +309,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
         {
           sequenceId: 'seq_entry_exit',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: entryExitPath,
           coveredShotIds: ['shot_020', 'shot_021'],
@@ -321,7 +321,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
         {
           sequenceId: 'seq_continuity',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: continuityPath,
           coveredShotIds: ['shot_022', 'shot_023'],
@@ -333,7 +333,7 @@ test('runSequenceQa fails when entryExitCheck fails and falls back when continui
         {
           sequenceId: 'seq_manual_review',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath: manualReviewPath,
           coveredShotIds: ['shot_024', 'shot_025'],
@@ -446,7 +446,7 @@ test('runSequenceQa classifies continuity evaluator failures separately from ffp
         {
           sequenceId: 'seq_eval_fail',
           status: 'completed',
-          provider: 'runway',
+          provider: 'happyhorse',
           model: 'gen4_turbo',
           videoPath,
           coveredShotIds: ['shot_040', 'shot_041'],
@@ -535,7 +535,7 @@ test('runSequenceQa writes report metrics manifest and qa summary artifacts', as
       {
         sequenceId: 'seq_artifact',
         status: 'completed',
-        provider: 'runway',
+        provider: 'happyhorse',
         model: 'gen4_turbo',
         videoPath,
         coveredShotIds: ['shot_030', 'shot_031'],

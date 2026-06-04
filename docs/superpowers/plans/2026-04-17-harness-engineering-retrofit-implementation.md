@@ -1,4 +1,4 @@
-# Harness Engineering Retrofit Implementation Plan
+﻿# Harness Engineering Retrofit Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -307,4 +307,5 @@ Confirm the language is operational, not academic.
 git add README.md docs/agents/README.md docs/sop/qa-acceptance.md
 git commit -m "docs: explain harness engineering retrofit"
 ```
+
 

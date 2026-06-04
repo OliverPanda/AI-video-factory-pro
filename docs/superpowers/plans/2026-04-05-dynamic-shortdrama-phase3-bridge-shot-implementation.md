@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 3：Bridge Shot 与镜头连续性 Implementation Plan
+﻿# 动态短剧升级 Phase 3：Bridge Shot 与镜头连续性 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -6,7 +6,7 @@
 
 **Architecture:** Phase 3 继续保留 `Director` 为唯一 orchestrator，普通镜头仍走 Phase 2 主链，只在需要连续性过门的 cut 点插入 `bridge shot` 子链。新增 `Bridge Shot Planner / Router / Generator / QA` 四个模块，并由 `Director` 决定是否把 bridge clip 写入最终 timeline，`videoComposer` 只做兼容消费与时间线总装。
 
-**Tech Stack:** Node.js、现有 agent runtime、Runway API、FFmpeg / ffprobe、Node test runner
+**Tech Stack:** Node.js、现有 agent runtime、Historical Video Provider API、FFmpeg / ffprobe、Node test runner
 
 ---
 
@@ -22,7 +22,7 @@
 - Create: `src/agents/bridgeQaAgent.js`
 - Modify: `src/agents/director.js`
 - Modify: `src/agents/videoComposer.js`
-- Modify: `src/agents/runwayVideoAgent.js`（如需抽取 bridge clip 复用能力）
+- Modify: `src/agents/fallbackVideoAdapter.js`（如需抽取 bridge clip 复用能力）
 - Modify: `src/utils/runArtifacts.js`
 - Modify: `scripts/resume-from-step.js`
 
@@ -287,7 +287,7 @@ git commit -m "feat: 新增 Phase 3 bridge shot 路由与能力分层"
 
 - Create: `src/agents/bridgeClipGenerator.js`
 - Create: `tests/bridgeClipGenerator.test.js`
-- Modify: `src/agents/runwayVideoAgent.js`（如需抽取共享 helper）
+- Modify: `src/agents/fallbackVideoAdapter.js`（如需抽取共享 helper）
 
 - [ ] **Step 1: 写 `bridgeClipResults` 最小结构失败测试**
 
@@ -348,7 +348,7 @@ Expected: PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/agents/bridgeClipGenerator.js tests/bridgeClipGenerator.test.js src/agents/runwayVideoAgent.js
+git add src/agents/bridgeClipGenerator.js tests/bridgeClipGenerator.test.js src/agents/fallbackVideoAdapter.js
 git commit -m "feat: 新增 Phase 3 bridge clip 生成能力"
 ```
 
@@ -681,7 +681,9 @@ git commit -m "docs: 同步 Phase 3 bridge shot 实施计划与运行文档"
 
 ## Notes
 
-- Phase 3 MVP 仍沿用当前 `Director + Runway` 主链，不引入第二套默认运行时
+- Phase 3 MVP 仍沿用当前 `Director + Fallback Video` 主链，不引入第二套默认运行时
 - 社区强控工作流只作为中长期演进方向，不进入 MVP 默认主路径
 - bridge shot 失败时必须优先回退为 `direct cut`，不能让桥接层破坏整体交付
 - 所有任务默认遵循 TDD：先补失败测试，再做最小实现，再跑通过，再提交
+
+

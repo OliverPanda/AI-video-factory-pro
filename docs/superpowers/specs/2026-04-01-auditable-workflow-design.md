@@ -1,4 +1,4 @@
-# 2026-04-01 Auditable Workflow Design
+﻿# 2026-04-01 Auditable Workflow Design
 
 ## 1. Goal
 
@@ -460,4 +460,5 @@ output/
 - 跨项目版本化 Prompt 资产管理
 
 这些属于下一阶段，可以在本设计落地后再继续扩展。
+
 

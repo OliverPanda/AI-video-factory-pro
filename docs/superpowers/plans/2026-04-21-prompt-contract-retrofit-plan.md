@@ -1,4 +1,4 @@
-# Prompt Contract Retrofit Implementation Plan
+﻿# Prompt Contract Retrofit Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -473,4 +473,5 @@ Expected:
 - Keep prompt output deterministic before optimizing wording.
 - If a step needs both structure and wording changes, land structure first, then wording.
 - If any test starts needing broad snapshot rewrites, stop and reduce scope.
+
 

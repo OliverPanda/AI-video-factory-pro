@@ -1,4 +1,4 @@
-# 2026-04-01 Character Consistency System Design
+﻿# 2026-04-01 Character Consistency System Design
 
 ## Goal
 
@@ -429,3 +429,4 @@ episode.json
 - 用 `Identity Consistency Checker + Continuity Checker` 做后置质检
 
 这是当前项目里最现实、最可控、最能渐进升级的角色一致性最终方案。
+

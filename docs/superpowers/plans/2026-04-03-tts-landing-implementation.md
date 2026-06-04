@@ -1,4 +1,4 @@
-# TTS Landing P0 Implementation Plan
+﻿# TTS Landing P0 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -199,3 +199,4 @@
 - [x] **Step 4: Update focused tests to verify agent-level summaries and run-level overview files are produced**
 - [x] **Step 5: Update QA docs so the repository no longer claims a unified QA summary layer is missing**
 - [x] **Step 6: Run `pnpm run test:tts` and verify the focused TTS suite passes**
+

@@ -151,6 +151,7 @@ export function createUnifiedVideoProviderClient(options = {}) {
           submitPath: resolvedConfig.submitPath,
           pollPath: resolvedConfig.pollPath,
           downloadPath: resolvedConfig.downloadPath,
+          providerParams: resolvedConfig.providerParams || {},
         },
         metadata: buildRequestMetadata(videoPackage, resolvedConfig),
       });
@@ -166,7 +167,7 @@ export function createUnifiedVideoProviderClient(options = {}) {
               },
             },
           }
-        : route.adapter.buildProviderRequest(request);
+        : await route.adapter.buildProviderRequest(request);
       const submitResult = injectedHandlerBundle
         ? await injectedHandlerBundle.handlers.submitVideoGeneration(videoPackage, {
             request,

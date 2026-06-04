@@ -134,7 +134,11 @@ function toSora2ShotPackage(bridgePackage) {
       ratio: '9:16',
     },
     referenceImages: bridgePackage.fromReferenceImage
-      ? [{ type: 'bridge_from_frame', path: bridgePackage.fromReferenceImage }]
+      ? [{
+          type: 'bridge_from_frame',
+          path: bridgePackage.fromReferenceImage,
+          ...(bridgePackage.fromReferenceImageMeta || {}),
+        }]
       : [],
   };
 }
@@ -155,7 +159,7 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
     bridgeShotPackages.map((bridgePackage) =>
       bridgeQueue.add(async () => {
         const provider = bridgePackage.preferredProvider;
-        if (provider !== 'sora2' && provider !== 'seedance') {
+        if (provider === 'fallback_direct_cut' || bridgePackage.providerCapabilityRequirement === 'none') {
           return {
             bridgeId: bridgePackage.bridgeId,
             status: 'skipped',
@@ -198,8 +202,12 @@ export async function generateBridgeClips(bridgeShotPackages = [], videoDir, opt
                   shotId: bridgePackage.bridgeId,
                   visualGoal: (bridgePackage.promptDirectives || []).join('. '),
                   referenceImages: [
-                    bridgePackage.fromReferenceImage ? { path: bridgePackage.fromReferenceImage, role: 'first_frame' } : null,
-                    bridgePackage.toReferenceImage ? { path: bridgePackage.toReferenceImage, role: 'last_frame' } : null,
+                    bridgePackage.fromReferenceImage
+                      ? { path: bridgePackage.fromReferenceImage, role: 'first_frame', ...(bridgePackage.fromReferenceImageMeta || {}) }
+                      : null,
+                    bridgePackage.toReferenceImage
+                      ? { path: bridgePackage.toReferenceImage, role: 'last_frame', ...(bridgePackage.toReferenceImageMeta || {}) }
+                      : null,
                   ].filter(Boolean),
                 };
                 const submitResult = await providerClient.submit(unifiedBridgePackage, outputPath, options);

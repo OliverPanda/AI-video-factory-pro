@@ -1,4 +1,4 @@
-# AI Video Factory Pro Agent IO Schemas
+﻿# AI Video Factory Pro Agent IO Schemas
 
 ## 说明
 
@@ -1621,3 +1621,4 @@ temp/projects/<projectDir>/scripts/<scriptDir>/episodes/<episodeDir>/runs/<runDi
 
 1. 再输出一份字段级 JSON Schema / TypeScript type 文档
 2. 给每个 agent 增加“是否计费 / 是否会调用外部付费 API”的标注
+

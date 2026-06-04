@@ -11,6 +11,7 @@ import {
   buildCharacterRegistry,
   findCharacterByIdentity,
   findCharacterByIdentityOrName,
+  getContextualShotCharacterCards,
   getShotCharacterCards,
   resolveCharacterIdentity,
 } from './characterRegistry.js';
@@ -33,6 +34,7 @@ import { planPerformance } from './performancePlanner.js';
 import { routeVideoShots } from './videoRouter.js';
 import { runSeedanceVideo } from './seedanceVideoAgent.js';
 import { runSora2Video } from './sora2VideoAgent.js';
+import { runVideoGeneration } from './videoGenerationAgent.js';
 import { runMotionEnhancer } from './motionEnhancer.js';
 import { runShotQa } from './shotQaAgent.js';
 import { planBridgeShots } from './bridgeShotPlanner.js';
@@ -549,7 +551,7 @@ function buildAnimationClipBridge(imageResults, animationClips = []) {
 
 function getDefaultVideoProvider() {
   const rawProvider = process.env.VIDEO_PROVIDER || 'seedance';
-  if (rawProvider === 'fallback_video' || rawProvider === 'runway') {
+  if (rawProvider === 'fallback_video') {
     return 'sora2';
   }
   return rawProvider;
@@ -572,8 +574,16 @@ function normalizeStringList(items = []) {
 function collectReanchorReferenceImages(shotId, shots = [], imageResults = [], characterRegistry = []) {
   const references = [];
   const seen = new Set();
-  const shot = (Array.isArray(shots) ? shots : []).find((entry) => entry?.id === shotId) || null;
-  const shotCharacterCards = shot ? getShotCharacterCards(shot, characterRegistry) : [];
+  const shotList = Array.isArray(shots) ? shots : [];
+  const shotIndex = shotList.findIndex((entry) => entry?.id === shotId);
+  const shot = shotIndex >= 0 ? shotList[shotIndex] : null;
+  const shotCharacterCards = shot
+    ? getContextualShotCharacterCards(shot, characterRegistry, {
+        shotIndex,
+        shots: shotList,
+        maxCards: 3,
+      })
+    : [];
 
   function pushReference(pathValue) {
     const normalized = String(pathValue || '').trim();
@@ -599,10 +609,15 @@ function collectReanchorReferenceImages(shotId, shots = [], imageResults = [], c
 }
 
 function attachShotReferenceImagesToPrompts(promptList = [], shots = [], characterRegistry = []) {
-  return (Array.isArray(promptList) ? promptList : []).map((prompt) => ({
-    ...prompt,
-    referenceImages: collectReanchorReferenceImages(prompt?.shotId, shots, [], characterRegistry),
-  }));
+  return (Array.isArray(promptList) ? promptList : []).map((prompt) => {
+    const collectedReferences = collectReanchorReferenceImages(prompt?.shotId, shots, [], characterRegistry);
+    const existingReferences = normalizeStringList(prompt?.referenceImages);
+    const mergedReferences = [...new Set([...existingReferences, ...collectedReferences])];
+    return {
+      ...prompt,
+      referenceImages: mergedReferences,
+    };
+  });
 }
 
 function buildConsistencyRegenerationPrompt(originalPrompt, item = {}) {
@@ -632,7 +647,7 @@ async function createEmptyProviderRun() {
 }
 
 function normalizeRuntimeVideoProvider(provider) {
-  if (provider === 'fallback_video' || provider === 'runway') {
+  if (provider === 'fallback_video') {
     return 'sora2';
   }
   return provider;
@@ -657,6 +672,60 @@ function buildVideoClipBridge(videoResults = [], shotQaReport = null) {
       status: result.status || 'completed',
       provider: result.provider || result.preferredProvider || getDefaultVideoProvider(),
     }));
+}
+
+function assertAllShotsHaveApprovedDynamicVideo(shotPackages = [], shotQaReport = null, rawVideoResults = []) {
+  const expectedShotIds = (Array.isArray(shotPackages) ? shotPackages : [])
+    .map((entry) => entry?.shotId)
+    .filter(Boolean);
+
+  if (expectedShotIds.length === 0) {
+    return;
+  }
+
+  const qaEntryByShotId = new Map(
+    (Array.isArray(shotQaReport?.entries) ? shotQaReport.entries : [])
+      .filter((entry) => entry?.shotId)
+      .map((entry) => [entry.shotId, entry])
+  );
+  const rawResultByShotId = new Map(
+    (Array.isArray(rawVideoResults) ? rawVideoResults : [])
+      .filter((entry) => entry?.shotId)
+      .map((entry) => [entry.shotId, entry])
+  );
+
+  if (qaEntryByShotId.size === 0 && rawResultByShotId.size === 0) {
+    return;
+  }
+
+  const failedShots = expectedShotIds.flatMap((shotId) => {
+    const qaEntry = qaEntryByShotId.get(shotId);
+    const rawResult = rawResultByShotId.get(shotId);
+    const passed = qaEntry?.canUseVideo === true ||
+      qaEntry?.finalDecision === 'pass' ||
+      qaEntry?.finalDecision === 'pass_with_enhancement' ||
+      (!qaEntry && rawResult?.status === 'completed' && rawResult?.videoPath);
+
+    if (passed) {
+      return [];
+    }
+
+    const reason = qaEntry?.decisionReason ||
+      qaEntry?.reason ||
+      rawResult?.failureCategory ||
+      rawResult?.error ||
+      qaEntry?.finalDecision ||
+      rawResult?.status ||
+      'dynamic_video_missing';
+
+    return [`${shotId}(${reason})`];
+  });
+
+  if (failedShots.length === 0) {
+    return;
+  }
+
+  throw new Error(`动态视频未全部生成成功，已中断交付：${failedShots.join('；')}`);
 }
 
 function buildShotQaInputs(enhancedVideoResults = [], rawVideoResults = []) {
@@ -1562,7 +1631,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     motionPlanner: 'Motion Planner',
     performancePlanner: 'Performance Planner',
     videoRouter: 'Video Router',
-    runwayVideoAgent: 'Runway Video Agent',
+    videoGenerationAgent: 'Video Generation Agent',
     sora2VideoAgent: 'Fallback Video Adapter',
     fallbackVideoAgent: 'Fallback Video Adapter',
     seedanceVideoAgent: 'Seedance Video Agent',
@@ -1592,7 +1661,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'motionPlanner',
     'performancePlanner',
     'videoRouter',
-    'runwayVideoAgent',
+    'videoGenerationAgent',
     'sora2VideoAgent',
     'fallbackVideoAgent',
     'seedanceVideoAgent',
@@ -1730,6 +1799,7 @@ export function createDirector(overrides = {}) {
     routeVideoShots,
     runSeedanceVideo: overrides.runSeedanceVideo || (isNodeTestRuntime() ? createEmptyProviderRun : runSeedanceVideo),
     runSora2Video: overrides.runSora2Video || (isNodeTestRuntime() ? createEmptyProviderRun : runSora2Video),
+    runVideoGeneration: overrides.runVideoGeneration || (isNodeTestRuntime() ? createEmptyProviderRun : runVideoGeneration),
     runMotionEnhancer,
     runShotQa,
     planBridgeShots,
@@ -2058,6 +2128,8 @@ export function createDirector(overrides = {}) {
             detail: '使用缓存的Prompt列表',
           });
         }
+        promptList = attachShotReferenceImagesToPrompts(promptList, shots, characterRegistry);
+        saveState({ promptList });
 
         let imageResults = Array.isArray(state.imageResults) ? state.imageResults : null;
         if (!imageResults || imageResults.length === 0) {
@@ -2076,11 +2148,7 @@ export function createDirector(overrides = {}) {
         const attemptedImageShotIds = new Set(
           imageResults.filter((result) => result?.shotId).map((result) => result.shotId)
         );
-        const pendingPrompts = attachShotReferenceImagesToPrompts(
-          promptList.filter((prompt) => !attemptedImageShotIds.has(prompt.shotId)),
-          shots,
-          characterRegistry
-        );
+        const pendingPrompts = promptList.filter((prompt) => !attemptedImageShotIds.has(prompt.shotId));
 
         if (pendingPrompts.length > 0) {
           const hasRecoveredCache = imageResults.length > 0;
@@ -2574,10 +2642,12 @@ export function createDirector(overrides = {}) {
               );
               const shouldRunProvider = (provider) => requestedProviders.size > 0 && requestedProviders.has(provider);
               const providersToRun = [];
+              const dedicatedProviders = new Set(['seedance', 'sora2']);
 
               if (shouldRunProvider('seedance')) {
                 providersToRun.push({
                   provider: 'seedance',
+                  packages: preflightShotPackages,
                   runner: deps.runSeedanceVideo,
                   artifactContext: artifactContext.agents.seedanceVideoAgent,
                 });
@@ -2586,8 +2656,22 @@ export function createDirector(overrides = {}) {
               if (shouldRunProvider('sora2')) {
                 providersToRun.push({
                   provider: 'sora2',
+                  packages: preflightShotPackages,
                   runner: deps.runSora2Video,
                   artifactContext: artifactContext.agents.sora2VideoAgent,
+                });
+              }
+
+              const unifiedProviderPackages = (Array.isArray(preflightShotPackages) ? preflightShotPackages : []).filter((item) => {
+                const provider = normalizeRuntimeVideoProvider(item?.preferredProvider);
+                return provider && provider !== 'static_image' && !dedicatedProviders.has(provider);
+              });
+              if (unifiedProviderPackages.length > 0) {
+                providersToRun.push({
+                  provider: 'unified',
+                  packages: unifiedProviderPackages,
+                  runner: deps.runVideoGeneration,
+                  artifactContext: artifactContext.agents.videoGenerationAgent,
                 });
               }
 
@@ -2602,7 +2686,7 @@ export function createDirector(overrides = {}) {
 
               const settled = await Promise.allSettled(
                 providersToRun.map((providerRun) =>
-                  providerRun.runner(preflightShotPackages, videoDir, {
+                  providerRun.runner(providerRun.packages, videoDir, {
                     artifactContext: providerRun.artifactContext,
                   })
                 )
@@ -2702,6 +2786,7 @@ export function createDirector(overrides = {}) {
         }
 
         assertNoHardVisualBlocks('Shot QA', shotQaReport?.entries, 'decisionReason');
+        assertAllShotsHaveApprovedDynamicVideo(preflightShotPackages || shotPackages, shotQaReport, rawVideoResults);
 
         const hasCompletedBridgeCache = isReusableContinuityQaReport(
           state.bridgeQaReport,
@@ -2720,6 +2805,7 @@ export function createDirector(overrides = {}) {
               performancePlan,
               imageResults,
               videoResults,
+              videoProvider: getDefaultVideoProvider(),
               artifactContext: artifactContext.agents.bridgeShotPlanner,
             })
           );
@@ -2741,6 +2827,7 @@ export function createDirector(overrides = {}) {
               imageResults,
               videoResults,
               performancePlan,
+              videoProvider: getDefaultVideoProvider(),
               artifactContext: artifactContext.agents.bridgeShotRouter,
             })
           );
@@ -2811,6 +2898,7 @@ export function createDirector(overrides = {}) {
               bridgeQaReport,
               bridgeShotPlan,
               videoResults,
+              videoProvider: getDefaultVideoProvider(),
               continuityReport: state.continuityReport || [],
               continuityFlaggedTransitions: state.continuityFlaggedTransitions || [],
               artifactContext: artifactContext.agents.actionSequencePlanner,
@@ -2835,6 +2923,7 @@ export function createDirector(overrides = {}) {
               videoResults,
               bridgeClipResults,
               performancePlan,
+              videoProvider: getDefaultVideoProvider(),
               artifactContext: artifactContext.agents.actionSequenceRouter,
             })
           );

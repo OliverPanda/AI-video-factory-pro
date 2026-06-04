@@ -1,4 +1,4 @@
-# Seedance Web Director Design
+﻿# Seedance Web Director Design
 
 ## Summary
 
@@ -344,3 +344,4 @@
 - 候选生成数量如何在成本和质量之间平衡
 - Seedance API 是否支持更多接近网页版的隐式参数，需要专项调研
 - TTS / lip sync 在写实电影感目标下的最佳介入点是什么
+

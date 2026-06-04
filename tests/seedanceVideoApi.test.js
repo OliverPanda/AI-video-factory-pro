@@ -8,7 +8,11 @@ import sharp from 'sharp';
 import { __testables, seedanceImageToVideo } from '../src/apis/seedanceVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../src/apis/unifiedVideoProviderClient.js';
 import { resolveVideoGenerationConfig } from '../src/apis/videoGenerationConfig.js';
-import { __testables as videoTransportTestables, createRelaySeedanceV2VideoTransport } from '../src/apis/videoTransports.js';
+import {
+  __testables as videoTransportTestables,
+  createRelayMediaTaskTransport,
+  createRelaySeedanceV2VideoTransport,
+} from '../src/apis/videoTransports.js';
 
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-seedance-api-'));
@@ -659,4 +663,118 @@ test('resolveVideoGenerationConfig uses relay_seedance_v2 default submit and pol
   assert.equal(config.transport, 'relay_seedance_v2');
   assert.equal(config.submitPath, '/api/v1/tasks/generations');
   assert.equal(config.pollPath, '/api/v1/tasks/generations');
+});
+
+test('resolveVideoGenerationConfig routes lingkeai sora2 through relay_media_task with media task paths', () => {
+  const config = resolveVideoGenerationConfig(
+    {
+      shotId: 'shot_zdai_001',
+      preferredProvider: 'sora2',
+    },
+    {},
+    {
+      VIDEO_PROVIDER: 'sora2',
+      ZDAI_SORA2_BASE_URL: 'https://api.lingkeai.ai',
+      ZDAI_SORA2_API_KEY: 'zdai-demo-key',
+    }
+  );
+
+  assert.equal(config.provider, 'sora');
+  assert.equal(config.transport, 'relay_media_task');
+  assert.equal(config.baseUrl, 'https://api.lingkeai.ai');
+  assert.equal(config.apiKey, 'zdai-demo-key');
+  assert.equal(config.model, 'sora-2');
+  assert.equal(config.submitPath, '/v1/media/generate');
+  assert.equal(config.pollPath, '/v1/media/status');
+});
+
+test('relay_media_task transport submits and polls media task protocol', async () => {
+  const calls = [];
+  const transport = createRelayMediaTaskTransport({
+    httpClient: {
+      async post(url, body) {
+        calls.push(['post', url, body.model, body.params?.orientation, body.params?.duration]);
+        return {
+          data: {
+            code: 200,
+            data: {
+              task_id: 'media_task_001',
+            },
+          },
+        };
+      },
+      async get(url, options) {
+        calls.push(['get', url, options?.params?.task_id]);
+        return {
+          data: {
+            code: 200,
+            data: {
+              task_id: 'media_task_001',
+              state: 'success',
+              is_final: true,
+              result_url: 'https://example.com/media-task.mp4',
+            },
+          },
+        };
+      },
+    },
+    sleep: async () => {},
+    pollIntervalMs: 1,
+    timeoutMs: 20,
+  });
+
+  const submitResult = await transport.submit(
+    {
+      model: 'sora-2',
+      prompt: 'a cinematic shot',
+      params: {
+        orientation: 'portrait',
+        duration: '4',
+      },
+    },
+    {
+      baseUrl: 'https://api.lk888.ai',
+      apiKey: 'demo-key',
+      submitPath: '/v1/media/generate',
+    }
+  );
+  const pollResult = await transport.poll(submitResult.taskId, {
+    baseUrl: 'https://api.lk888.ai',
+    apiKey: 'demo-key',
+    pollPath: '/v1/media/status',
+  });
+
+  assert.equal(submitResult.taskId, 'media_task_001');
+  assert.equal(pollResult.outputUrl, 'https://example.com/media-task.mp4');
+  assert.deepEqual(calls, [
+    ['post', '/v1/media/generate', 'sora-2', 'portrait', '4'],
+    ['get', '/v1/media/status', 'media_task_001'],
+  ]);
+});
+
+test('relay openai transport normalization preserves auth and rate-limit categories before generic 4xx fallback', () => {
+  assert.equal(
+    videoTransportTestables.normalizeError(
+      { message: 'forbidden', response: { status: 403, data: {} } },
+      'RELAY_OPENAI_SUBMIT_FAILED',
+      'Relay OpenAI submit failed'
+    ).category,
+    'provider_auth_error'
+  );
+  assert.equal(
+    videoTransportTestables.normalizeError(
+      { message: 'slow down', response: { status: 429, data: {} } },
+      'RELAY_OPENAI_SUBMIT_FAILED',
+      'Relay OpenAI submit failed'
+    ).category,
+    'provider_rate_limit'
+  );
+  assert.equal(
+    videoTransportTestables.normalizeError(
+      { message: 'bad request', response: { status: 400, data: {} } },
+      'RELAY_OPENAI_SUBMIT_FAILED',
+      'Relay OpenAI submit failed'
+    ).category,
+    'provider_invalid_request'
+  );
 });

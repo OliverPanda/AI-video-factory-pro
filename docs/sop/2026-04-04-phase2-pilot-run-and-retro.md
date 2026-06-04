@@ -45,7 +45,6 @@ Phase 2 试跑的目标不是证明“已经商用可交付”，而是回答下
 - `ffmpeg -version`
 - `ffprobe -version`
 - `.env` 中已配置：
-  - `RUNWAY_API_KEY`
   - 当前主链必需的 LLM / TTS key
 
 ### 2. 代码与测试检查
@@ -53,7 +52,7 @@ Phase 2 试跑的目标不是证明“已经商用可交付”，而是回答下
 至少确认以下命令全绿：
 
 ```bash
-node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/runwayVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
+node --test tests/performancePlanner.test.js tests/videoRouter.test.js tests/seedanceVideoAgent.test.js tests/motionEnhancer.test.js tests/shotQaAgent.test.js tests/videoComposer.test.js tests/resumeFromStep.test.js tests/director.project-run.test.js tests/director.artifacts.test.js tests/pipeline.acceptance.test.js tests/runArtifacts.test.js
 ```
 
 ### 3. 样例选择检查
@@ -107,7 +106,7 @@ node scripts/resume-from-step.js --step=compose samples/寒烬宫变-pro.txt --s
 3. `10-video-composer/1-outputs/compose-plan.json`
 4. 最终 `final-video.mp4`
 5. 如有异常，再下钻：
-   - `09d-runway-video-agent/`
+   - `09d-sora2-video-agent/`
    - `09e-motion-enhancer/`
    - `09f-shot-qa/`
    - `10-video-composer/3-errors/`

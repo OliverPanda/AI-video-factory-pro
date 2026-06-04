@@ -1,4 +1,4 @@
-# Vercel AI Gateway Adapter Design
+﻿# Vercel AI Gateway Adapter Design
 
 ## 背景
 
@@ -454,6 +454,83 @@ IMAGE_MODEL_EDIT=openai/gpt-image-1
 3. 最终模型
    - `bytedance/seedance-v1.5-pro`
 
+### 后续模型 / 中转站接入原则
+
+后续接入新的模型供应商、API 中转站、聚合站或网关时，默认优先复用现有统一 `provider + transport` 架构，不新增用户可感知的 provider 名字。
+
+优先级固定为：
+
+1. 先看是否能仅通过配置兼容完成接入
+2. 再看是否只需要扩展通用 transport 的请求映射 / 结果解析
+3. 只有通用 transport 明显无法表达协议语义时，才允许新增显式 transport / adapter
+
+优先通过配置兼容层解决的问题包括：
+
+- `baseUrl`
+- `apiKey`
+- `model`
+- `submitPath`
+- `pollPath`
+- headers 差异
+- 错误归一化
+
+这意味着：
+
+- 如果只是“同一个模型，换了一个中转站地址”
+- 或者“同一类异步任务协议，只是字段名略有差异”
+
+则应优先落在现有通用 transport 内部处理，而不是再新增一个业务语义 provider。
+
+### 用户可见语义约束
+
+对上层业务和用户配置来说，应尽量保持稳定语义：
+
+- `VIDEO_PROVIDER` / `preferredProvider` 表示业务上的主模型意图
+- `VIDEO_TRANSPORT_PROVIDER` 表示真实提交通道
+- relay / gateway / 站点品牌名尽量停留在 transport 配置层
+
+例如：
+
+```bash
+VIDEO_PROVIDER=sora2
+VIDEO_TRANSPORT_PROVIDER=openai_compat
+VIDEO_BASE_URL=https://example-relay.com
+VIDEO_MODEL=sora2
+```
+
+这里业务语义仍然是 `sora2`，但 transport 可以是 `openai_compat`、`vercel_ai_gateway` 或未来其他通用通道；不应因为换了站点就把顶层 provider 改成站点名。
+
+### 何时允许新增显式 transport
+
+只有在下面情况出现时，才允许新增显式 transport / adapter：
+
+1. 现有通用 transport 无法表达对方的提交 / 轮询 / 下载协议
+2. 对方要求额外的鉴权、签名或任务状态机，且无法在现有 transport 内以配置或小范围扩展承载
+3. 请求 / 响应模态已经超出当前项目统一契约，而不是仅仅换了品牌或域名
+
+新增时必须在 spec 中明确说明：
+
+1. 现有通用方案为什么不够
+2. 新 transport 新增了什么协议能力
+3. 为什么这不是一次可以落在配置兼容层的接入
+
+### 明确反模式
+
+后续实现中，下面做法应视为反模式：
+
+1. 因为接入了一个新站点，就新增一个新的顶层 provider 名字
+2. 把模型名、站点名、transport 名混成一个字段
+3. 在业务路由层写死站点品牌分支
+4. 让 QA、Director、router 感知某个具体 relay 品牌
+5. 为了接一个新 relay，直接复制一整套 provider API 文件
+
+理想状态下，一个新的 relay / gateway 接入，应该尽量做到：
+
+1. 不改上层业务语义
+2. 不改 `shot / sequence / bridge` 协议
+3. 不新增用户必须理解的新 provider 概念
+4. 主要变更收敛在 transport 配置或通用适配层
+
 ## 2. 为什么不要再用一个字段混三层含义
 
 当前项目里 `VIDEO_PROVIDER=seedance` 很容易同时被理解成：
@@ -670,3 +747,4 @@ VIDEO_PROVIDER=seedance
 推荐计划文件名：
 
 - `docs/superpowers/plans/2026-04-15-vercel-ai-gateway-adapter-implementation.md`
+

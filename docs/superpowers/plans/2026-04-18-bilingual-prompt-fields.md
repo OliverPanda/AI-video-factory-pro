@@ -1,4 +1,4 @@
-# Bilingual Prompt Fields Implementation Plan
+﻿# Bilingual Prompt Fields Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -330,4 +330,5 @@ Expected: prompt contract changes are limited to prompt generation, artifact ren
 git add .
 git commit -m "test: verify bilingual prompt contract regressions"
 ```
+
 

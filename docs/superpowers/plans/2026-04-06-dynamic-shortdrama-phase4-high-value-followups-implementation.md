@@ -1,4 +1,4 @@
-# 动态短剧升级 Phase 4 收口后下一轮高价值任务实施计划
+﻿# 动态短剧升级 Phase 4 收口后下一轮高价值任务实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -186,6 +186,7 @@ node --test tests/actionSequencePlanner.test.js tests/actionSequenceRouter.test.
 ## Assumptions
 
 - 默认继续沿用当前推荐顺序：`Task 1 -> Task 2 -> Task 3 -> Task 4`
-- `Seedance` 仍是 sequence 默认主 provider，`Runway` 只保留兼容
+- `Seedance` 仍是 sequence 默认主 provider，`Fallback Video` 只保留兼容
 - 本轮目标仍是“提升调优效率和生成可控性”，不是引入新系统层
 - 当前仓库状态已经完成本计划首轮实现，后续只需基于本文件继续验收、补文档或做下一轮增量升级
+

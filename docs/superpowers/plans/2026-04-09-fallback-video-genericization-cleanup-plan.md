@@ -1,4 +1,4 @@
-# Fallback Video Genericization Cleanup Implementation Plan
+﻿# Fallback Video Genericization Cleanup Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -228,8 +228,8 @@ git commit -m "docs: clarify generic fallback video naming"
 Current persisted names still in use:
 - `sora2VideoAgent`
 - `09d-sora2-video-agent`
-- `Runway Video Agent`
-- `09d-runway-video-agent`
+- `Fallback Video Adapter`
+- `09d-fallback-video-adapter`
 
 - [ ] **Step 2: Decide if this task should stop at docs-only clarification**
 
@@ -272,7 +272,7 @@ git add src/utils/runArtifacts.js src/agents/director.js tests/runArtifacts.test
 git commit -m "refactor: add compatibility-safe fallback video artifact naming"
 ```
 
-### Task 5: Clean Remaining Runway Residuals That Conflict With Generic Story
+### Task 5: Clean Remaining Fallback Video Residuals That Conflict With Generic Story
 
 **Files:**
 - Review: `src/utils/runArtifacts.js`
@@ -285,9 +285,9 @@ git commit -m "refactor: add compatibility-safe fallback video artifact naming"
 - [ ] **Step 1: Separate true compatibility residue from active runtime dependence**
 
 Examples to classify:
-- `runwayVideoAgent`
-- `09d-runway-video-agent`
-- docs mentioning `Runway Video Agent`
+- `fallbackVideoAdapter`
+- `09d-fallback-video-adapter`
+- docs mentioning `Fallback Video Adapter`
 
 - [ ] **Step 2: Keep only what is still needed for historical compatibility**
 
@@ -296,7 +296,7 @@ If a name is no longer used by runtime and not needed by artifact readers, remov
 - [ ] **Step 3: Update QA overview ordering and labels consistently**
 
 Avoid showing both:
-- “Runway Video Agent”
+- “Fallback Video Adapter”
 - “Sora2 Video Agent”
 
 when the user-facing concept is now “Fallback Video”.
@@ -335,7 +335,7 @@ git commit -m "refactor: align fallback video compatibility naming"
 
 ## Non-Goals For This Plan
 
-- Do not remove unrelated lipsync `runway` provider references in this pass
+- Do not remove unrelated historical lipsync provider notes in this pass
 - Do not refactor all historical planning docs unless they actively mislead current implementation work
 - Do not change env-facing `VIDEO_PROVIDER=fallback_video`
 - Do not change runtime provider result payload `provider: 'sora2'` in this pass unless a dedicated migration plan is written first
@@ -347,4 +347,7 @@ git commit -m "refactor: align fallback video compatibility naming"
 - Adapter-layer helper names are generic
 - Docs clearly distinguish env-facing fallback video from the internal `sora2` compatibility branch
 - All targeted tests pass
+
+
+
 
