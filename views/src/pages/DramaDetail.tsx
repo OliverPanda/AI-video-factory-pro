@@ -23,6 +23,7 @@ import { useWorkbenchProject } from '../hooks/useWorkbench';
 import { formatRunStatus, getStatusTone } from '../lib/workbench';
 import { useToast } from '../components/ToastContext';
 import GoldComboPreview from '../components/remotion/GoldComboPreview';
+import ImageWithPreview from '../components/ImageWithPreview';
 
 type TabKey = 'shots' | 'summary' | 'qa' | 'goldCombo';
 
@@ -405,10 +406,10 @@ export default function DramaDetail() {
               </div>
 
               <article key={shot.id} className="glass-card overflow-hidden border border-slate-200 bg-white rounded-[20px] shadow-lg relative group">
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[6fr_4fr]">
                   {/* 左侧列：高瘦黄金 9:16 大视频大卡片 */}
                   <div className="flex items-start justify-center px-6 pt-6 xl:px-0 xl:py-6">
-                    <div className="relative w-full max-w-[420px] overflow-hidden rounded-[20px] bg-black shadow-inner" style={{ aspectRatio: '9/16' }}>
+                    <div className="relative w-full max-w-[520px] overflow-hidden rounded-[20px] bg-black shadow-inner" style={{ aspectRatio: '9/16' }}>
                       {shot.videoUrl ? (
                         <video
                           key={shot.videoUrl}
@@ -444,8 +445,8 @@ export default function DramaDetail() {
                     <div className="border border-slate-200 bg-white p-5 rounded-2xl space-y-4 shadow-sm relative overflow-hidden group/inner">
                       <div className="absolute top-0 right-0 w-16 h-16 bg-white rounded-full filter blur-md pointer-events-none" />
                       <div className="flex min-h-9 items-center justify-between gap-3">
-                        <h3 className="text-xl font-extrabold leading-none text-slate-900 tracking-wide">{shot.title}</h3>
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[9px] font-extrabold leading-none ${getStatusTone(shot.status)}`}>
+                        <h3 className="min-w-0 truncate text-xl font-extrabold leading-none text-slate-900 tracking-wide">{shot.title}</h3>
+                        <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[9px] font-extrabold leading-none ${getStatusTone(shot.status)}`}>
                           {formatRunStatus(shot.status)}
                         </span>
                       </div>
@@ -495,9 +496,12 @@ export default function DramaDetail() {
                             查看大图
                           </a>
                         </div>
-                        <div className="w-full aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-200 flex items-center justify-center relative group/img">
-                          <img src={shot.imageUrl} alt={shot.title} className="max-h-full max-w-full object-contain group-hover/img:scale-[1.02] transition-transform duration-500 ease-out" />
-                        </div>
+                        <ImageWithPreview
+                          src={shot.imageUrl}
+                          alt={shot.title}
+                          containerClassName="w-full aspect-video rounded-xl border border-slate-200 bg-slate-200 flex items-center justify-center"
+                          className="max-h-full max-w-full object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                        />
                       </div>
                     )}
 

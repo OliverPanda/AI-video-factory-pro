@@ -8,6 +8,7 @@ import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { classifyArtifactReadiness } from '../utils/rootCauseClassifier.js';
 import logger from '../utils/logger.js';
+import { lipsyncQueue, queueWithRetry } from '../utils/queue.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -481,128 +482,133 @@ export async function runLipsync(shots, imageResults = [], audioResults = [], op
 
   const imageResultByShotId = new Map((imageResults || []).map((entry) => [entry.shotId, entry]));
   const audioResultByShotId = new Map((audioResults || []).map((entry) => [entry.shotId, entry]));
-  const results = [];
 
-  for (const shot of shots || []) {
-    const triggered = shouldLipsyncShot(shot);
-    const imageResult = imageResultByShotId.get(shot.id) || null;
-    const audioResult = audioResultByShotId.get(shot.id) || null;
+  const results = await Promise.all(
+    (shots || []).map((shot) => {
+      const triggered = shouldLipsyncShot(shot);
+      const imageResult = imageResultByShotId.get(shot.id) || null;
+      const audioResult = audioResultByShotId.get(shot.id) || null;
 
-    if (!triggered) {
-      results.push({
-        shotId: shot.id,
-        triggered: false,
-        status: 'skipped',
-        reason: 'rule_not_matched',
-        triggerReasons: [],
-        qaStatus: 'pass',
-        qaWarnings: [],
-        qaBlockers: [],
-        manualReviewRequired: false,
-        downgradeApplied: false,
-        videoPath: null,
-      });
-      continue;
-    }
+      if (!triggered) {
+        return Promise.resolve({
+          shotId: shot.id,
+          triggered: false,
+          status: 'skipped',
+          reason: 'rule_not_matched',
+          triggerReasons: [],
+          qaStatus: 'pass',
+          qaWarnings: [],
+          qaBlockers: [],
+          manualReviewRequired: false,
+          downgradeApplied: false,
+          videoPath: null,
+        });
+      }
 
-    if (!imageResult?.imagePath) {
-      const baseResult = {
-        shotId: shot.id,
-        triggered: true,
-        status: 'failed',
-        reason: 'missing_image',
-        imagePath: null,
-        audioPath: audioResult?.audioPath || null,
-        videoPath: null,
-        downgradeApplied: true,
-        downgradeReason: 'missing_image',
-      };
-      results.push({
-        ...baseResult,
-        ...deriveEntryQa(baseResult, shot),
-      });
-      continue;
-    }
+      if (!imageResult?.imagePath) {
+        const baseResult = {
+          shotId: shot.id,
+          triggered: true,
+          status: 'failed',
+          reason: 'missing_image',
+          imagePath: null,
+          audioPath: audioResult?.audioPath || null,
+          videoPath: null,
+          downgradeApplied: true,
+          downgradeReason: 'missing_image',
+        };
+        return Promise.resolve({
+          ...baseResult,
+          ...deriveEntryQa(baseResult, shot),
+        });
+      }
 
-    if (!audioResult?.audioPath) {
-      const baseResult = {
-        shotId: shot.id,
-        triggered: true,
-        status: 'failed',
-        reason: 'missing_audio',
-        imagePath: imageResult.imagePath,
-        audioPath: null,
-        videoPath: null,
-        downgradeApplied: true,
-        downgradeReason: 'missing_audio',
-      };
-      results.push({
-        ...baseResult,
-        ...deriveEntryQa(baseResult, shot),
-      });
-      continue;
-    }
+      if (!audioResult?.audioPath) {
+        const baseResult = {
+          shotId: shot.id,
+          triggered: true,
+          status: 'failed',
+          reason: 'missing_audio',
+          imagePath: imageResult.imagePath,
+          audioPath: null,
+          videoPath: null,
+          downgradeApplied: true,
+          downgradeReason: 'missing_audio',
+        };
+        return Promise.resolve({
+          ...baseResult,
+          ...deriveEntryQa(baseResult, shot),
+        });
+      }
 
-    try {
-      const clip = await generateLipsyncClip(shot, imageResult, audioResult, {
-        ...options,
-        outputPathBuilder,
-        outputPath: outputPathBuilder(shot),
-      });
-      const clipVideoPath = clip?.videoPath || null;
-      const hasValidVideoOutput = clipVideoPath ? await validateGeneratedClip(clipVideoPath) : false;
-      const baseResult = {
-        shotId: shot.id,
-        triggered: true,
-        status: clipVideoPath && hasValidVideoOutput ? buildResultStatus(clip) : 'skipped',
-        reason:
-          clipVideoPath && !hasValidVideoOutput
-            ? 'invalid_video_output'
-            : clip?.reason || null,
-        provider: clip?.provider || null,
-        attemptedProviders: Array.isArray(clip?.attemptedProviders) ? clip.attemptedProviders : [],
-        fallbackApplied: clip?.fallbackApplied === true,
-        fallbackFrom: clip?.fallbackFrom || null,
-        imagePath: imageResult.imagePath,
-        audioPath: audioResult.audioPath,
-        videoPath: clipVideoPath && hasValidVideoOutput ? clipVideoPath : null,
-        durationSec: clip?.durationSec || shot.durationSec || shot.duration || null,
-        timingOffsetMs: Number.isFinite(clip?.timingOffsetMs) ? clip.timingOffsetMs : null,
-        evaluator: clip?.evaluator || null,
-        downgradeApplied: clipVideoPath && !hasValidVideoOutput,
-        downgradeReason: clipVideoPath && !hasValidVideoOutput ? 'invalid_video_output' : null,
-      };
-      results.push({
-        ...baseResult,
-        ...deriveEntryQa(baseResult, shot),
-      });
-    } catch (error) {
-      logger.error('LipsyncAgent', `${shot.id} 口型同步失败：${error.message}`);
-      const failureReason = resolveProviderFailureReason(error);
-      const baseResult = {
-        shotId: shot.id,
-        triggered: true,
-        status: 'failed',
-        reason: failureReason,
-        imagePath: imageResult.imagePath,
-        audioPath: audioResult.audioPath,
-        videoPath: null,
-        error: error.message,
-        provider: error?.provider || null,
-        errorCode: error?.code || null,
-        attemptedProviders: Array.isArray(error?.attemptedProviders) ? error.attemptedProviders : [],
-        providerErrors: Array.isArray(error?.providerErrors) ? error.providerErrors : [],
-        fallbackApplied: false,
-        fallbackFrom: null,
-        downgradeApplied: true,
-        downgradeReason: failureReason,
-      };
-      results.push({
-        ...baseResult,
-        ...deriveEntryQa(baseResult, shot),
-      });
-    }
-  }
+      return queueWithRetry(
+        lipsyncQueue,
+        async () => {
+          try {
+            const clip = await generateLipsyncClip(shot, imageResult, audioResult, {
+              ...options,
+              outputPathBuilder,
+              outputPath: outputPathBuilder(shot),
+            });
+            const clipVideoPath = clip?.videoPath || null;
+            const hasValidVideoOutput = clipVideoPath ? await validateGeneratedClip(clipVideoPath) : false;
+            const baseResult = {
+              shotId: shot.id,
+              triggered: true,
+              status: clipVideoPath && hasValidVideoOutput ? buildResultStatus(clip) : 'skipped',
+              reason:
+                clipVideoPath && !hasValidVideoOutput
+                  ? 'invalid_video_output'
+                  : clip?.reason || null,
+              provider: clip?.provider || null,
+              attemptedProviders: Array.isArray(clip?.attemptedProviders) ? clip.attemptedProviders : [],
+              fallbackApplied: clip?.fallbackApplied === true,
+              fallbackFrom: clip?.fallbackFrom || null,
+              imagePath: imageResult.imagePath,
+              audioPath: audioResult.audioPath,
+              videoPath: clipVideoPath && hasValidVideoOutput ? clipVideoPath : null,
+              durationSec: clip?.durationSec || shot.durationSec || shot.duration || null,
+              timingOffsetMs: Number.isFinite(clip?.timingOffsetMs) ? clip.timingOffsetMs : null,
+              evaluator: clip?.evaluator || null,
+              downgradeApplied: clipVideoPath && !hasValidVideoOutput,
+              downgradeReason: clipVideoPath && !hasValidVideoOutput ? 'invalid_video_output' : null,
+            };
+            return {
+              ...baseResult,
+              ...deriveEntryQa(baseResult, shot),
+            };
+          } catch (error) {
+            logger.error('LipsyncAgent', `${shot.id} 口型同步失败：${error.message}`);
+            const failureReason = resolveProviderFailureReason(error);
+            const baseResult = {
+              shotId: shot.id,
+              triggered: true,
+              status: 'failed',
+              reason: failureReason,
+              imagePath: imageResult.imagePath,
+              audioPath: audioResult.audioPath,
+              videoPath: null,
+              error: error.message,
+              provider: error?.provider || null,
+              errorCode: error?.code || null,
+              attemptedProviders: Array.isArray(error?.attemptedProviders) ? error.attemptedProviders : [],
+              providerErrors: Array.isArray(error?.providerErrors) ? error.providerErrors : [],
+              fallbackApplied: false,
+              fallbackFrom: null,
+              downgradeApplied: true,
+              downgradeReason: failureReason,
+            };
+            return {
+              ...baseResult,
+              ...deriveEntryQa(baseResult, shot),
+            };
+          }
+        },
+        3,
+        shot.id || 'lipsync'
+      );
+    })
+  );
 
   const blockers = results
     .filter((item) => item.qaBlockers?.length)

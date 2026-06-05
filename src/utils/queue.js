@@ -50,6 +50,14 @@ export function getQueueConfig(queueType, options = {}) {
       return {
         concurrency: parseInteger(env.LLM_QUEUE_CONCURRENCY, 5),
       };
+    case 'video':
+      return {
+        concurrency: parseInteger(env.VIDEO_QUEUE_CONCURRENCY, 3),
+      };
+    case 'lipsync':
+      return {
+        concurrency: parseInteger(env.LIPSYNC_QUEUE_CONCURRENCY, 3),
+      };
     default:
       throw new Error(`Unknown queue type: ${queueType}`);
   }
@@ -110,6 +118,8 @@ export function createRetryController(options = {}) {
 export const imageQueue = new PQueue(getQueueConfig('image')); // 图像生成队列
 export const ttsQueue = new PQueue(getQueueConfig('tts')); // TTS队列
 export const llmQueue = new PQueue(getQueueConfig('llm')); // LLM队列（避免RPM超限）
+export const videoQueue = new PQueue(getQueueConfig('video')); // 视频生成队列
+export const lipsyncQueue = new PQueue(getQueueConfig('lipsync')); // 口型同步队列
 
 function getQueueByType(queueType) {
   switch (queueType) {
@@ -119,6 +129,10 @@ function getQueueByType(queueType) {
       return ttsQueue;
     case 'llm':
       return llmQueue;
+    case 'video':
+      return videoQueue;
+    case 'lipsync':
+      return lipsyncQueue;
     default:
       throw new Error(`Unknown queue type: ${queueType}`);
   }

@@ -5,6 +5,7 @@ import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
+import { videoQueue, queueWithRetry } from '../utils/queue.js';
 
 function writeTextFile(filePath, content) {
   ensureDir(path.dirname(filePath));
@@ -205,16 +206,11 @@ function writeArtifacts(results, report, artifactContext) {
 
 export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}) {
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'video'));
-  const results = [];
   const providerClient = options.providerClient || createUnifiedVideoProviderClient();
   let stoppedByHighRiskError = null;
+  const results = [];
 
-  for (const shotPackage of shotPackages) {
-    if (stoppedByHighRiskError && shotPackage.preferredProvider === 'seedance') {
-      results.push(buildGuardSkippedResult(shotPackage, stoppedByHighRiskError.shotId));
-      continue;
-    }
-
+  for (const shotPackage of Array.isArray(shotPackages) ? shotPackages : []) {
     if (shotPackage.preferredProvider !== 'seedance') {
       results.push({
         shotId: shotPackage.shotId,
@@ -226,6 +222,11 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
         targetDurationSec: shotPackage.durationTargetSec,
         actualDurationSec: null,
       });
+      continue;
+    }
+
+    if (stoppedByHighRiskError) {
+      results.push(buildGuardSkippedResult(shotPackage, stoppedByHighRiskError.shotId));
       continue;
     }
 
@@ -244,24 +245,32 @@ export async function runSeedanceVideo(shotPackages = [], videoDir, options = {}
       continue;
     }
 
-    try {
-      const run = options.generateVideoClip
-        ? await options.generateVideoClip(shotPackage, outputPath, options)
-        : await runViaProviderClient(providerClient, shotPackage, outputPath, options);
-      results.push({
-        ...run,
-        shotId: shotPackage.shotId,
-        preferredProvider: shotPackage.preferredProvider,
-        provider: run?.provider || 'seedance',
-        status: 'completed',
-      });
-    } catch (error) {
-      const normalizedError = normalizeProviderError(error);
-      results.push(buildFailureResult(shotPackage, normalizedError));
-      if (isHighRiskProviderError(error)) {
-        stoppedByHighRiskError = { shotId: shotPackage.shotId };
-      }
-    }
+    const result = await queueWithRetry(
+      videoQueue,
+      async () => {
+        try {
+          const run = options.generateVideoClip
+            ? await options.generateVideoClip(shotPackage, outputPath, options)
+            : await runViaProviderClient(providerClient, shotPackage, outputPath, options);
+          return {
+            ...run,
+            shotId: shotPackage.shotId,
+            preferredProvider: shotPackage.preferredProvider,
+            provider: run?.provider || 'seedance',
+            status: 'completed',
+          };
+        } catch (error) {
+          const normalizedError = normalizeProviderError(error);
+          if (isHighRiskProviderError(error)) {
+            stoppedByHighRiskError = { shotId: shotPackage.shotId };
+          }
+          return buildFailureResult(shotPackage, normalizedError);
+        }
+      },
+      3,
+      shotPackage.shotId || 'seedance-video'
+    );
+    results.push(result);
   }
 
   const report = buildReport(results);
@@ -278,4 +287,8 @@ export const __testables = {
   normalizeProviderError,
   hasReusableVideoOutput,
   isHighRiskProviderError,
+};
+
+export default {
+  runSeedanceVideo,
 };

@@ -10,6 +10,7 @@ import {
 } from '../apis/videoGenerationContract.js';
 import { ensureDir, loadJSON, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
+import { videoQueue, queueWithRetry } from '../utils/queue.js';
 
 const NON_GENERATING_PROVIDERS = new Set(['static_image', 'skip', 'fallback_direct_cut', 'direct_cut']);
 
@@ -250,78 +251,95 @@ function writeArtifacts(results, report, artifactContext) {
     artifactContext
   );
 }
-
 export async function runVideoGeneration(videoPackages = [], videoDir, options = {}) {
   const resolvedVideoDir = ensureDir(videoDir || path.join(process.env.TEMP_DIR || './temp', 'video'));
   const providerClient = options.providerClient || createUnifiedVideoProviderClient();
+
+  const rawResults = await Promise.all(
+    (Array.isArray(videoPackages) ? videoPackages : []).map((videoPackage) => {
+      const packageType = resolveVideoPackageType(videoPackage);
+      const packageId = resolveVideoPackageId(videoPackage, packageType);
+
+      if (shouldSkipVideoGeneration(videoPackage)) {
+        return Promise.resolve({
+          result: {
+            packageType,
+            packageId,
+            preferredProvider: videoPackage?.preferredProvider || videoPackage?.provider || null,
+            provider: videoPackage?.provider || videoPackage?.preferredProvider || null,
+            model: videoPackage?.model || null,
+            transport: videoPackage?.transport || null,
+            status: 'skipped',
+            videoPath: null,
+            outputUrl: null,
+            taskId: null,
+            targetDurationSec: videoPackage?.durationTargetSec ?? null,
+            actualDurationSec: null,
+            errorCode: null,
+            errorStatus: null,
+            errorDetails: null,
+          },
+          record: null,
+        });
+      }
+
+      return queueWithRetry(
+        videoQueue,
+        async () => {
+          const outputPath = buildOutputPath(resolvedVideoDir, videoPackage);
+          let submitResult = null;
+          let pollResult = null;
+          let downloadResult = null;
+          let errorStage = null;
+
+          try {
+            errorStage = 'submit';
+            ({ submitResult, pollResult, downloadResult } = await runViaProviderClient(providerClient, videoPackage, outputPath, options));
+            const record = buildRuntimeRecord({
+              videoPackage,
+              outputPath,
+              submitResult,
+              pollResult,
+              downloadResult,
+              status: 'completed',
+            });
+            const result = {
+              ...buildResultEntity(videoPackage, record),
+              actualDurationSec: downloadResult?.actualDurationSec ?? pollResult?.actualDurationSec ?? videoPackage?.durationTargetSec ?? null,
+            };
+            return { result, record };
+          } catch (error) {
+            const normalizedError = normalizeProviderError(error);
+            const record = buildRuntimeRecord({
+              videoPackage,
+              outputPath: null,
+              submitResult,
+              pollResult,
+              downloadResult,
+              status: 'failed',
+              error: normalizedError,
+              errorStage,
+            });
+            const result = {
+              ...buildResultEntity(videoPackage, record),
+              failureCategory: normalizedError.category,
+              error: normalizedError.message,
+            };
+            return { result, record };
+          }
+        },
+        3,
+        packageId || 'video-package'
+      );
+    })
+  );
+
   const results = [];
-
-  for (const videoPackage of Array.isArray(videoPackages) ? videoPackages : []) {
-    const packageType = resolveVideoPackageType(videoPackage);
-    const packageId = resolveVideoPackageId(videoPackage, packageType);
-
-    if (shouldSkipVideoGeneration(videoPackage)) {
-      results.push({
-        packageType,
-        packageId,
-        preferredProvider: videoPackage?.preferredProvider || videoPackage?.provider || null,
-        provider: videoPackage?.provider || videoPackage?.preferredProvider || null,
-        model: videoPackage?.model || null,
-        transport: videoPackage?.transport || null,
-        status: 'skipped',
-        videoPath: null,
-        outputUrl: null,
-        taskId: null,
-        targetDurationSec: videoPackage?.durationTargetSec ?? null,
-        actualDurationSec: null,
-        errorCode: null,
-        errorStatus: null,
-        errorDetails: null,
-      });
-      continue;
+  for (const item of rawResults) {
+    if (item.record) {
+      appendUnifiedRunArtifacts(item.record, options.artifactContext);
     }
-
-    const outputPath = buildOutputPath(resolvedVideoDir, videoPackage);
-    let submitResult = null;
-    let pollResult = null;
-    let downloadResult = null;
-    let errorStage = null;
-
-    try {
-      errorStage = 'submit';
-      ({ submitResult, pollResult, downloadResult } = await runViaProviderClient(providerClient, videoPackage, outputPath, options));
-      const record = buildRuntimeRecord({
-        videoPackage,
-        outputPath,
-        submitResult,
-        pollResult,
-        downloadResult,
-        status: 'completed',
-      });
-      appendUnifiedRunArtifacts(record, options.artifactContext);
-      results.push({
-        ...buildResultEntity(videoPackage, record),
-        actualDurationSec: downloadResult?.actualDurationSec ?? pollResult?.actualDurationSec ?? videoPackage?.durationTargetSec ?? null,
-      });
-    } catch (error) {
-      const normalizedError = normalizeProviderError(error);
-      const record = buildRuntimeRecord({
-        videoPackage,
-        outputPath: null,
-        submitResult,
-        pollResult,
-        downloadResult,
-        status: 'failed',
-        error: normalizedError,
-        errorStage,
-      });
-      appendUnifiedRunArtifacts(record, options.artifactContext);
-      results.push({
-        ...buildResultEntity(videoPackage, record),
-        failureCategory: normalizedError.category,
-        error: normalizedError.message,
-      });
-    }
+    results.push(item.result);
   }
 
   const report = buildReport(results);
@@ -331,7 +349,6 @@ export async function runVideoGeneration(videoPackages = [], videoDir, options =
     report,
   };
 }
-
 export const __testables = {
   buildOutputPath,
   buildReport,
