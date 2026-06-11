@@ -179,6 +179,82 @@ test('buildBridgeShotPlan sets duration goal risk and transition intent within M
   assert.equal(entry.durationTargetSec >= 1.5 && entry.durationTargetSec <= 3, true);
 });
 
+test('buildBridgeShotPlan downgrades HappyHorse high-risk motion bridges to image-reference mode by default', () => {
+  const [entry] = __testables.buildBridgeShotPlan(
+    [
+      {
+        id: 'shot_201',
+        scene: '长街',
+        action: '主角转身拔刀',
+        mood: '紧绷',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+      {
+        id: 'shot_202',
+        scene: '长街',
+        action: '他前冲挥刀，刀锋压向敌人',
+        mood: '爆发',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+    ],
+    {
+      videoProvider: 'happyhorse',
+      env: { HAPPYHORSE_SUPPORTS_FIRST_LAST_FRAME: 'false' },
+      continuityFlaggedTransitions: [
+        { previousShotId: 'shot_201', shotId: 'shot_202', continuityScore: 4, hardViolationCodes: ['camera_axis_flip'] },
+      ],
+      motionPlan: [
+        { shotId: 'shot_201', shotType: 'dialogue_medium' },
+        { shotId: 'shot_202', shotType: 'fight_wide' },
+      ],
+    }
+  );
+
+  assert.equal(entry.preferredProvider, 'happyhorse');
+  assert.equal(entry.bridgeType, 'motion_carry');
+  assert.equal(entry.continuityRisk, 'high');
+  assert.equal(entry.bridgeGenerationMode, 'image_to_video_bridge');
+  assert.equal(entry.continuityStrategy, 'image_reference_bridge');
+  assert.equal(entry.strategyReason, 'provider_lacks_first_last_frame_support_using_image_reference_bridge');
+  assert.equal(entry.providerCapabilities.supportsFirstLastFrame, false);
+});
+
+test('buildBridgeShotPlan allows HappyHorse first-last mode only when capability flag is explicitly enabled', () => {
+  const [entry] = __testables.buildBridgeShotPlan(
+    [
+      {
+        id: 'shot_211',
+        scene: '长街',
+        action: '主角转身拔刀',
+        mood: '紧绷',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+      {
+        id: 'shot_212',
+        scene: '长街',
+        action: '他前冲挥刀，刀锋压向敌人',
+        mood: '爆发',
+        characters: [{ episodeCharacterId: 'char_hero', name: '主角' }],
+      },
+    ],
+    {
+      videoProvider: 'happyhorse',
+      env: { HAPPYHORSE_SUPPORTS_FIRST_LAST_FRAME: 'true' },
+      continuityFlaggedTransitions: [
+        { previousShotId: 'shot_211', shotId: 'shot_212', continuityScore: 4, hardViolationCodes: ['camera_axis_flip'] },
+      ],
+      motionPlan: [
+        { shotId: 'shot_211', shotType: 'dialogue_medium' },
+        { shotId: 'shot_212', shotType: 'fight_wide' },
+      ],
+    }
+  );
+
+  assert.equal(entry.bridgeGenerationMode, 'first_last_keyframe');
+  assert.equal(entry.continuityStrategy, 'first_last_frame_bridge');
+  assert.equal(entry.providerCapabilities.supportsFirstLastFrame, true);
+});
+
 test('buildBridgeShotPlan skips flagged cuts that are internal to an already planned sequence span', () => {
   const bridgePlan = __testables.buildBridgeShotPlan(
     [

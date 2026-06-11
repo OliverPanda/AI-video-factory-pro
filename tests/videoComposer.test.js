@@ -58,6 +58,29 @@ test('buildCompositionPlan prefers generated video clips over animation clips wh
   ]);
 });
 
+test('buildCompositionPlan prefers lipsync clip over generated video for dialogue shots', () => {
+  const shots = [{ id: 'shot_1', dialogue: '你来了。', duration: 4 }];
+  const imageResults = [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }];
+  const videoClips = [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-generated.mp4', durationSec: 4 }];
+  const lipsyncClips = [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', durationSec: 4 }];
+
+  const plan = buildCompositionPlan(shots, imageResults, [], [], videoClips, [], lipsyncClips);
+
+  assert.equal(plan[0].visualType, 'lipsync_clip');
+  assert.equal(plan[0].videoPath, '/tmp/shot_1-lipsync.mp4');
+});
+
+test('buildCompositionPlan keeps generated video over lipsync for non-dialogue shots', () => {
+  const shots = [{ id: 'shot_1', dialogue: '', duration: 4 }];
+  const imageResults = [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }];
+  const videoClips = [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-generated.mp4', durationSec: 4 }];
+  const lipsyncClips = [{ shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', durationSec: 4 }];
+
+  const plan = buildCompositionPlan(shots, imageResults, [], [], videoClips, [], lipsyncClips);
+
+  assert.equal(plan[0].visualType, 'generated_video_clip');
+});
+
 test('buildCompositionPlan falls back to static image when no animation clip exists', () => {
   const shots = [{ id: 'shot_2', dialogue: '', duration: 3 }];
   const imageResults = [
@@ -120,6 +143,8 @@ test('collectExistingAudioItems skips silent shots without calling existsSync on
       shotId: 'shot_1',
       audioPath: '/tmp/shot_1.mp3',
       offsetMs: 0,
+      gainDb: 0,
+      source: 'dialogue',
     },
   ]);
 });
@@ -136,6 +161,34 @@ test('buildAudioTimeline preserves offsets across mixed audio and silent shots',
     { shotId: 'shot_2', audioPath: null, offsetMs: 2000 },
     { shotId: 'shot_3', audioPath: '/tmp/shot_3.mp3', offsetMs: 5000 },
   ]);
+});
+
+test('collectPackagingAudioItems converts local BGM and SFX cues into delayed mix inputs', () => {
+  const bgmPath = path.join(os.tmpdir(), 'aivf-test-bgm.mp3');
+  const sfxPath = path.join(os.tmpdir(), 'aivf-test-sfx.wav');
+  fs.writeFileSync(bgmPath, 'fake-bgm');
+  fs.writeFileSync(sfxPath, 'fake-sfx');
+  try {
+    const items = __testables.collectPackagingAudioItems(
+      {
+        bgmCues: [{ id: 'bgm_001', path: bgmPath, startSec: 1.2, gainDb: -20 }],
+        sfxCues: [{ id: 'sfx_001', path: sfxPath, atSec: 2.5, gainDb: -10 }],
+      },
+      { allowedRoots: [os.tmpdir()] }
+    );
+
+    assert.deepEqual(items.map((item) => [item.source, item.offsetMs, item.cueId]), [
+      ['bgm', 1200, 'bgm_001'],
+      ['sfx', 2500, 'sfx_001'],
+    ]);
+    const filter = __testables.buildAudioMixFilter(items);
+    assert.match(filter, /adelay=1200\|1200,volume=0\.1/);
+    assert.match(filter, /adelay=2500\|2500,volume=0\.3162/);
+    assert.match(filter, /amix=inputs=2/);
+  } finally {
+    fs.rmSync(bgmPath, { force: true });
+    fs.rmSync(sfxPath, { force: true });
+  }
 });
 
 test('buildVisualSegmentJobs carries animation clips into the segment rendering pipeline', () => {
@@ -196,6 +249,47 @@ test('buildSubtitleFilterArg uses quoted subtitles syntax that fluent-ffmpeg acc
     filterArg,
     "subtitles='D\\:/My-Project/AI-video-factory-pro/output/寒烬宫变/final-video.ass'"
   );
+});
+
+test('composeFromLegacy passes packagingPlan subtitleStyleProfile to subtitle generation', async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-composer-packaging-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const imagePath = path.join(tempRoot, 'shot_1.png');
+  const outputPath = path.join(tempRoot, 'final.mp4');
+  fs.writeFileSync(imagePath, 'fake image');
+
+  let receivedSubtitleOptions = null;
+  await composeFromLegacy(
+    {
+      shots: [{ id: 'shot_1', dialogue: '第一句', durationSec: 2 }],
+      imageResults: [{ shotId: 'shot_1', imagePath, success: true }],
+      audioResults: [],
+      packagingPlan: {
+        subtitleStyleProfile: {
+          fontFamily: 'Noto Sans CJK SC',
+          fontSize: 60,
+          marginV: 120,
+        },
+      },
+    },
+    outputPath,
+    {
+      allowedRoots: [tempRoot],
+      checkFFmpeg: async () => {},
+      generateSubtitleFile: (_plan, _subtitlePath, options) => {
+        receivedSubtitleOptions = options;
+      },
+      mergeWithFFmpeg: async () => {
+        fs.writeFileSync(outputPath, 'fake video');
+      },
+    }
+  );
+
+  assert.deepEqual(receivedSubtitleOptions.subtitleStyleProfile, {
+    fontFamily: 'Noto Sans CJK SC',
+    fontSize: 60,
+    marginV: 120,
+  });
 });
 
 test('buildCompositionPlan prefers lipsync clips over animation clips', () => {

@@ -46,7 +46,12 @@ import { routeActionSequencePackages } from './actionSequenceRouter.js';
 import { generateSequenceClips } from './sequenceClipGenerator.js';
 import { runSequenceQa } from './sequenceQaAgent.js';
 import { composeVideo } from './videoComposer.js';
+import { buildStoryboardContext } from './storyboardContextAgent.js';
+import { runCrossVideoConsistency } from './crossVideoConsistencyAgent.js';
+import { runAvPackaging } from './avPackagingAgent.js';
+import { runPostComposeReview } from './postComposeReviewAgent.js';
 import { createAnimationClip, createKeyframeAsset } from '../domain/assetModel.js';
+import { buildCharacterAssetGovernanceReport } from '../domain/characterAssetGovernance.js';
 import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
@@ -57,6 +62,9 @@ import { createActionSequencePackage, createActionSequencePlanEntry, createSeque
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
 import { writeRunQaOverview } from '../utils/qaSummary.js';
+import { writeCharacterAssetGovernanceArtifacts } from '../utils/characterAssetGovernanceArtifacts.js';
+import { buildCostGovernanceReport, writeCostGovernanceArtifacts } from '../utils/costGovernance.js';
+import { buildHumanReviewQueue, writeHumanReviewQueueArtifacts } from '../utils/humanReviewQueue.js';
 import { ensureProjectVoiceCast, loadVoiceCast } from '../utils/voiceCastStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
@@ -1621,6 +1629,8 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
   const agentNameMap = {
     scriptParser: 'Script Parser',
     characterRegistry: 'Character Registry',
+    characterRefSheetGenerator: 'Character Reference Sheet Generator',
+    characterAssetGovernance: 'Character Asset Governance',
     promptEngineer: 'Prompt Engineer',
     imageGenerator: 'Image Generator',
     consistencyChecker: 'Consistency Checker',
@@ -1645,12 +1655,21 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     actionSequenceRouter: 'Action Sequence Router',
     sequenceClipGenerator: 'Sequence Clip Generator',
     sequenceQaAgent: 'Sequence QA Agent',
+    storyboardContextAgent: 'Storyboard Context Memory',
+    crossVideoConsistencyChecker: 'Cross Video Consistency Checker',
+    crossVideoConsistencyAgent: 'Cross Video Consistency Checker',
+    avPackagingAgent: 'AV Packaging Agent',
     videoComposer: 'Video Composer',
+    postComposeReviewAgent: 'Post Compose Review Agent',
+    costGovernance: 'Cost Governance',
+    humanReviewQueue: 'Human Review Queue',
   };
 
   const orderedKeys = [
     'scriptParser',
     'characterRegistry',
+    'characterRefSheetGenerator',
+    'characterAssetGovernance',
     'promptEngineer',
     'imageGenerator',
     'consistencyChecker',
@@ -1675,7 +1694,13 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     'actionSequenceRouter',
     'sequenceClipGenerator',
     'sequenceQaAgent',
+    'storyboardContextAgent',
+    'crossVideoConsistencyChecker',
+    'avPackagingAgent',
     'videoComposer',
+    'postComposeReviewAgent',
+    'costGovernance',
+    'humanReviewQueue',
   ];
 
   const agentSummaries = orderedKeys
@@ -1723,10 +1748,10 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     ...agentSummaries
       .filter((item) => item.status === 'block')
       .flatMap((item) => (item.blockItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
+    ...normalizeStringList(options.extraTopIssues),
     ...agentSummaries
       .filter((item) => item.status === 'warn')
       .flatMap((item) => (item.warnItems || []).slice(0, 2).map((issue) => `${item.agentName}: ${issue}`)),
-    ...normalizeStringList(options.extraTopIssues),
   ].slice(0, 5);
 
   if (!releasable) {
@@ -1738,7 +1763,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     status === 'pass'
       ? '本轮主要 agent 都已达标'
       : status === 'warn'
-        ? inferenceOverThreshold && warnCount === 0
+        ? inferenceOverThreshold
           ? '本轮可继续交付，但 Seedance 输入补全占比过高'
           : `本轮可继续交付，但有 ${warnCount} 个 agent 需要留意`
         : `本轮有 ${blockCount} 个 agent 处于阻断状态`;
@@ -1747,7 +1772,7 @@ function collectRunQaOverview(loadJSONFn, artifactContext, options = {}) {
     status === 'pass'
       ? '核心成果物已经齐备，当前没有明显阻断问题。'
       : status === 'warn'
-        ? inferenceOverThreshold && warnCount === 0
+        ? inferenceOverThreshold
           ? '主要链路已经跑通，但过多镜头仍依赖系统自动补导演信息，说明上游输入质量不够稳。'
           : '主要链路已经跑通，但仍有风险项需要研发或人工复查。'
         : '至少有一个关键 agent 未达标，需要先修复后再交付。';
@@ -1779,6 +1804,8 @@ export function createDirector(overrides = {}) {
   const deps = {
     parseScript,
     buildCharacterRegistry,
+    buildCharacterAssetGovernanceReport,
+    writeCharacterAssetGovernanceArtifacts,
     buildCorePropRegistry,
     generateCharacterRefSheets:
       overrides.generateCharacterRefSheets || (isNodeTestRuntime() ? (async () => []) : generateCharacterRefSheets),
@@ -1800,6 +1827,10 @@ export function createDirector(overrides = {}) {
     runSeedanceVideo: overrides.runSeedanceVideo || (isNodeTestRuntime() ? createEmptyProviderRun : runSeedanceVideo),
     runSora2Video: overrides.runSora2Video || (isNodeTestRuntime() ? createEmptyProviderRun : runSora2Video),
     runVideoGeneration: overrides.runVideoGeneration || (isNodeTestRuntime() ? createEmptyProviderRun : runVideoGeneration),
+    buildCostGovernanceReport,
+    writeCostGovernanceArtifacts,
+    buildHumanReviewQueue,
+    writeHumanReviewQueueArtifacts,
     runMotionEnhancer,
     runShotQa,
     planBridgeShots,
@@ -1810,6 +1841,10 @@ export function createDirector(overrides = {}) {
     routeActionSequencePackages,
     generateSequenceClips,
     runSequenceQa,
+    buildStoryboardContext,
+    runCrossVideoConsistency,
+    runAvPackaging,
+    runPostComposeReview,
     composeVideo,
     saveJSON,
     loadJSON,
@@ -2101,6 +2136,19 @@ export function createDirector(overrides = {}) {
           applyCharacterRefSheetPaths(characterRegistry, characterRefSheets);
         }
 
+        const characterAssetGovernanceReport = deps.buildCharacterAssetGovernanceReport({
+          projectId,
+          scriptId,
+          episodeId,
+          characterRegistry,
+          characterRefSheets,
+        });
+        deps.writeCharacterAssetGovernanceArtifacts(
+          characterAssetGovernanceReport,
+          artifactContext.agents.characterAssetGovernance
+        );
+        saveState({ characterAssetGovernanceReport, characterRegistry });
+
         let corePropRegistry = Array.isArray(state.corePropRegistry) ? state.corePropRegistry : null;
         if (!corePropRegistry) {
           corePropRegistry = deps.buildCorePropRegistry(shots, {
@@ -2221,10 +2269,11 @@ export function createDirector(overrides = {}) {
           };
         }
 
+        let consistencyResult = state.consistencyResult || { reports: [], needsRegeneration: [] };
         if (!options.skipConsistencyCheck) {
           if (!state.consistencyCheckDone) {
             deps.logger.info('Director', '【Step 4/7】一致性验证...');
-            const { needsRegeneration } = await recordStep(
+            consistencyResult = await recordStep(
               'consistency_check',
               { message: '一致性验证' },
               () =>
@@ -2232,6 +2281,9 @@ export function createDirector(overrides = {}) {
                   artifactContext: artifactContext.agents.consistencyChecker,
                 })
             );
+            const needsRegeneration = Array.isArray(consistencyResult?.needsRegeneration)
+              ? consistencyResult.needsRegeneration
+              : [];
 
             if (needsRegeneration.length > 0) {
               const shouldRegenerateInconsistentImages =
@@ -2304,13 +2356,27 @@ export function createDirector(overrides = {}) {
               }
             }
 
-            saveState({ imageResults, consistencyCheckDone: true });
+            saveState({ imageResults, consistencyResult, consistencyCheckDone: true });
           } else {
             deps.logger.info('Director', '【Step 4/7】使用缓存的一致性检查结果');
             appendStepRun('consistency_check', {
               status: 'cached',
               detail: '使用缓存的一致性检查结果',
             });
+            consistencyResult =
+              state.consistencyResult ||
+              {
+                reports: readJSONSafe(
+                  deps.loadJSON,
+                  path.join(artifactContext.agents.consistencyChecker.outputsDir, 'consistency-report.json'),
+                  []
+                ),
+                needsRegeneration: readJSONSafe(
+                  deps.loadJSON,
+                  path.join(artifactContext.agents.consistencyChecker.outputsDir, 'flagged-shots.json'),
+                  []
+                ),
+              };
           }
         } else {
           deps.logger.info('Director', '【Step 4/7】跳过一致性检查');
@@ -2318,6 +2384,7 @@ export function createDirector(overrides = {}) {
             status: 'skipped',
             detail: '跳过一致性检查',
           });
+          consistencyResult = { reports: [], needsRegeneration: [] };
         }
 
         const shouldSkipContinuityCheck = options.skipContinuityCheck === true || options.skipConsistencyCheck === true;
@@ -2523,6 +2590,56 @@ export function createDirector(overrides = {}) {
           });
         }
 
+        let storyboardContextMemory = state.storyboardContextMemory || null;
+        if (!storyboardContextMemory) {
+          deps.logger.info('Director', '【Step 9.5/15】构建分镜上下文记忆...');
+          storyboardContextMemory = await recordStep('storyboard_context_memory', { message: '构建分镜上下文记忆' }, () =>
+            deps.buildStoryboardContext(
+              {
+                projectId,
+                runId: runJobRef.id,
+                shots,
+                characterRegistry,
+                characterAssetGovernanceReport,
+                motionPlan,
+                performancePlan,
+                imageResults,
+                continuityReport: state.continuityReport || [],
+                continuityFlaggedTransitions: state.continuityFlaggedTransitions || [],
+                videoProviderCapabilities: state.videoProviderCapabilities || {},
+                sourceArtifacts: [
+                  {
+                    path: path.join(artifactContext.agents.imageGenerator.outputsDir, 'image-results.json'),
+                    artifactType: 'image-results',
+                    agent: 'imageGenerator',
+                    version: 'director-v1',
+                    generatedAt: new Date().toISOString(),
+                  },
+                  {
+                    path: path.join(artifactContext.agents.characterAssetGovernance.outputsDir, 'character-asset-governance.json'),
+                    artifactType: 'character-asset-governance',
+                    agent: 'characterAssetGovernance',
+                    version: 'director-v1',
+                    generatedAt: new Date().toISOString(),
+                  },
+                ],
+              },
+              {
+                currentShotId: shots[0]?.id || shots[0]?.shotId || null,
+                tokenBudget: options.storyboardContextTokenBudget,
+                artifactContext: artifactContext.agents.storyboardContextAgent,
+              }
+            )
+          );
+          saveState({ storyboardContextMemory });
+        } else {
+          deps.logger.info('Director', '【Step 9.5/15】使用缓存的分镜上下文记忆');
+          appendStepRun('storyboard_context_memory', {
+            status: 'cached',
+            detail: '使用缓存的分镜上下文记忆',
+          });
+        }
+
         let shotPackages = Array.isArray(state.shotPackages) ? state.shotPackages : null;
         if (!shotPackages) {
           deps.logger.info('Director', '【Step 10/15】路由视频镜头...');
@@ -2572,6 +2689,24 @@ export function createDirector(overrides = {}) {
         const upstreamFailureInsights = buildUpstreamFailureInsights(visualEligibilityReport, preflightQaReport);
         saveState({ upstreamFailureInsights });
 
+        let costGovernanceReport = deps.buildCostGovernanceReport({
+          preflightShotPackages,
+          consistencyNeedsRegeneration: consistencyResult?.needsRegeneration || [],
+          costMetricsState: state.costMetrics,
+          runId: runJobRef.id,
+          policy: options.costPolicy || {},
+        });
+        deps.writeCostGovernanceArtifacts(costGovernanceReport, artifactContext.agents.costGovernance);
+        saveState({ costGovernanceReport, costMetrics: costGovernanceReport?.costMetricsState || state.costMetrics || {} });
+
+        let humanReviewQueue = deps.buildHumanReviewQueue({
+          assetGovernanceReport: characterAssetGovernanceReport || null,
+          consistencyResult,
+          costReport: costGovernanceReport,
+        });
+        deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
+        saveState({ humanReviewQueue });
+
         if (options.stopBeforeVideo) {
           deps.logger.info('Director', '🛑 --stop-before-video：已完成预飞检，提前退出到视频生成前');
           const stopBeforeVideoActionSequencePlan = Array.isArray(state.actionSequencePlan)
@@ -2608,11 +2743,15 @@ export function createDirector(overrides = {}) {
                 ...buildUpstreamFailureTopIssues(upstreamFailureInsights),
                 ...buildPreflightTopIssues(preflightQaReport),
                 ...buildPreflightFixBriefTopIssues(preflightQaReport),
+                ...(costGovernanceReport?.warnings || []).map((item) => `Cost Governance: ${item}`),
+                ...(costGovernanceReport?.blockers || []).map((item) => `Cost Governance: ${item}`),
                 'Director: 已按要求停止在视频生成前，未触发任何视频 API 调用。',
               ],
               summaryAppend: [
                 buildVisualEligibilitySummaryText(visualEligibilityReport),
                 buildUpstreamFailureSummaryText(upstreamFailureInsights),
+                `成本治理：计划视频请求 ${costGovernanceReport?.planned?.videoRequestCount || 0} 个，估算单位 ${costGovernanceReport?.planned?.estimatedUnits?.total || 0}。`,
+                `人审队列：待复核 ${humanReviewQueue?.summary?.openCount || 0} 项。`,
                 '当前只完成到预飞检阶段，后续视频生成尚未执行。',
               ].filter(Boolean).join(' '),
             }),
@@ -2720,6 +2859,23 @@ export function createDirector(overrides = {}) {
             detail: '使用缓存的动态镜头结果',
           });
         }
+
+        costGovernanceReport = deps.buildCostGovernanceReport({
+          preflightShotPackages,
+          consistencyNeedsRegeneration: consistencyResult?.needsRegeneration || [],
+          videoResults: rawVideoResults,
+          costMetricsState: state.costMetrics,
+          runId: runJobRef.id,
+          policy: options.costPolicy || {},
+        });
+        deps.writeCostGovernanceArtifacts(costGovernanceReport, artifactContext.agents.costGovernance);
+        humanReviewQueue = deps.buildHumanReviewQueue({
+          assetGovernanceReport: characterAssetGovernanceReport || null,
+          consistencyResult,
+          costReport: costGovernanceReport,
+        });
+        deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
+        saveState({ costGovernanceReport, costMetrics: costGovernanceReport?.costMetricsState || state.costMetrics || {}, humanReviewQueue });
 
         let enhancedVideoResults = Array.isArray(state.enhancedVideoResults) ? state.enhancedVideoResults : null;
         if (!enhancedVideoResults) {
@@ -3098,6 +3254,98 @@ export function createDirector(overrides = {}) {
           throw new Error(`Lip-sync QA 阻断交付：${(lipsyncReport.blockers || []).join('；')}`);
         }
 
+        let crossVideoConsistencyReport = state.crossVideoConsistencyReport || null;
+        if (!crossVideoConsistencyReport) {
+          deps.logger.info('Director', '【Step 12.25/13】检查跨视频一致性...');
+          crossVideoConsistencyReport = await recordStep('cross_video_consistency', { message: '检查跨视频一致性' }, () =>
+            deps.runCrossVideoConsistency(
+              {
+                projectKey: options.projectKey || project?.projectKey || project?.code || null,
+                videoProvider: getDefaultVideoProvider(),
+                videoResults,
+                bridgeClipResults,
+                sequenceClipResults,
+                lipsyncResults,
+                shotQaReport,
+                bridgeQaReport,
+                sequenceQaReport,
+                consistencyReport: consistencyResult,
+                continuityReport: {
+                  reports: state.continuityReport || [],
+                  flaggedTransitions: state.continuityFlaggedTransitions || [],
+                },
+                lipsyncReport,
+                contextMemory: storyboardContextMemory,
+                videoMetadata: (videoResults || []).map((result) => ({
+                  videoId: result.videoId || result.shotId,
+                  firstShotId: result.shotId,
+                  lastShotId: result.shotId,
+                  provider: result.provider || result.preferredProvider || getDefaultVideoProvider(),
+                  characters: result.characters || [],
+                  scenes: result.scenes || [],
+                  entryPose: result.entryPose || null,
+                  exitPose: result.exitPose || null,
+                  requiredReferenceIds: result.referenceIds || result.references || [],
+                })),
+                sourceArtifacts: [
+                  {
+                    path: path.join(artifactContext.agents.shotQaAgent.outputsDir, 'shot-qa-report.json'),
+                    artifactType: 'shot-qa-report',
+                    agent: 'shotQaAgent',
+                    version: 'director-v1',
+                    generatedAt: new Date().toISOString(),
+                  },
+                ],
+              },
+              {
+                artifactContext: artifactContext.agents.crossVideoConsistencyChecker,
+              }
+            )
+          );
+          saveState({ crossVideoConsistencyReport });
+        } else {
+          deps.logger.info('Director', '【Step 12.25/13】使用缓存的跨视频一致性报告');
+          appendStepRun('cross_video_consistency', {
+            status: 'cached',
+            detail: '使用缓存的跨视频一致性报告',
+          });
+        }
+
+        let avPackagingPlan = state.avPackagingPlan || null;
+        if (!avPackagingPlan) {
+          deps.logger.info('Director', '【Step 12.5/13】生成音画包装计划...');
+          avPackagingPlan = await recordStep('av_packaging', { message: '生成音画包装计划' }, () =>
+            deps.runAvPackaging(
+              {
+                runId: runJobRef.id,
+                shots: normalizedShots,
+                audioResults,
+                ttsQaReport,
+                lipsyncReport,
+                sequenceClips: sequenceClipResults,
+                bridgeClips: bridgeClipResults,
+                options: {
+                  assets: options.avAssets || options.assets || {},
+                  subtitleStyleProfile: options.subtitleStyleProfile,
+                  audioMood: options.audioMood,
+                  fps: options.fps,
+                  resolution: options.resolution,
+                },
+              },
+              {
+                artifactContext: artifactContext.agents.avPackagingAgent,
+              }
+            )
+          );
+          saveState({ avPackagingPlan });
+        } else {
+          deps.logger.info('Director', '【Step 12.5/13】使用缓存的音画包装计划');
+          appendStepRun('av_packaging', {
+            status: 'cached',
+            detail: '使用缓存的音画包装计划',
+          });
+        }
+
         deps.logger.info('Director', '【Step 13/13】合成视频...');
         const outputDir = ensureDir(
           path.join(
@@ -3138,6 +3386,7 @@ export function createDirector(overrides = {}) {
             artifactContext: artifactContext.agents.videoComposer,
             ttsQaReport,
             lipsyncReport,
+            packagingPlan: avPackagingPlan,
           })
         );
         const composeResult = normalizeComposeResult(composeRun, outputPath);
@@ -3147,6 +3396,82 @@ export function createDirector(overrides = {}) {
           throw new Error(
             `Compose 阻断交付：${(composeResult.report?.blockedReasons || []).join('；') || 'unknown compose block'}`
           );
+        }
+
+        let postComposeReview = state.postComposeReview || null;
+        if (!postComposeReview) {
+          const composePlan =
+            composeResult.artifacts?.composePlan ||
+            composeResult.composePlan ||
+            readJSONSafe(deps.loadJSON, composeResult.artifacts?.composePlanUri, {});
+          deps.logger.info('Director', '【Step 13.5/13】生成成片预览后编辑任务包...');
+          postComposeReview = await recordStep('post_compose_review', { message: '生成成片预览后编辑任务包' }, () =>
+            deps.runPostComposeReview(
+              {
+                projectId,
+                runId: runJobRef.id,
+                composeResult,
+                composePlan,
+                shotQaReport,
+                bridgeQaReport,
+                sequenceQaReport,
+                ttsQaReport,
+                lipsyncReport,
+                crossVideoConsistencyReport,
+                avPackagingPlan,
+                costGovernanceReport,
+                userFeedback: options.userPreviewFeedback || options.userFeedback || null,
+                finalVideoPath: finalOutputPath,
+              },
+              {
+                artifactContext: artifactContext.agents.postComposeReviewAgent,
+              }
+            )
+          );
+          const postComposeReviewItems = (postComposeReview.editTaskPack?.humanReview?.items || []).map((item) => ({
+            id: `post_compose_${item.taskId}`,
+            type: 'post_compose_edit_task',
+            priority: item.priority || 'medium',
+            status: 'open',
+            shotId: item.targetRef?.type === 'shot' ? item.targetRef.id : null,
+            reason: item.reason || '成片预览后编辑任务需要确认',
+            suggestedAction: `${item.reviewType || 'approve_or_skip'}: ${item.targetRef?.type || 'unknown'}:${item.targetRef?.id || 'unknown'}`,
+            evidence: ['post-compose-review/edit-task-pack.json'],
+          }));
+          humanReviewQueue = deps.buildHumanReviewQueue({
+            assetGovernanceReport: characterAssetGovernanceReport || null,
+            consistencyResult,
+            costReport: costGovernanceReport,
+            extraItems: postComposeReviewItems,
+          });
+          deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
+          saveState({ postComposeReview, humanReviewQueue });
+        } else {
+          deps.logger.info('Director', '【Step 13.5/13】使用缓存的成片预览后编辑任务包');
+          appendStepRun('post_compose_review', {
+            status: 'cached',
+            detail: '使用缓存的成片预览后编辑任务包',
+          });
+          // 缓存恢复路径：从缓存的 postComposeReview 中重新提取编辑任务，重建人审队列，
+          // 确保断点续跑时成片预览后编辑任务不会从人审界面丢失。
+          const cachedPostComposeReviewItems = (postComposeReview?.editTaskPack?.humanReview?.items || []).map((item) => ({
+            id: `post_compose_${item.taskId}`,
+            type: 'post_compose_edit_task',
+            priority: item.priority || 'medium',
+            status: 'open',
+            shotId: item.targetRef?.type === 'shot' ? item.targetRef.id : null,
+            reason: item.reason || '成片预览后编辑任务需要确认',
+            suggestedAction: `${item.reviewType || 'approve_or_skip'}: ${item.targetRef?.type || 'unknown'}:${item.targetRef?.id || 'unknown'}`,
+            evidence: ['post-compose-review/edit-task-pack.json'],
+          }));
+          humanReviewQueue = deps.buildHumanReviewQueue({
+            assetGovernanceReport: characterAssetGovernanceReport || null,
+            consistencyResult,
+            costReport: costGovernanceReport,
+            extraItems: cachedPostComposeReviewItems,
+          });
+          deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
+          saveState({ humanReviewQueue });
         }
 
         const pipelineSummary = buildPipelineSummaryMetrics({

@@ -7,7 +7,7 @@ import axios from 'axios';
 
 import { checkCharacterConsistency, runConsistencyCheck } from '../src/agents/consistencyChecker.js';
 
-test('runConsistencyCheck marks lead+anchor score 8.2 as warn and emits dual-axis fields', async () => {
+test('runConsistencyCheck marks lead+anchor score 8.2 as pass_with_review and avoids auto regen', async () => {
   const result = await runConsistencyCheck(
     [
       {
@@ -55,21 +55,12 @@ test('runConsistencyCheck marks lead+anchor score 8.2 as warn and emits dual-axi
   assert.equal(result.reports[0].shotConsistencyClass, 'anchor');
   assert.deepEqual(result.reports[0].hardFailureReasons, []);
   assert.deepEqual(result.reports[0].softRiskTags, ['hair_drift']);
-  assert.equal(result.reports[0].qaDecision.status, 'warn');
-  assert.equal(result.reports[0].regenStrategy, 'prompt_tighten');
-  assert.deepEqual(result.needsRegeneration, [
-    {
-      shotId: 'shot_001',
-      reason: '沈清 一致性评分 8.2/10（lead/anchor）',
-      regenStrategy: 'prompt_tighten',
-      hardFailureReasons: [],
-      softRiskTags: ['hair_drift'],
-      suggestion: 'lock hairstyle and robe palette',
-    },
-  ]);
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
+  assert.equal(result.reports[0].regenStrategy, 'none');
+  assert.deepEqual(result.needsRegeneration, []);
 });
 
-test('runConsistencyCheck allows support+complex score 7.1 to pass with soft risks only', async () => {
+test('runConsistencyCheck allows support+complex score 7.1 as low-confidence pass with soft risks only', async () => {
   const result = await runConsistencyCheck(
     [
       {
@@ -107,7 +98,7 @@ test('runConsistencyCheck allows support+complex score 7.1 to pass with soft ris
   );
 
   assert.equal(result.reports[0].shotConsistencyClass, 'complex');
-  assert.equal(result.reports[0].qaDecision.status, 'pass');
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
   assert.equal(result.reports[0].regenStrategy, 'none');
   assert.deepEqual(result.needsRegeneration, []);
 });
@@ -201,7 +192,8 @@ test('runConsistencyCheck matches character images by stable id before display n
   );
 
   assert.equal(result.reports.length, 1);
-  assert.deepEqual(result.needsRegeneration.map((entry) => entry.shotId), ['shot_target']);
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
+  assert.deepEqual(result.needsRegeneration, []);
 });
 
 test('runConsistencyCheck falls back to legacy name matching when image results do not carry structured ids', async () => {

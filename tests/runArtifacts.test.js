@@ -56,6 +56,8 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
     assert.deepEqual(Object.keys(ctx.agents), [
       'scriptParser',
       'characterRegistry',
+      'characterRefSheetGenerator',
+      'characterAssetGovernance',
       'promptEngineer',
       'imageGenerator',
       'consistencyChecker',
@@ -82,7 +84,14 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'actionSequenceRouter',
       'sequenceClipGenerator',
       'sequenceQaAgent',
+      'storyboardContextAgent',
+      'avPackagingAgent',
+      'crossVideoConsistencyChecker',
+      'crossVideoConsistencyAgent',
       'videoComposer',
+      'postComposeReviewAgent',
+      'costGovernance',
+      'humanReviewQueue',
     ]);
 
     const expectedBridgeDirs = {
@@ -96,6 +105,11 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       actionSequenceRouter: '09l-action-sequence-router',
       sequenceClipGenerator: '09m-sequence-clip-generator',
       sequenceQaAgent: '09n-sequence-qa',
+      storyboardContextAgent: '09o-storyboard-context-memory',
+      avPackagingAgent: '09q-av-packaging',
+      crossVideoConsistencyChecker: '10-cross-video-consistency',
+      crossVideoConsistencyAgent: '10-cross-video-consistency',
+      postComposeReviewAgent: '10b-post-compose-review',
     };
     for (const [agentKey, dirName] of Object.entries(expectedBridgeDirs)) {
       const agentContext = ctx.agents[agentKey];

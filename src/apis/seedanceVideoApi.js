@@ -105,45 +105,91 @@ function buildReferenceBindingInstructions(shotPackage = {}) {
   return instructions;
 }
 
+/**
+ * 将结构化 prompt blocks 渲染为叙事流格式的自然语言（v2）
+ *
+ * 设计原则：
+ *   - Seedance 2.0 / HappyHorse 对自然叙事式 prompt 的响应优于 key-value 机械标签
+ *   - 段落式叙事让模型更好地理解画面意图和情绪动机
+ *   - 保留结构化 blocks 作为内部数据，仅最终渲染时转为自然语言
+ *
+ * 叙事流结构：场景氛围 → 人物动作 → 镜头行为 → 连续性约束 → 质量目标
+ */
 function formatStructuredPromptBlocks(promptBlocks = []) {
+  const safeBlocks = Array.isArray(promptBlocks) ? promptBlocks : [];
   const blocksByKey = new Map(
-    promptBlocks.map((block) => [normalizePromptBlockKey(block?.key), String(block?.text || '').trim()]).filter(([, text]) => Boolean(text))
+    safeBlocks
+      .map((block) => [normalizePromptBlockKey(block?.key), String(block?.text || '').trim()])
+      .filter(([, text]) => Boolean(text))
   );
 
-  const orderedSections = [
-    ['subject_action', 'subject and action'],
-    ['scene_environment', 'scene and style'],
-    ['cinematography', 'camera and timing'],
-    ['reference_binding', 'reference binding'],
-    ['cinematic_intent', 'cinematic intent'],
-    ['shot_goal', 'narrative goal'],
-    ['entry_exit', 'entry and exit'],
-    ['timecoded_beats', 'action beats'],
-    ['camera_plan', 'camera plan'],
-    ['blocking', 'blocking'],
-    ['continuity_locks', 'continuity locks'],
-    ['negative_rules', 'negative rules'],
-    ['quality_target', 'quality target'],
-  ];
+  // 叙事流段落，按自然语言逻辑组织
+  const narrativeParagraphs = [];
 
-  const usedKeys = new Set();
-  const sections = [];
-  for (const [key, label] of orderedSections) {
-    const text = blocksByKey.get(key);
-    if (!text) continue;
-    usedKeys.add(key);
-    sections.push(`${label}: ${text}`);
+  // 段落1：场景氛围 + 叙事目标
+  const sceneParts = [];
+  if (blocksByKey.has('scene_environment')) sceneParts.push(blocksByKey.get('scene_environment'));
+  if (blocksByKey.has('cinematic_intent')) sceneParts.push(`The cinematic intent is ${blocksByKey.get('cinematic_intent')}`);
+  if (blocksByKey.has('shot_goal')) sceneParts.push(`This shot aims to ${blocksByKey.get('shot_goal')}`);
+  if (sceneParts.length > 0) {
+    narrativeParagraphs.push(sceneParts.join('. '));
   }
 
-  for (const block of promptBlocks) {
-    const key = normalizePromptBlockKey(block?.key);
-    const text = String(block?.text || '').trim();
-    if (!text || usedKeys.has(key)) continue;
-    const label = key ? key.replace(/_/g, ' ') : 'Additional direction';
-    sections.push(`${label}: ${text}`);
+  // 段落2：人物动作 + 调度
+  const actionParts = [];
+  if (blocksByKey.has('subject_action')) actionParts.push(blocksByKey.get('subject_action'));
+  if (blocksByKey.has('blocking')) actionParts.push(`Character blocking: ${blocksByKey.get('blocking')}`);
+  if (actionParts.length > 0) {
+    narrativeParagraphs.push(actionParts.join('. '));
   }
 
-  return sections.join('. ');
+  // 段落3：镜头行为 + 构图
+  const cameraParts = [];
+  if (blocksByKey.has('cinematography')) cameraParts.push(blocksByKey.get('cinematography'));
+  if (blocksByKey.has('camera_plan')) cameraParts.push(`Camera plan: ${blocksByKey.get('camera_plan')}`);
+  if (blocksByKey.has('timecoded_beats')) {
+    cameraParts.push(`Action beats timeline: ${blocksByKey.get('timecoded_beats')}`);
+  }
+  if (cameraParts.length > 0) {
+    narrativeParagraphs.push(cameraParts.join('. '));
+  }
+
+  // 段落4：连续性约束 + 出入镜
+  const continuityParts = [];
+  if (blocksByKey.has('continuity_locks')) continuityParts.push(`Continuity locks: ${blocksByKey.get('continuity_locks')}`);
+  if (blocksByKey.has('entry_exit')) continuityParts.push(`Entry and exit states: ${blocksByKey.get('entry_exit')}`);
+  if (blocksByKey.has('reference_binding')) continuityParts.push(`Reference binding: ${blocksByKey.get('reference_binding')}`);
+  if (continuityParts.length > 0) {
+    narrativeParagraphs.push(continuityParts.join('. '));
+  }
+
+  // 段落5：负面约束 + 质量目标（放在最后不打断叙事流）
+  const constraintParts = [];
+  if (blocksByKey.has('negative_rules')) constraintParts.push(`Avoid: ${blocksByKey.get('negative_rules')}`);
+  if (blocksByKey.has('quality_target')) constraintParts.push(`Quality target: ${blocksByKey.get('quality_target')}`);
+  if (constraintParts.length > 0) {
+    narrativeParagraphs.push(constraintParts.join('. '));
+  }
+
+  // 兜底：未被以上 5 个段落覆盖的 unknown blocks（保留旧版行为，防止静默丢失自定义 prompt blocks）
+  const knownKeys = new Set([
+    'scene_environment', 'cinematic_intent', 'shot_goal',
+    'subject_action', 'blocking',
+    'cinematography', 'camera_plan', 'timecoded_beats',
+    'continuity_locks', 'entry_exit', 'reference_binding',
+    'negative_rules', 'quality_target',
+  ]);
+  const remainingParts = [];
+  for (const [key, text] of blocksByKey) {
+    if (!knownKeys.has(key)) {
+      remainingParts.push(`${key.replace(/_/g, ' ')}: ${text}`);
+    }
+  }
+  if (remainingParts.length > 0) {
+    narrativeParagraphs.push(remainingParts.join('. '));
+  }
+
+  return narrativeParagraphs.join('\n\n');
 }
 
 async function buildPromptText(shotPackage) {
@@ -745,6 +791,7 @@ export async function createSeedanceVideoClip(shotPackage, outputPath, options =
 
 export const __testables = {
   buildPromptText,
+  formatStructuredPromptBlocks,
   buildSeedanceVideoRequest,
   buildSeedanceBridgeRequest,
   buildSeedanceMultiShotRequest,

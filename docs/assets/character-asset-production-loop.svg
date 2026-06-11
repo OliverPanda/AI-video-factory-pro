@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" width="1400" height="900">
+  <style>
+    text {
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "SimHei", Arial, sans-serif;
+      fill: #111827;
+    }
+    .title { font-size: 30px; font-weight: 700; }
+    .subtitle { font-size: 15px; fill: #6b7280; }
+    .lane-label { font-size: 17px; font-weight: 700; fill: #374151; }
+    .node-title { font-size: 18px; font-weight: 700; }
+    .node-sub { font-size: 14px; fill: #4b5563; }
+    .small { font-size: 12px; fill: #6b7280; }
+    .badge { font-size: 13px; font-weight: 700; }
+    .metric { font-size: 13px; fill: #374151; }
+    .lane { fill-opacity: 0.08; stroke-width: 1.5; stroke-dasharray: 8 6; rx: 14; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="900" fill="#ffffff"/>
+  <text x="48" y="54" class="title">角色资产生产级闭环：资产治理 + 质量评估 + 人机协同</text>
+  <text x="48" y="82" class="subtitle">目标：让角色从一次性 prompt 变成可审计、可版本化、可复用、可回滚的长期生产资产。</text>
+
+  <rect x="48" y="112" width="1304" height="208" class="lane" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="72" y="144" class="lane-label">一、资产治理层：先定义“谁可以复用、复用哪个版本、复用到什么程度”</text>
+
+  <rect x="88" y="172" width="220" height="108" rx="8" fill="#ffffff" stroke="#60a5fa" stroke-width="1.5"/>
+  <rect x="104" y="188" width="60" height="24" rx="12" fill="#dbeafe"/>
+  <text x="134" y="205" text-anchor="middle" class="badge" fill="#2563eb">Schema</text>
+  <text x="180" y="206" class="node-title">角色实体模型</text>
+  <text x="104" y="232" class="node-sub">characterBibleId</text>
+  <text x="104" y="252" class="node-sub">episodeCharacterId</text>
+  <text x="104" y="272" class="node-sub">别名、关系、主临时标记</text>
+
+  <rect x="368" y="172" width="220" height="108" rx="8" fill="#ffffff" stroke="#60a5fa" stroke-width="1.5"/>
+  <rect x="384" y="188" width="60" height="24" rx="12" fill="#dbeafe"/>
+  <text x="414" y="205" text-anchor="middle" class="badge" fill="#2563eb">Version</text>
+  <text x="460" y="206" class="node-title">版本化资产库</text>
+  <text x="384" y="232" class="node-sub">canonical refs / best frame</text>
+  <text x="384" y="252" class="node-sub">三视图、服装、声音、禁漂移词</text>
+  <text x="384" y="272" class="node-sub">支持锁定、升级、回滚</text>
+
+  <rect x="648" y="172" width="220" height="108" rx="8" fill="#ffffff" stroke="#60a5fa" stroke-width="1.5"/>
+  <rect x="664" y="188" width="60" height="24" rx="12" fill="#dbeafe"/>
+  <text x="694" y="205" text-anchor="middle" class="badge" fill="#2563eb">Policy</text>
+  <text x="740" y="206" class="node-title">复用策略矩阵</text>
+  <text x="664" y="232" class="node-sub">主角：强绑定 + 高阈值</text>
+  <text x="664" y="252" class="node-sub">配角：中绑定 + 人审兜底</text>
+  <text x="664" y="272" class="node-sub">临时角色：单集局部资产</text>
+
+  <rect x="928" y="172" width="220" height="108" rx="8" fill="#ffffff" stroke="#60a5fa" stroke-width="1.5"/>
+  <rect x="944" y="188" width="60" height="24" rx="12" fill="#dbeafe"/>
+  <text x="974" y="205" text-anchor="middle" class="badge" fill="#2563eb">Matrix</text>
+  <text x="1020" y="206" class="node-title">模型能力矩阵</text>
+  <text x="944" y="232" class="node-sub">每个 provider 的参考图能力</text>
+  <text x="944" y="252" class="node-sub">I2V / 首尾帧 / LoRA / 人脸锁定</text>
+  <text x="944" y="272" class="node-sub">生成前自动选择约束方案</text>
+
+  <rect x="1192" y="172" width="120" height="108" rx="8" fill="#ffffff" stroke="#60a5fa" stroke-width="1.5"/>
+  <rect x="1208" y="188" width="54" height="24" rx="12" fill="#dbeafe"/>
+  <text x="1235" y="205" text-anchor="middle" class="badge" fill="#2563eb">Audit</text>
+  <text x="1208" y="232" class="node-sub">资产血缘</text>
+  <text x="1208" y="252" class="node-sub">谁改了什么</text>
+  <text x="1208" y="272" class="node-sub">可追溯复盘</text>
+
+  <path d="M 308 226 L 368 226" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M 588 226 L 648 226" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M 868 226 L 928 226" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M 1148 226 L 1192 226" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <rect x="48" y="352" width="1304" height="214" class="lane" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="72" y="384" class="lane-label">二、生产执行层：每个镜头都绑定角色资产，而不是只写角色名字</text>
+
+  <rect x="88" y="414" width="178" height="110" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+  <rect x="104" y="430" width="54" height="24" rx="12" fill="#dcfce7"/>
+  <text x="131" y="447" text-anchor="middle" class="badge" fill="#16a34a">Input</text>
+  <text x="174" y="448" class="node-title">剧本导入</text>
+  <text x="104" y="474" class="node-sub">抽角色、别名、出场频次</text>
+  <text x="104" y="494" class="node-sub">识别跨集复现候选</text>
+
+  <rect x="334" y="414" width="178" height="110" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+  <rect x="350" y="430" width="54" height="24" rx="12" fill="#dcfce7"/>
+  <text x="377" y="447" text-anchor="middle" class="badge" fill="#16a34a">Link</text>
+  <text x="420" y="448" class="node-title">角色关联</text>
+  <text x="350" y="474" class="node-sub">名称 + 语义 + 关系图</text>
+  <text x="350" y="494" class="node-sub">低置信度进入人审</text>
+
+  <rect x="580" y="414" width="178" height="110" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+  <rect x="596" y="430" width="54" height="24" rx="12" fill="#dcfce7"/>
+  <text x="623" y="447" text-anchor="middle" class="badge" fill="#16a34a">Bind</text>
+  <text x="666" y="448" class="node-title">镜头绑定</text>
+  <text x="596" y="474" class="node-sub">shot.characterBibleId</text>
+  <text x="596" y="494" class="node-sub">referenceImages 注入</text>
+
+  <rect x="826" y="414" width="178" height="110" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+  <rect x="842" y="430" width="54" height="24" rx="12" fill="#dcfce7"/>
+  <text x="869" y="447" text-anchor="middle" class="badge" fill="#16a34a">Gen</text>
+  <text x="912" y="448" class="node-title">图像/视频生成</text>
+  <text x="842" y="474" class="node-sub">seed 仅辅助复现</text>
+  <text x="842" y="494" class="node-sub">主约束来自资产引用</text>
+
+  <rect x="1072" y="414" width="178" height="110" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+  <rect x="1088" y="430" width="54" height="24" rx="12" fill="#dcfce7"/>
+  <text x="1115" y="447" text-anchor="middle" class="badge" fill="#16a34a">Out</text>
+  <text x="1158" y="448" class="node-title">集输出</text>
+  <text x="1088" y="474" class="node-sub">分镜图、视频、音频</text>
+  <text x="1088" y="494" class="node-sub">附带 QA 与资产版本摘要</text>
+
+  <path d="M 266 469 L 334 469" fill="none" stroke="#16a34a" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+  <path d="M 512 469 L 580 469" fill="none" stroke="#16a34a" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+  <path d="M 758 469 L 826 469" fill="none" stroke="#16a34a" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+  <path d="M 1004 469 L 1072 469" fill="none" stroke="#16a34a" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+
+  <rect x="48" y="598" width="1304" height="214" class="lane" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="72" y="630" class="lane-label">三、质量评估 + 人机协同：用分数做自动门禁，用人审处理身份歧义和审美判断</text>
+
+  <rect x="88" y="660" width="218" height="108" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.5"/>
+  <rect x="104" y="676" width="54" height="24" rx="12" fill="#fed7aa"/>
+  <text x="131" y="693" text-anchor="middle" class="badge" fill="#ea580c">Score</text>
+  <text x="174" y="694" class="node-title">一致性评分</text>
+  <text x="104" y="720" class="metric">人脸/发型/服装/体型/声音</text>
+  <text x="104" y="740" class="metric">跨镜头连续性 + 漂移检测</text>
+
+  <path d="M 426 660 L 514 714 L 426 768 L 338 714 Z" fill="#ffffff" stroke="#fb923c" stroke-width="1.5"/>
+  <text x="426" y="704" text-anchor="middle" class="node-title">是否达标？</text>
+  <text x="426" y="726" text-anchor="middle" class="small">按角色等级使用不同阈值</text>
+
+  <rect x="580" y="660" width="218" height="108" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.5"/>
+  <rect x="596" y="676" width="54" height="24" rx="12" fill="#fed7aa"/>
+  <text x="623" y="693" text-anchor="middle" class="badge" fill="#ea580c">Review</text>
+  <text x="666" y="694" class="node-title">人审工作台</text>
+  <text x="596" y="720" class="metric">合并/拆分角色、选 canonical</text>
+  <text x="596" y="740" class="metric">标记失败原因与重生成策略</text>
+
+  <rect x="872" y="660" width="218" height="108" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.5"/>
+  <rect x="888" y="676" width="54" height="24" rx="12" fill="#fed7aa"/>
+  <text x="915" y="693" text-anchor="middle" class="badge" fill="#ea580c">Fix</text>
+  <text x="958" y="694" class="node-title">重锚重生成</text>
+  <text x="888" y="720" class="metric">换参考图、锁首尾帧、降级模型</text>
+  <text x="888" y="740" class="metric">限制次数、记录成本与原因</text>
+
+  <rect x="1164" y="660" width="148" height="108" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.5"/>
+  <rect x="1180" y="676" width="54" height="24" rx="12" fill="#fed7aa"/>
+  <text x="1207" y="693" text-anchor="middle" class="badge" fill="#ea580c">Write</text>
+  <text x="1180" y="720" class="metric">通过帧回写</text>
+  <text x="1180" y="740" class="metric">升级资产版本</text>
+  <text x="1180" y="760" class="metric">形成审计记录</text>
+
+  <path d="M 1004 524 L 1004 580 L 197 580 L 197 660" fill="none" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <rect x="562" y="568" width="132" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="628" y="583" text-anchor="middle" class="small">生成结果进入 QA</text>
+
+  <path d="M 306 714 L 338 714" fill="none" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <path d="M 514 698 L 540 632 L 1161 632 L 1161 524" fill="none" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <rect x="760" y="622" width="50" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="785" y="637" text-anchor="middle" class="small">通过</text>
+  <path d="M 514 730 L 580 714" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <rect x="526" y="724" width="42" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="547" y="739" text-anchor="middle" class="small">失败</text>
+  <path d="M 798 714 L 872 714" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <path d="M 1090 714 L 1164 714" fill="none" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <path d="M 1238 660 L 1238 320" fill="none" stroke="#9333ea" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow-purple)"/>
+  <rect x="1260" y="340" width="116" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="1318" y="355" text-anchor="middle" class="small">回写资产治理层</text>
+  <path d="M 981 660 L 981 556 L 915 556 L 915 524" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow-red)"/>
+  <rect x="908" y="548" width="128" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="972" y="563" text-anchor="middle" class="small">带新锚点重试</text>
+
+  <rect x="88" y="836" width="726" height="36" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
+  <text x="108" y="859" class="node-sub">落地优先级：先做 ID 绑定与版本化资产库，再做自动 QA 门禁，最后补人审台与资产血缘审计。</text>
+
+  <g transform="translate(956, 826)">
+    <path d="M 0 10 L 46 10" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+    <text x="58" y="14" class="small">治理配置</text>
+    <path d="M 0 34 L 46 34" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+    <text x="58" y="38" class="small">生产主流程</text>
+    <path d="M 170 10 L 216 10" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+    <text x="228" y="14" class="small">质量评估</text>
+    <path d="M 170 34 L 216 34" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+    <text x="228" y="38" class="small">失败反馈</text>
+  </g>
+</svg>

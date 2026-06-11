@@ -39,7 +39,7 @@ function buildConsistencyMarkdown(reports, needsRegeneration, qaDecisionCounts, 
     '',
     `- Checked Characters: ${reports.length}`,
     `- Flagged Shots: ${needsRegeneration.length}`,
-    `- Decision Counts: pass=${qaDecisionCounts.pass || 0}, warn=${qaDecisionCounts.warn || 0}, block=${qaDecisionCounts.block || 0}`,
+    `- Decision Counts: pass=${qaDecisionCounts.pass || 0}, pass_with_review=${qaDecisionCounts.pass_with_review || 0}, warn=${qaDecisionCounts.warn || 0}, block=${qaDecisionCounts.block || 0}`,
     `- Regen Strategy Counts: none=${regenStrategyCounts.none || 0}, prompt_tighten=${regenStrategyCounts.prompt_tighten || 0}, reanchor_regenerate=${regenStrategyCounts.reanchor_regenerate || 0}`,
     '',
   ];
@@ -182,10 +182,10 @@ function pickMostStrictShotClass(shotClasses = []) {
 }
 
 function summarizeQaDecisionCounts(reports = []) {
-  const counts = { pass: 0, warn: 0, block: 0 };
+  const counts = { pass: 0, pass_with_review: 0, warn: 0, block: 0 };
   for (const report of reports) {
     const status = report?.qaDecision?.status;
-    if (status === 'pass' || status === 'warn' || status === 'block') {
+    if (status === 'pass' || status === 'pass_with_review' || status === 'warn' || status === 'block') {
       counts[status] += 1;
     }
   }
@@ -487,7 +487,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
         softRiskTags: normalizedReport.softRiskTags,
       });
 
-      if (shotDecision.status === 'pass') {
+      if (shotDecision.status === 'pass' || shotDecision.status === 'pass_with_review') {
         return;
       }
 
@@ -577,7 +577,9 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
       ],
     });
     const checkerStatus =
-      qaDecisionCounts.block > 0 ? 'block' : (qaDecisionCounts.warn > 0 ? 'warn' : 'pass');
+      qaDecisionCounts.block > 0
+        ? 'block'
+        : (qaDecisionCounts.warn > 0 || qaDecisionCounts.pass_with_review > 0 ? 'warn' : 'pass');
     writeAgentQaSummary(
       {
         agentKey: 'consistencyChecker',
@@ -600,10 +602,12 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
           needsRegeneration.length > 0
             ? [
               `待重生成镜头数：${needsRegeneration.length}`,
-              `判定分布：pass=${qaDecisionCounts.pass}, warn=${qaDecisionCounts.warn}, block=${qaDecisionCounts.block}`,
+              `判定分布：pass=${qaDecisionCounts.pass}, pass_with_review=${qaDecisionCounts.pass_with_review}, warn=${qaDecisionCounts.warn}, block=${qaDecisionCounts.block}`,
               `策略分布：prompt_tighten=${regenStrategyCounts.prompt_tighten}, reanchor_regenerate=${regenStrategyCounts.reanchor_regenerate}`,
             ]
-            : [],
+            : (qaDecisionCounts.pass_with_review > 0
+              ? [`低置信放行角色数：${qaDecisionCounts.pass_with_review}`]
+              : []),
         blockItems:
           qaDecisionCounts.block > 0
             ? [`阻断角色数：${qaDecisionCounts.block}`]

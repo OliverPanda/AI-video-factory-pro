@@ -20,6 +20,7 @@
 - 排障、验收、接手流程：[docs/sop/README.md](docs/sop/README.md)
 - 测试与 QA 验收：[docs/sop/qa-acceptance.md](docs/sop/qa-acceptance.md)
 - 角色身份统一规范：[docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md](docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md)
+- 角色资产生产级闭环：[docs/agents/production-loop-governance.md](docs/agents/production-loop-governance.md)
 
 ## 运行模式
 

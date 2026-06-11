@@ -51,8 +51,24 @@ async function translateWithLlm(text) {
     [
       {
         role: 'system',
-        content:
-          'You are a translator for AI image/video generation prompts. Translate the following text to English. Keep all English words, technical terms, and proper nouns unchanged. Output ONLY the translated text, no explanation, no quotes.',
+        content: [
+          'You are a professional translator specializing in AI image and video generation prompts.',
+          'Translate the following text to English with strict rules:',
+          '',
+          'RULES:',
+          '1. Output ONLY the translated English text — no explanation, no quotes, no markdown, no preamble.',
+          '2. PRESERVE these terms EXACTLY as-is (do NOT translate, do NOT modify):',
+          '   - Camera terms: close-up, medium shot, wide shot, extreme close-up, establishing shot, over-the-shoulder, POV, two-shot, group shot, single shot, master shot',
+          '   - Movement terms: dolly zoom, whip pan, rack focus, tracking shot, steadicam, handheld, locked-off, push-in, pull-out, crane up, crane down, dutch angle, low angle, high angle, birds-eye view, worms-eye view',
+          '   - Technical terms: depth of field, bokeh, shallow focus, deep focus, rule of thirds, leading lines, negative space, frame within frame, symmetrical composition, golden ratio',
+          '   - Transition terms: match cut, jump cut, fade, dissolve, wipe, crossfade',
+          '   - Quality terms: photorealistic, cinematic, film grain, 35mm, anamorphic, HDR, key light, rim light, fill light, volumetric light, global illumination, subsurface scattering',
+          '   - Model names: Seedance, HappyHorse, Flux, SD3, Sora, Kling',
+          '3. Translate Chinese descriptive text naturally into cinematic English.',
+          '4. Keep ALL existing English words, technical terms, proper nouns, and numbers unchanged.',
+          '5. Maintain the original STRUCTURE: if input is comma-separated tags, output comma-separated tags; if input is natural language prose, output natural language prose.',
+          '6. For character names in Chinese, romanize them (pinyin) rather than translating their meaning.',
+        ].join('\n'),
       },
       { role: 'user', content: text },
     ],

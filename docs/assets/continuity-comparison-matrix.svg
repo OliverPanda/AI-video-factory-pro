@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600">
+<style>text{font-family:'Microsoft YaHei','SimSun','DengXian','Arial',sans-serif;fill:#111827} .h{font-weight:700;font-size:15px} .c{font-size:13px} .s{font-size:12px;fill:#6b7280}</style>
+<rect width="1200" height="600" fill="#ffffff"/>
+<text x="40" y="44" font-size="22" font-weight="700">&#x8FDE;&#x8D2F;&#x6027;&#x65B9;&#x6848;&#x8BC4;&#x5206;&#x5BF9;&#x6BD4;&#x77E9;&#x9635;</text>
+<text x="40" y="70" class="s">&#x57FA;&#x4E8E;&#x672C;&#x5730;&#x4EE3;&#x7801;&#x4E0E; AIYOU GitHub &#x4ED3;&#x5E93;&#x53EA;&#x8BFB;&#x8BC4;&#x5BA1;&#xFF1B;&#x5206;&#x6570;&#x662F;&#x67B6;&#x6784;&#x6210;&#x719F;&#x5EA6;&#xFF0C;&#x4E0D;&#x7B49;&#x540C;&#x6700;&#x7EC8;&#x6210;&#x7247;&#x5BA1;&#x7F8E;&#x5206;&#x3002;</text>
+<rect x="40" y="105" width="190" height="50" fill="#eff6ff" stroke="#bfdbfe"/>
+<text x="54" y="136" class="h">&#x7EF4;&#x5EA6;</text>
+<rect x="230" y="105" width="470" height="50" fill="#eff6ff" stroke="#bfdbfe"/>
+<text x="244" y="136" class="h">AI-video-factory-pro</text>
+<rect x="700" y="105" width="470" height="50" fill="#eff6ff" stroke="#bfdbfe"/>
+<text x="714" y="136" class="h">AIYOU_open-ai-video-drama-generator</text>
+<rect x="40" y="155" width="190" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="54" y="177" class="c">&#x67B6;&#x6784;&#x5B9A;&#x4F4D;</text>
+<rect x="230" y="155" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="244" y="177" class="c">&#x81EA;&#x52A8;&#x5316;&#x751F;&#x4EA7;&#x7EBF; / Director &#x7F16;&#x6392;</text>
+<rect x="700" y="155" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="714" y="177" class="c">&#x8282;&#x70B9;&#x5F0F;&#x521B;&#x4F5C;&#x5DE5;&#x5177; / &#x7528;&#x6237;&#x7F16;&#x6392;</text>
+<rect x="40" y="211" width="190" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="54" y="233" class="c">&#x8DE8;&#x955C;&#x5934;&#x68C0;&#x6D4B;</text>
+<rect x="230" y="211" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="244" y="233" class="c">Continuity Checker: contract + s</text>
+<text x="244" y="250" class="c">oft review + repair-plan</text>
+<rect x="700" y="211" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="714" y="233" class="c">&#x65E0;&#x72EC;&#x7ACB; continuity checker&#xFF0C;&#x4E3B;&#x8981;&#x9760; promp</text>
+<text x="714" y="250" class="c">t &#x4E0E;&#x4EBA;&#x5DE5;&#x9009;&#x62E9;</text>
+<rect x="40" y="267" width="190" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="54" y="289" class="c">&#x52A8;&#x4F5C;&#x8FDE;&#x7EED;</text>
+<rect x="230" y="267" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="244" y="289" class="c">Action Sequence: entry/exit + Se</text>
+<text x="244" y="306" class="c">quence QA</text>
+<rect x="700" y="267" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="714" y="289" class="c">Smart Sequence / FIRST_LAST_FRAM</text>
+<text x="714" y="306" class="c">E</text>
+<rect x="40" y="323" width="190" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="54" y="345" class="c">&#x6BB5;&#x95F4;&#x8F6C;&#x573A;</text>
+<rect x="230" y="323" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="244" y="345" class="c">Bridge Chain&#xFF1A;&#x9AD8;&#x98CE;&#x9669; cut -> QA -> co</text>
+<text x="244" y="362" class="c">mposer</text>
+<rect x="700" y="323" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="714" y="345" class="c">&#x8F6C;&#x573A; prompt &#x53EF;&#x7F16;&#x8F91;&#xFF0C;&#x7F3A;&#x5C11;&#x81EA;&#x52A8;&#x98CE;&#x9669;&#x8BC6;&#x522B;</text>
+<rect x="40" y="379" width="190" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="54" y="401" class="c">&#x89D2;&#x8272;&#x4E00;&#x81F4;</text>
+<rect x="230" y="379" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="244" y="401" class="c">Registry + Consistency QA + refe</text>
+<text x="244" y="418" class="c">rence image</text>
+<rect x="700" y="379" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="714" y="401" class="c">&#x4E09;&#x89C6;&#x56FE;&#x53EF;&#x878D;&#x5408;&#xFF0C;&#x7F3A;&#x5C11; ID-first QA</text>
+<rect x="40" y="435" width="190" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="54" y="457" class="c">&#x53EF;&#x89C2;&#x6D4B;&#x6027;</text>
+<rect x="230" y="435" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="244" y="457" class="c">run package, metrics, qa-overvie</text>
+<text x="244" y="474" class="c">w</text>
+<rect x="700" y="435" width="470" height="56" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="714" y="457" class="c">API log + &#x8282;&#x70B9;&#x72B6;&#x6001;&#xFF0C;&#x751F;&#x4EA7;&#x5BA1;&#x8BA1;&#x8F83;&#x5F31;</text>
+<rect x="40" y="491" width="190" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="54" y="513" class="c">&#x9002;&#x5408;&#x573A;&#x666F;</text>
+<rect x="230" y="491" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="244" y="513" class="c">&#x6279;&#x91CF;&#x751F;&#x4EA7;&#x3001;&#x53EF;&#x9A8C;&#x6536; pipeline</text>
+<rect x="700" y="491" width="470" height="56" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="714" y="513" class="c">&#x521B;&#x4F5C;&#x8005;&#x63A2;&#x7D22;&#x3001;&#x4F4E;&#x95E8;&#x69DB;&#x642D;&#x79EF;&#x6728;</text>
+<rect x="260" y="571" width="280" height="54" rx="10" fill="#16a34a" fill-opacity="0.10" stroke="#16a34a"/>
+<text x="278" y="594" class="s">&#x7EFC;&#x5408;&#x8FDE;&#x8D2F;&#x6027;&#x67B6;&#x6784;&#x6210;&#x719F;&#x5EA6;</text>
+<text x="278" y="614" font-size="20" font-weight="700" fill="#16a34a">AI-video-factory-pro&#xFF1A;8.1 / 10</text>
+<rect x="620" y="571" width="280" height="54" rx="10" fill="#ea580c" fill-opacity="0.10" stroke="#ea580c"/>
+<text x="638" y="594" class="s">&#x7EFC;&#x5408;&#x8FDE;&#x8D2F;&#x6027;&#x67B6;&#x6784;&#x6210;&#x719F;&#x5EA6;</text>
+<text x="638" y="614" font-size="20" font-weight="700" fill="#ea580c">AIYOU&#xFF1A;5.6 / 10</text>
+</svg>

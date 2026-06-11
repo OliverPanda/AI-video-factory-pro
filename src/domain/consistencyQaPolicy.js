@@ -10,6 +10,7 @@ const THRESHOLD_MATRIX = {
     complex: 7.0,
   },
 };
+const DEFAULT_REVIEW_BAND = 0.4;
 
 function toLowerString(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -93,11 +94,29 @@ export function evaluateConsistencyDecision(input = {}) {
   const shotClass = normalizeShotClass(toLowerString(input.shotConsistencyClass));
   const threshold = THRESHOLD_MATRIX[priority][shotClass] ?? THRESHOLD_MATRIX.support.complex;
   const score = Number.isFinite(input.overallScore) ? input.overallScore : Number.NEGATIVE_INFINITY;
-  const status = score < threshold ? 'warn' : 'pass';
+  const softRiskTags = Array.isArray(input.softRiskTags) ? input.softRiskTags : [];
+  const reviewBand = Number.isFinite(input.reviewBand) ? Math.max(input.reviewBand, 0) : DEFAULT_REVIEW_BAND;
+
+  // 判定区间（三条线）：
+  //   lowConfidenceFloor = threshold - reviewBand        ← 低于此线 → warn
+  //   threshold                                          ← 低于此线 → pass_with_review
+  //   cleanPassLine = threshold + reviewBand             ← 低于此线 OR 有 softRiskTags → pass_with_review
+  // 只有 score ≥ cleanPassLine 且无软风险标签的才直接 pass。
+  const lowConfidenceFloor = threshold - reviewBand;
+  const cleanPassLine = threshold + reviewBand;
+  let status = 'pass';
+
+  if (score < lowConfidenceFloor) {
+    status = 'warn';
+  } else if (score < cleanPassLine || softRiskTags.length > 0) {
+    status = 'pass_with_review';
+  }
 
   return {
     status,
     threshold,
+    lowConfidenceFloor,
+    reviewBand,
     regenStrategy: status === 'warn' ? 'prompt_tighten' : 'none',
   };
 }

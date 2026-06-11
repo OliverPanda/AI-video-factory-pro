@@ -9,6 +9,7 @@ export const AGENT_ARTIFACT_LAYOUT = {
   scriptParser: '01-script-parser',
   characterRegistry: '02-character-registry',
   characterRefSheetGenerator: '02b-character-ref-sheets',
+  characterAssetGovernance: '02c-character-asset-governance',
   promptEngineer: '03-prompt-engineer',
   imageGenerator: '04-image-generator',
   consistencyChecker: '05-consistency-checker',
@@ -35,7 +36,14 @@ export const AGENT_ARTIFACT_LAYOUT = {
   actionSequenceRouter: '09l-action-sequence-router',
   sequenceClipGenerator: '09m-sequence-clip-generator',
   sequenceQaAgent: '09n-sequence-qa',
+  storyboardContextAgent: '09o-storyboard-context-memory',
+  avPackagingAgent: '09q-av-packaging',
+  crossVideoConsistencyChecker: '10-cross-video-consistency',
+  crossVideoConsistencyAgent: '10-cross-video-consistency',
   videoComposer: '10-video-composer',
+  postComposeReviewAgent: '10b-post-compose-review',
+  costGovernance: '11-cost-governance',
+  humanReviewQueue: '12-human-review-queue',
 };
 
 function createAgentContext(runDir, agentDirName) {
@@ -241,6 +249,8 @@ export function createRunArtifactContext(input) {
     agents: {
       scriptParser: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.scriptParser),
       characterRegistry: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRegistry),
+      characterRefSheetGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRefSheetGenerator),
+      characterAssetGovernance: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterAssetGovernance),
       promptEngineer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.promptEngineer),
       imageGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.imageGenerator),
       consistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.consistencyChecker),
@@ -267,7 +277,14 @@ export function createRunArtifactContext(input) {
       actionSequenceRouter: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.actionSequenceRouter),
       sequenceClipGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sequenceClipGenerator),
       sequenceQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sequenceQaAgent),
+      storyboardContextAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.storyboardContextAgent),
+      avPackagingAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.avPackagingAgent),
+      crossVideoConsistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.crossVideoConsistencyChecker),
+      crossVideoConsistencyAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.crossVideoConsistencyAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
+      postComposeReviewAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.postComposeReviewAgent),
+      costGovernance: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.costGovernance),
+      humanReviewQueue: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.humanReviewQueue),
     },
   };
 }

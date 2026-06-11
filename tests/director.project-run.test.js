@@ -1352,6 +1352,7 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'plan_director_packs',
         'plan_motion',
         'plan_performance',
+        'storyboard_context_memory',
         'route_video_shots',
         'preflight_qa',
         'generate_video_clips',
@@ -1369,7 +1370,10 @@ test('runEpisodePipeline records a run job with major step task runs', async () 
         'generate_audio',
         'tts_qa',
         'lipsync',
+        'cross_video_consistency',
+        'av_packaging',
         'compose_video',
+        'post_compose_review',
       ]
     );
     assert.equal(taskRuns.every((taskRun) => taskRun.status === 'completed'), true);
@@ -1582,6 +1586,7 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['plan_director_packs', 'completed'],
         ['plan_motion', 'completed'],
         ['plan_performance', 'completed'],
+        ['storyboard_context_memory', 'completed'],
         ['route_video_shots', 'completed'],
         ['preflight_qa', 'completed'],
         ['generate_video_clips', 'completed'],
@@ -1599,7 +1604,10 @@ test('runEpisodePipeline records cached and skipped task states on rerun', async
         ['generate_audio', 'completed'],
         ['tts_qa', 'completed'],
         ['lipsync', 'completed'],
+        ['cross_video_consistency', 'completed'],
+        ['av_packaging', 'completed'],
         ['compose_video', 'completed'],
+        ['post_compose_review', 'completed'],
       ]
     );
   });
@@ -1712,6 +1720,77 @@ test('runEpisodePipeline passes lipsync results into video composition', async (
     assert.deepEqual(composeCalls[0].lipsyncClips, [
       { shotId: 'shot_1', videoPath: '/tmp/shot_1-lipsync.mp4', status: 'completed' },
     ]);
+  });
+});
+
+test('runEpisodePipeline passes AV packaging plan to composer and merges post-compose review items', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const composeCalls = [];
+    const humanReviewQueues = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_post_processing_loop',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      loadScript: () => ({
+        id: 'script_1',
+        title: '后处理闭环',
+        characters: [{ name: '沈清' }],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        title: '第一集',
+        shots: [{ id: 'shot_1', scene: '回廊', characters: ['沈清'], dialogue: '你来了。', duration: 3 }],
+      }),
+      buildCharacterRegistry: async () => [{ name: '沈清', basePromptTokens: 'shen qing' }],
+      generateAllPrompts: async () => [{ shotId: 'shot_1', image_prompt: 'prompt', negative_prompt: '' }],
+      generateAllImages: async () => [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png', success: true }],
+      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
+      generateAllAudio: async () => [{ shotId: 'shot_1', audioPath: '/tmp/shot_1.mp3', hasDialogue: true }],
+      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [] }),
+      runLipsync: async () => ({ results: [] }),
+      composeVideo: async (_shots, _images, _audio, _outputPath, options) => {
+        composeCalls.push(options);
+      },
+      runPostComposeReview: async () => ({
+        status: 'needs_review',
+        report: { status: 'needs_review' },
+        editTaskPack: {
+          humanReview: {
+            items: [
+              {
+                taskId: 'edit_task_001',
+                reviewType: 'approve_or_skip',
+                priority: 'high',
+                targetRef: { type: 'shot', id: 'shot_1' },
+                reason: '成片预览需要确认',
+              },
+            ],
+          },
+        },
+      }),
+      writeHumanReviewQueueArtifacts: (queue) => {
+        humanReviewQueues.push(queue);
+      },
+    });
+
+    await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: {},
+    });
+
+    assert.equal(composeCalls.length, 1);
+    assert.equal(composeCalls[0].packagingPlan.subtitleStyleProfile.fontFamily, 'Microsoft YaHei');
+    assert.equal(
+      humanReviewQueues.some((queue) =>
+        queue.items.some((item) => item.type === 'post_compose_edit_task' && item.shotId === 'shot_1')
+      ),
+      true
+    );
   });
 });
 
