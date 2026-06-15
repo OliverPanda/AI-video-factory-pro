@@ -415,6 +415,34 @@ export function createWorkbenchServer({
 
       // GET — list scripts
       const index = safeExists(scriptsIndex) ? (readJsonSafe(scriptsIndex) || []) : [];
+
+      // Migration: Create episodes for scripts that don't have episodeId
+      const baseTempDir = path.join(workspaceRoot, 'temp');
+      let migrationNeeded = false;
+      for (const script of index) {
+        if (!script.episodeId) {
+          const episodeId = `episode_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          script.episodeId = episodeId;
+
+          // Create episode
+          const episode = createEpisode({
+            id: episodeId,
+            projectId: targetProjectId,
+            scriptId: script.id,
+            title: script.title,
+            summary: null,
+            targetDurationSec: DEFAULT_EPISODE_DURATION_SEC,
+            shots: [],
+          });
+          saveEpisode(targetProjectId, script.id, episode, { baseTempDir });
+          migrationNeeded = true;
+        }
+      }
+
+      if (migrationNeeded) {
+        fs.writeFileSync(scriptsIndex, JSON.stringify(index, null, 2), 'utf8');
+      }
+
       return sendJson(response, 200, index);
     }
 
