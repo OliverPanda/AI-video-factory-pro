@@ -8,7 +8,9 @@ import { loadQaOverview } from '../dataSources/qaOverviewRepository.js';
 import { getArtifactDirectorySummary } from '../dataSources/runArtifactRepository.js';
 import { buildWorkbenchViewModel } from '../transformers/workbenchViewModel.js';
 import { createProject, createEpisode } from '../../domain/projectModel.js';
-import { saveEpisode, loadEpisode } from '../../utils/projectStore.js';
+import { saveEpisode } from '../../utils/projectStore.js';
+
+const DEFAULT_EPISODE_DURATION_SEC = 120;
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -397,12 +399,12 @@ export function createWorkbenchServer({
             scriptId: scriptId,
             title: body.title.trim(),
             summary: null,
-            targetDurationSec: 120,
+            targetDurationSec: DEFAULT_EPISODE_DURATION_SEC,
             shots: [],
           });
           
           // Save episode using projectStore
-          const baseTempDir = process.env.TEMP_DIR || path.join(process.cwd(), 'temp');
+          const baseTempDir = path.join(workspaceRoot, 'temp');
           saveEpisode(targetProjectId, scriptId, episode, { baseTempDir });
 
           return sendJson(response, 201, entry);
