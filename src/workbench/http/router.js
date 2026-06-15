@@ -8,7 +8,7 @@ import { loadQaOverview } from '../dataSources/qaOverviewRepository.js';
 import { getArtifactDirectorySummary } from '../dataSources/runArtifactRepository.js';
 import { buildWorkbenchViewModel } from '../transformers/workbenchViewModel.js';
 import { createProject, createEpisode } from '../../domain/projectModel.js';
-import { saveEpisode } from '../../utils/projectStore.js';
+import { saveEpisode, loadEpisode } from '../../utils/projectStore.js';
 
 const DEFAULT_EPISODE_DURATION_SEC = 120;
 
@@ -512,6 +512,13 @@ export function createWorkbenchServer({
 
           if (!projectId || !scriptId || !episodeId) {
             return sendJson(response, 400, { error: 'projectId, scriptId, episodeId are required' });
+          }
+
+          // Verify episode exists
+          const baseTempDir = path.join(workspaceRoot, 'temp');
+          const episode = loadEpisode(projectId, scriptId, episodeId, { baseTempDir });
+          if (!episode) {
+            return sendJson(response, 404, { error: 'Episode not found. Please re-upload the script.' });
           }
 
           const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
