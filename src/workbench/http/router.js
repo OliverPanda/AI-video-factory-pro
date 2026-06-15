@@ -1,11 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 
 import { listRunJobs } from '../dataSources/runJobRepository.js';
 import { loadQaOverview } from '../dataSources/qaOverviewRepository.js';
 import { getArtifactDirectorySummary } from '../dataSources/runArtifactRepository.js';
 import { buildWorkbenchViewModel } from '../transformers/workbenchViewModel.js';
+import { createProject, createEpisode } from '../../domain/projectModel.js';
+import { saveEpisode, loadEpisode } from '../../utils/projectStore.js';
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -27,6 +30,22 @@ function safeExists(filePath) {
   }
 }
 
+function safeReadDir(dirPath) {
+  try {
+    return fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function readJsonSafe(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -41,6 +60,46 @@ function sendFile(response, filePath) {
     'Content-Type': mimeTypes[ext] || 'application/octet-stream',
   });
   fs.createReadStream(filePath).pipe(response);
+}
+
+function parseBody(request) {
+  return new Promise((resolve) => {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      try { resolve(JSON.parse(body || '{}')); }
+      catch { resolve({}); }
+    });
+  });
+}
+
+function listManualProjects(tempProjectsDir) {
+  const projects = [];
+  if (!safeExists(tempProjectsDir)) return projects;
+  const entries = safeReadDir(tempProjectsDir);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const projectJsonPath = path.join(tempProjectsDir, entry.name, 'project.json');
+    const data = readJsonSafe(projectJsonPath);
+    if (data) {
+      projects.push({ ...data, id: data.id || entry.name });
+    }
+  }
+  return projects;
+}
+
+function loadProjectById(projectId, tempProjectsDir) {
+  const filePath = path.join(tempProjectsDir, projectId, 'project.json');
+  return readJsonSafe(filePath);
+}
+
+function saveProjectById(project, tempProjectsDir) {
+  const projectDir = path.join(tempProjectsDir, project.id);
+  if (!safeExists(projectDir)) {
+    fs.mkdirSync(projectDir, { recursive: true });
+  }
+  const filePath = path.join(projectDir, 'project.json');
+  fs.writeFileSync(filePath, JSON.stringify(project, null, 2), 'utf8');
 }
 
 function normalizeRunStatus(runJob, qaOverview) {
@@ -140,7 +199,7 @@ export function createWorkbenchServer({
   workspaceRoot,
   tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects'),
 } = {}) {
-  return http.createServer((request, response) => {
+  return http.createServer(async (request, response) => {
     const requestPath = request.url || '/';
     const pathname = decodeURIComponent(requestPath.split('?')[0]);
     const runJobs = listRunJobs({ tempProjectsDir });
@@ -156,24 +215,129 @@ export function createWorkbenchServer({
     }
 
     if (pathname === '/api/projects') {
-      return sendJson(
-        response,
-        200,
-        derived.projects.map((project) => ({
-          id: project.id,
-          title: project.title,
-          latestRunId: project.latestRunId,
-          runCount: project.runCount,
-          scriptCount: project.scripts.length,
-          episodeCount: project.scripts.reduce((total, script) => total + script.episodes.length, 0),
-        }))
-      );
+      const method = request.method || 'GET';
+
+      if (method === 'POST') {
+        try {
+          const body = await parseBody(request);
+          if (!body.title || typeof body.title !== 'string' || body.title.trim().length === 0) {
+            return sendJson(response, 400, { error: '项目名称不能为空' });
+          }
+          const project = createProject({
+            title: body.title.trim(),
+            description: (body.description || '').trim() || null,
+            genre: body.genre || null,
+            style: body.style || null,
+            coverUrl: body.coverUrl || null,
+            aspectRatio: body.aspectRatio || '9:16',
+          });
+          saveProjectById(project, tempProjectsDir);
+          return sendJson(response, 201, project);
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to create project: ${err.message}` });
+        }
+      }
+
+      // GET
+      const manualProjects = listManualProjects(tempProjectsDir);
+      const derivedIds = new Set(derived.projects.map(p => p.id));
+
+      const allProjects = [...derived.projects.map((project) => ({
+        id: project.id,
+        title: project.title,
+        latestRunId: project.latestRunId,
+        runCount: project.runCount,
+        scriptCount: project.scripts.length,
+        episodeCount: project.scripts.reduce((total, script) => total + script.episodes.length, 0),
+      }))];
+
+      for (const mp of manualProjects) {
+        if (!derivedIds.has(mp.id)) {
+          allProjects.push({
+            id: mp.id,
+            title: mp.title || mp.id,
+            latestRunId: null,
+            runCount: 0,
+            scriptCount: 0,
+            episodeCount: 0,
+            description: mp.description || '',
+            genre: mp.genre || null,
+            style: mp.style || null,
+            coverUrl: mp.coverUrl || null,
+            aspectRatio: mp.aspectRatio || '9:16',
+            status: mp.status || 'draft',
+          });
+        }
+      }
+
+      return sendJson(response, 200, allProjects);
     }
 
     const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
     if (projectMatch) {
-      const project = derived.projects.find((item) => item.id === projectMatch[1]);
-      return sendJson(response, project ? 200 : 404, project || { error: 'Project not found' });
+      const projectId = projectMatch[1];
+      const method = request.method || 'GET';
+
+      if (method === 'PUT') {
+        try {
+          const body = await parseBody(request);
+          const existing = loadProjectById(projectId, tempProjectsDir);
+          if (!existing) {
+            return sendJson(response, 404, { error: 'Project not found' });
+          }
+          const updated = {
+            ...existing,
+            ...(body.title != null && { title: body.title }),
+            ...(body.description != null && { description: body.description }),
+            ...(body.genre != null && { genre: body.genre }),
+            ...(body.style != null && { style: body.style }),
+            ...(body.coverUrl != null && { coverUrl: body.coverUrl }),
+            ...(body.aspectRatio != null && { aspectRatio: body.aspectRatio }),
+            updatedAt: new Date().toISOString(),
+          };
+          saveProjectById(updated, tempProjectsDir);
+          return sendJson(response, 200, updated);
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to update project: ${err.message}` });
+        }
+      }
+
+      if (method === 'DELETE') {
+        try {
+          const projectDir = path.join(tempProjectsDir, projectId);
+          if (!safeExists(projectDir)) {
+            return sendJson(response, 404, { error: 'Project not found' });
+          }
+          fs.rmSync(projectDir, { recursive: true, force: true });
+          return sendJson(response, 200, { success: true, id: projectId });
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to delete project: ${err.message}` });
+        }
+      }
+
+      // GET
+      const project = derived.projects.find((item) => item.id === projectId);
+      if (project) {
+        return sendJson(response, 200, project);
+      }
+
+      const manualProject = loadProjectById(projectId, tempProjectsDir);
+      if (manualProject) {
+        return sendJson(response, 200, {
+          id: manualProject.id || projectId,
+          title: manualProject.title || projectId,
+          description: manualProject.description || '',
+          genre: manualProject.genre || null,
+          style: manualProject.style || null,
+          coverUrl: manualProject.coverUrl || null,
+          aspectRatio: manualProject.aspectRatio || '9:16',
+          latestRunId: null,
+          runCount: 0,
+          scripts: [],
+        });
+      }
+
+      return sendJson(response, 404, { error: 'Project not found' });
     }
 
     const episodeMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scripts\/([^/]+)\/episodes\/([^/]+)$/);
@@ -185,7 +349,167 @@ export function createWorkbenchServer({
       return sendJson(response, episode ? 200 : 404, episode || { error: 'Episode not found' });
     }
 
+    // ── Script CRUD ──────────────────────────────────────────
+    const scriptsListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scripts$/);
+    if (scriptsListMatch && !pathname.includes('/episodes/')) {
+      const targetProjectId = scriptsListMatch[1];
+      const method = request.method || 'GET';
+
+      const projectDir = path.join(tempProjectsDir, targetProjectId);
+      const scriptsIndex = path.join(projectDir, 'scripts.json');
+      const scriptsDir = path.join(projectDir, 'uploaded-scripts');
+
+      if (method === 'POST') {
+        try {
+          const body = await parseBody(request);
+          if (!body.title || typeof body.title !== 'string') {
+            return sendJson(response, 400, { error: '剧本标题不能为空' });
+          }
+          if (!body.content || typeof body.content !== 'string') {
+            return sendJson(response, 400, { error: '剧本内容不能为空' });
+          }
+
+          const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const episodeId = `episode_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = new Date().toISOString();
+          const entry = { 
+            id: scriptId, 
+            title: body.title.trim(), 
+            createdAt: now, 
+            updatedAt: now, 
+            charCount: body.content.length,
+            episodeId
+          };
+
+          // Ensure directories & index
+          if (!safeExists(scriptsDir)) fs.mkdirSync(scriptsDir, { recursive: true });
+          const index = safeExists(scriptsIndex) ? (readJsonSafe(scriptsIndex) || []) : [];
+          index.push(entry);
+          fs.writeFileSync(scriptsIndex, JSON.stringify(index, null, 2), 'utf8');
+
+          // Write content file
+          fs.writeFileSync(path.join(scriptsDir, `${scriptId}.txt`), body.content, 'utf8');
+
+          // Create minimal episode structure for pipeline
+          const episode = createEpisode({
+            id: episodeId,
+            projectId: targetProjectId,
+            scriptId: scriptId,
+            title: body.title.trim(),
+            summary: null,
+            targetDurationSec: 120,
+            shots: [],
+          });
+          
+          // Save episode using projectStore
+          const baseTempDir = process.env.TEMP_DIR || path.join(process.cwd(), 'temp');
+          saveEpisode(targetProjectId, scriptId, episode, { baseTempDir });
+
+          return sendJson(response, 201, entry);
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to upload script: ${err.message}` });
+        }
+      }
+
+      // GET — list scripts
+      const index = safeExists(scriptsIndex) ? (readJsonSafe(scriptsIndex) || []) : [];
+      return sendJson(response, 200, index);
+    }
+
+    const scriptDetailMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scripts\/([^/]+)$/);
+    if (scriptDetailMatch && !pathname.includes('/episodes/')) {
+      const [, targetProjectId, scriptId] = scriptDetailMatch;
+      const method = request.method || 'GET';
+
+      const projectDir = path.join(tempProjectsDir, targetProjectId);
+      const scriptsIndex = path.join(projectDir, 'scripts.json');
+      const scriptsDir = path.join(projectDir, 'uploaded-scripts');
+      const contentFile = path.join(scriptsDir, `${scriptId}.txt`);
+
+      const index = safeExists(scriptsIndex) ? (readJsonSafe(scriptsIndex) || []) : [];
+      const entryIndex = index.findIndex((s) => s.id === scriptId);
+
+      if (entryIndex < 0) {
+        return sendJson(response, 404, { error: 'Script not found' });
+      }
+
+      if (method === 'PUT') {
+        try {
+          const body = await parseBody(request);
+          const entry = index[entryIndex];
+
+          if (body.title != null) entry.title = body.title;
+          entry.updatedAt = new Date().toISOString();
+
+          if (body.content != null && typeof body.content === 'string') {
+            if (!safeExists(scriptsDir)) fs.mkdirSync(scriptsDir, { recursive: true });
+            fs.writeFileSync(contentFile, body.content, 'utf8');
+            entry.charCount = body.content.length;
+          }
+
+          index[entryIndex] = entry;
+          fs.writeFileSync(scriptsIndex, JSON.stringify(index, null, 2), 'utf8');
+
+          return sendJson(response, 200, entry);
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to update script: ${err.message}` });
+        }
+      }
+
+      if (method === 'DELETE') {
+        try {
+          index.splice(entryIndex, 1);
+          fs.writeFileSync(scriptsIndex, JSON.stringify(index, null, 2), 'utf8');
+          if (safeExists(contentFile)) fs.unlinkSync(contentFile);
+          return sendJson(response, 200, { success: true, id: scriptId });
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to delete script: ${err.message}` });
+        }
+      }
+
+      // GET — return entry + content
+      const content = safeExists(contentFile) ? fs.readFileSync(contentFile, 'utf8') : '';
+      return sendJson(response, 200, { ...index[entryIndex], content });
+    }
+
     if (pathname === '/api/runs') {
+      const method = request.method || 'GET';
+
+      if (method === 'POST') {
+        try {
+          const body = await parseBody(request);
+          const { projectId, scriptId, episodeId, style } = body;
+
+          if (!projectId || !scriptId || !episodeId) {
+            return sendJson(response, 400, { error: 'projectId, scriptId, episodeId are required' });
+          }
+
+          const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const args = [
+            'scripts/run.js',
+            `--project=${projectId}`,
+            `--script=${scriptId}`,
+            `--episode=${episodeId}`,
+          ];
+          if (style) args.push(`--style=${style}`);
+
+          const child = spawn('node', args, {
+            detached: true,
+            stdio: 'ignore',
+            cwd: process.cwd(),
+          });
+          child.unref();
+
+          return sendJson(response, 200, {
+            success: true,
+            runId,
+            message: 'Pipeline triggered',
+          });
+        } catch (err) {
+          return sendJson(response, 500, { error: `Failed to trigger run: ${err.message}` });
+        }
+      }
+
       return sendJson(
         response,
         200,
