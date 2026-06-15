@@ -30,6 +30,11 @@ type ApiScript = {
 type ApiProjectDetail = {
   id: string;
   title: string;
+  description?: string | null;
+  genre?: string | null;
+  style?: string | null;
+  coverUrl?: string | null;
+  aspectRatio?: string | null;
   latestRunId: string | null;
   runCount: number;
   scripts: ApiScript[];
@@ -276,6 +281,7 @@ export type WorkbenchProject = {
   characters: WorkbenchCharacter[];
   scenes: WorkbenchScene[];
   voices: WorkbenchVoice[];
+  assetEnrichment: AssetEnrichment;
   finalVideoUrl: string | null;
   deliverySummaryUrl: string | null;
   coverAssetUrl: string | null;
@@ -301,24 +307,39 @@ function normalizeStatus(value?: string | null): WorkbenchStatus {
   return 'running';
 }
 
+// Simple request cache to avoid duplicate fetches
+const requestCache = new Map<string, Promise<unknown>>();
+
 function requestJson<T>(url: string): Promise<T> {
-  return fetch(url).then(async (response) => {
+  if (requestCache.has(url)) {
+    return requestCache.get(url) as Promise<T>;
+  }
+  const promise = fetch(url).then(async (response) => {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${url}`);
     }
     return response.json() as Promise<T>;
   });
+  requestCache.set(url, promise);
+  return promise;
 }
 
 async function requestOptionalJson<T>(url: string): Promise<T | null> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    return null;
+  const cacheKey = `opt:${url}`;
+  if (requestCache.has(cacheKey)) {
+    return requestCache.get(cacheKey) as Promise<T | null>;
   }
-  return response.json() as Promise<T>;
+  const promise = fetch(url).then((response) => {
+    if (!response.ok) {
+      return null;
+    }
+    return response.json() as Promise<T>;
+  });
+  requestCache.set(cacheKey, promise);
+  return promise;
 }
 
-function toAssetUrl(value?: string | null): string | null {
+export function toAssetUrl(value?: string | null): string | null {
   const raw = String(value || '').trim();
   if (!raw) return null;
 
@@ -526,7 +547,8 @@ function buildProjectViewModel(
   project: ApiProjectDetail,
   selectedEpisode: WorkbenchEpisode | null,
   run: ApiRunDetail | null,
-  snapshot: SnapshotState | null
+  snapshot: SnapshotState | null,
+  assetEnrichment: AssetEnrichment = { characterRegistry: [], consistencyReports: [] }
 ): WorkbenchProject {
   const shots = mapShots(snapshot);
   const characters = mapCharacters(snapshot, shots);
@@ -551,6 +573,7 @@ function buildProjectViewModel(
     qaOverview,
     artifactSummary: run?.artifacts || null,
     snapshot,
+    assetEnrichment,
     shots,
     characters,
     scenes,
@@ -587,14 +610,186 @@ export async function fetchWorkbenchProject(projectId: string, runId?: string | 
   const run = activeRunId
     ? await requestJson<ApiRunDetail>(`/api/runs/${encodeURIComponent(activeRunId)}`)
     : null;
-  const snapshot = await fetchRunSnapshot(run);
+  
+  // Parallelize snapshot + enrichment fetches (both depend on run but not on each other)
+  const [snapshot, assetEnrichment] = await Promise.all([
+    fetchRunSnapshot(run),
+    fetchAssetEnrichment(run),
+  ]);
 
-  return buildProjectViewModel(project, selectedEpisode, run, snapshot);
+  return buildProjectViewModel(project, selectedEpisode, run, snapshot, assetEnrichment);
 }
 
 export async function fetchWorkbenchProjects(): Promise<WorkbenchProject[]> {
   const summaries = await requestJson<ApiProjectSummary[]>('/api/projects');
   return Promise.all(summaries.map((project) => fetchWorkbenchProject(project.id)));
+}
+
+/** 轻量级项目详情：仅获取 project→scripts→episodes 层级，不加载 run/snapshot */
+export type ProjectRunSummary = { id: string; status: string; headline?: string; startedAt?: string; finishedAt?: string };
+export type ProjectEpisodeDetail = { id: string; title: string; runs: ProjectRunSummary[] };
+export type ProjectScriptDetail = { id: string; title: string; episodes: ProjectEpisodeDetail[] };
+export type ProjectDetailData = {
+  id: string;
+  title: string;
+  description?: string | null;
+  genre?: string | null;
+  style?: string | null;
+  coverUrl?: string | null;
+  aspectRatio?: string | null;
+  latestRunId: string | null;
+  runCount: number;
+  scripts: ProjectScriptDetail[];
+  episodeCount: number;
+};
+
+export async function fetchProjectDetail(projectId: string): Promise<ProjectDetailData> {
+  const raw = await requestJson<ApiProjectDetail>(`/api/projects/${encodeURIComponent(projectId)}`);
+  const episodeCount = raw.scripts.reduce((sum, s) => sum + s.episodes.length, 0);
+  return {
+    id: raw.id,
+    title: raw.title,
+    description: raw.description || null,
+    genre: raw.genre || null,
+    style: raw.style || null,
+    coverUrl: raw.coverUrl || null,
+    aspectRatio: raw.aspectRatio || '9:16',
+    latestRunId: raw.latestRunId,
+    runCount: raw.runCount,
+    scripts: raw.scripts.map(s => ({
+      id: s.id,
+      title: s.title,
+      episodes: s.episodes.map(e => ({
+        id: e.id,
+        title: e.title,
+        runs: e.runs.map(r => ({
+          id: r.id,
+          status: r.status,
+          headline: r.headline,
+          startedAt: r.startedAt,
+          finishedAt: r.finishedAt,
+        })),
+      })),
+    })),
+    episodeCount,
+  };
+}
+
+export type CreateProjectInput = {
+  title: string;
+  description?: string;
+  genre?: string;
+  style?: string;
+  coverUrl?: string;
+  aspectRatio?: string;
+};
+
+export type CreatedProject = {
+  id: string;
+  title: string;
+  description?: string | null;
+  genre?: string | null;
+  style?: string | null;
+  coverUrl?: string | null;
+  aspectRatio?: string | null;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function createProjectApi(input: CreateProjectInput): Promise<CreatedProject> {
+  const response = await fetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function updateProjectApi(id: string, input: Partial<CreateProjectInput>): Promise<CreatedProject> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteProjectApi(id: string): Promise<void> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+// ── Script API ─────────────────────────────────────────────
+
+export type ScriptEntry = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  charCount: number;
+  episodeId?: string;
+};
+
+export type ScriptDetail = ScriptEntry & {
+  content: string;
+};
+
+export async function fetchScripts(projectId: string): Promise<ScriptEntry[]> {
+  return requestJson<ScriptEntry[]>(`/api/projects/${encodeURIComponent(projectId)}/scripts`);
+}
+
+export async function fetchScriptDetail(projectId: string, scriptId: string): Promise<ScriptDetail> {
+  return requestJson<ScriptDetail>(`/api/projects/${encodeURIComponent(projectId)}/scripts/${encodeURIComponent(scriptId)}`);
+}
+
+export async function uploadScript(projectId: string, title: string, content: string): Promise<ScriptEntry> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/scripts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, content }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function updateScript(projectId: string, scriptId: string, input: { title?: string; content?: string }): Promise<ScriptEntry> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/scripts/${encodeURIComponent(scriptId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteScript(projectId: string, scriptId: string): Promise<void> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/scripts/${encodeURIComponent(scriptId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
 }
 
 export async function fetchWorkbenchOverview() {
@@ -618,6 +813,19 @@ export async function fetchProviderSettings() {
   }>('/api/settings/providers');
 }
 
+export async function triggerRun(projectId: string, scriptId: string, episodeId: string, style?: string) {
+  const response = await fetch('/api/runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, scriptId, episodeId, style }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Trigger failed' }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 export function formatRunStatus(status: WorkbenchStatus) {
   if (status === 'pass') return '已完成';
   if (status === 'warn') return '待复核';
@@ -630,4 +838,78 @@ export function getStatusTone(status: WorkbenchStatus) {
   if (status === 'warn') return 'bg-amber-100 text-amber-700 border-amber-300';
   if (status === 'block') return 'bg-red-100 text-red-600 border-red-300';
   return 'bg-cyan-100 text-cyan-700 border-cyan-300';
+}
+
+// ── Asset Library enrichment types ──────────────────────────────
+
+export type CharacterRegistryEntry = {
+  name: string;
+  gender?: string;
+  age?: string;
+  visualDescription?: string;
+  basePromptTokens?: string;
+  personality?: string;
+  priority?: 'lead' | 'support' | 'temporary';
+  referenceImages?: string[];
+  identityAnchor?: string;
+  negativeDriftTokens?: string | null;
+  forbiddenIdentityTokens?: string;
+  characterBibleId?: string | null;
+  referenceImagePath?: string;
+};
+
+export type ConsistencyReportEntry = {
+  character: string;
+  overallScore: number;
+  identityDriftTags?: string[];
+  hardFailureReasons?: string[];
+  softRiskTags?: string[];
+  anchorSummary?: Record<string, string>;
+  suggestion?: string;
+  problematicImageIndices?: number[];
+  imageList?: Array<{ shotId: string; imagePath?: string; characters?: string[] }>;
+};
+
+export type AssetEnrichment = {
+  characterRegistry: CharacterRegistryEntry[];
+  consistencyReports: ConsistencyReportEntry[];
+};
+
+// Cache for missing files to avoid repeated 404 requests
+const missingFilesCache = new Set<string>();
+
+/** Try loading character-registry.json from multiple possible agent output paths */
+async function fetchCharacterRegistry(artifactRunDir: string): Promise<CharacterRegistryEntry[]> {
+  const candidates = [
+    `${artifactRunDir}\\02-character-registry\\1-outputs\\character-registry.json`,
+    `${artifactRunDir}\\05-consistency-checker\\0-inputs\\character-registry.json`,
+  ];
+  for (const p of candidates) {
+    const url = toAssetUrl(p);
+    if (!url || missingFilesCache.has(url)) continue;
+    const data = await requestOptionalJson<CharacterRegistryEntry[]>(url);
+    if (data) return data;
+    missingFilesCache.add(url);
+  }
+  return [];
+}
+
+/** Try loading consistency-report.json from the consistency checker output */
+async function fetchConsistencyReport(artifactRunDir: string): Promise<ConsistencyReportEntry[]> {
+  const p = `${artifactRunDir}\\05-consistency-checker\\1-outputs\\consistency-report.json`;
+  const url = toAssetUrl(p);
+  if (!url || missingFilesCache.has(url)) return [];
+  const data = await requestOptionalJson<ConsistencyReportEntry[]>(url);
+  if (!data) missingFilesCache.add(url);
+  return data || [];
+}
+
+/** Load enriched asset data (character registry + consistency reports) for the given run */
+export async function fetchAssetEnrichment(run: ApiRunDetail | null): Promise<AssetEnrichment> {
+  if (!run?.artifactRunDir) return { characterRegistry: [], consistencyReports: [] };
+  const [characterRegistry, consistencyReports] = await Promise.all([
+    fetchCharacterRegistry(run.artifactRunDir),
+    fetchConsistencyReport(run.artifactRunDir),
+  ]);
+  return { characterRegistry, consistencyReports };
 }
