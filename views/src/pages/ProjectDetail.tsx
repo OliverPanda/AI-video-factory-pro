@@ -161,7 +161,12 @@ function ScriptManager({ projectId }: { projectId: string }) {
       await triggerRun(projectId, entry.id, episodeId);
       alert('运行已触发，请刷新页面查看结果');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '运行失败');
+      const message = err instanceof Error ? err.message : '运行失败';
+      if (message.includes('Episode not found')) {
+        setError('剧本对应的分集不存在，请重新上传剧本');
+      } else {
+        setError(message);
+      }
     } finally {
       setRunningScriptId(null);
     }
