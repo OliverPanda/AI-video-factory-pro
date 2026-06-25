@@ -116,21 +116,3 @@ ${episodeTextOrSummary}
     }
   ]
 }`;
-
-export const STORYBOARD_SYSTEM = EPISODE_STORYBOARD_SYSTEM;
-export const STORYBOARD_USER = EPISODE_STORYBOARD_USER;
-export const SCRIPT_ANALYSIS_SYSTEM = EPISODE_STORYBOARD_SYSTEM;
-export const SCRIPT_ANALYSIS_USER = EPISODE_STORYBOARD_USER;
-
-export const SCRIPT_REFINE_USER = (shots, feedback) => `
-以下是已解析的分镜数据，请根据反馈进行修正：
-
-<分镜数据>
-${JSON.stringify(shots, null, 2)}
-</分镜数据>
-
-<修正要求>
-${feedback}
-</修正要求>
-
-请输出修正后的完整JSON。`;

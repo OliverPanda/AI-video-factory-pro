@@ -2,13 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildPostComposeReview } from '../domain/postComposeReview.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveBuffer, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildMetrics(result) {
   const pack = result.editTaskPack;
@@ -88,20 +83,51 @@ function renderTaskPackMarkdown(pack) {
   return lines.join('\n');
 }
 
+function persistReviewFinalVideo(result, artifactContext) {
+  if (!artifactContext?.outputsDir) {
+    return result;
+  }
+
+  const sourcePath = result?.editTaskPack?.finalVideoRef;
+  if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
+    return result;
+  }
+
+  const normalizedSourcePath = sourcePath.trim();
+  if (!path.isAbsolute(normalizedSourcePath) || !fs.existsSync(normalizedSourcePath)) {
+    return result;
+  }
+
+  const persistedFileName = 'review-final-video.mp4';
+  const persistedAbsolutePath = path.join(artifactContext.outputsDir, persistedFileName);
+  if (path.resolve(normalizedSourcePath) !== path.resolve(persistedAbsolutePath)) {
+    saveBuffer(persistedAbsolutePath, fs.readFileSync(normalizedSourcePath));
+  }
+
+  return {
+    ...result,
+    editTaskPack: {
+      ...result.editTaskPack,
+      finalVideoRef: persistedFileName,
+    },
+  };
+}
+
 function writeArtifacts(result, artifactContext) {
   if (!artifactContext) {
     return;
   }
 
-  const metrics = buildMetrics(result);
-  saveJSON(path.join(artifactContext.outputsDir, 'post-compose-review.json'), result.report);
-  saveJSON(path.join(artifactContext.outputsDir, 'edit-task-pack.json'), result.editTaskPack);
-  writeTextFile(path.join(artifactContext.outputsDir, 'post-compose-review.md'), renderReviewMarkdown(result, metrics));
-  writeTextFile(path.join(artifactContext.outputsDir, 'edit-task-pack.md'), renderTaskPackMarkdown(result.editTaskPack));
+  const persistedResult = persistReviewFinalVideo(result, artifactContext);
+  const metrics = buildMetrics(persistedResult);
+  saveJSON(path.join(artifactContext.outputsDir, 'post-compose-review.json'), persistedResult.report);
+  saveJSON(path.join(artifactContext.outputsDir, 'edit-task-pack.json'), persistedResult.editTaskPack);
+  writeTextFile(path.join(artifactContext.outputsDir, 'post-compose-review.md'), renderReviewMarkdown(persistedResult, metrics));
+  writeTextFile(path.join(artifactContext.outputsDir, 'edit-task-pack.md'), renderTaskPackMarkdown(persistedResult.editTaskPack));
   saveJSON(path.join(artifactContext.metricsDir, 'post-compose-review-metrics.json'), metrics);
   saveJSON(artifactContext.manifestPath, {
-    status: result.status === 'approved' ? 'completed' : 'completed_with_warnings',
-    reviewStatus: result.status,
+    status: persistedResult.status === 'approved' ? 'completed' : 'completed_with_warnings',
+    reviewStatus: persistedResult.status,
     findingCount: metrics.totalFindings,
     taskCount: metrics.taskCount,
     manualReviewItemCount: metrics.manualReviewItemCount,
@@ -111,6 +137,7 @@ function writeArtifacts(result, artifactContext) {
       'edit-task-pack.json',
       'edit-task-pack.md',
       'post-compose-review-metrics.json',
+      ...(persistedResult.editTaskPack.finalVideoRef === 'review-final-video.mp4' ? ['review-final-video.mp4'] : []),
     ],
   });
 
@@ -118,21 +145,21 @@ function writeArtifacts(result, artifactContext) {
     {
       agentKey: 'postComposeReviewAgent',
       agentName: 'Post Compose Review Agent',
-      status: result.status === 'approved' ? 'pass' : 'warn',
+      status: persistedResult.status === 'approved' ? 'pass' : 'warn',
       headline:
-        result.status === 'approved'
+        persistedResult.status === 'approved'
           ? '成片预览后审查通过'
           : `生成 ${metrics.taskCount} 个待确认编辑任务`,
       summary: '第一版只生成 edit-task-pack，不自动调用 provider，不修改最终视频或 compose plan。',
-      passItems: result.status === 'approved' ? ['没有发现成片级后处理风险'] : [],
-      warnItems: result.editTaskPack.tasks
+      passItems: persistedResult.status === 'approved' ? ['没有发现成片级后处理风险'] : [],
+      warnItems: persistedResult.editTaskPack.tasks
         .filter((task) => task.action !== 'approve')
         .map((task) => `${task.action}: ${task.targetRef.type}:${task.targetRef.id}`),
-      blockItems: result.editTaskPack.findings
+      blockItems: persistedResult.editTaskPack.findings
         .filter((finding) => ['blocker', 'block', 'fail', 'high'].includes(String(finding.severity || '').toLowerCase()))
         .map((finding) => `${finding.category}: ${finding.message}`),
       nextAction:
-        result.status === 'approved'
+        persistedResult.status === 'approved'
           ? 'Director 可以交付成片。'
           : 'Director 或人工先审阅 edit-task-pack，再决定 approve、skip 或后续重跑。',
       evidenceFiles: [
@@ -153,9 +180,11 @@ export async function runPostComposeReview(input = {}, options = {}) {
     ...input,
     now: input.now || options.now,
   });
-  writeArtifacts(result, options.artifactContext || input.artifactContext);
+  const artifactContext = options.artifactContext || input.artifactContext;
+  const persistedResult = artifactContext ? persistReviewFinalVideo(result, artifactContext) : result;
+  writeArtifacts(persistedResult, artifactContext);
   return {
-    ...result,
+    ...persistedResult,
     editTaskPackPath: options.artifactContext
       ? path.join(options.artifactContext.outputsDir, 'edit-task-pack.json')
       : null,

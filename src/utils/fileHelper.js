@@ -21,6 +21,17 @@ function assertSafePathSegment(value, label) {
   return value;
 }
 
+// 写入文本文件（确保父目录存在）
+export function writeTextFile(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+// 转义 FFmpeg concat 文件路径
+export function escapeConcatPath(filePath) {
+  return path.resolve(filePath).replace(/\\/g, '/').replace(/'/g, "'\\''");
+}
+
 // 确保目录存在
 export function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -187,4 +198,6 @@ export default {
   saveBuffer,
   imageToBase64,
   generateJobId,
+  writeTextFile,
+  escapeConcatPath,
 };

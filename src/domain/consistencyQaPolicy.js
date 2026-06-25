@@ -120,9 +120,3 @@ export function evaluateConsistencyDecision(input = {}) {
     regenStrategy: status === 'warn' ? 'prompt_tighten' : 'none',
   };
 }
-
-export default {
-  resolveCharacterPriority,
-  classifyShotConsistencyClass,
-  evaluateConsistencyDecision,
-};

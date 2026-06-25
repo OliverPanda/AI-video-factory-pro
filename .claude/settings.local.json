@@ -25,7 +25,25 @@
       "Bash(node -e \"const s=JSON.parse\\(require\\('fs'\\).readFileSync\\('temp/legacy_仓库暗战_855e4beea847/state.json','utf8'\\)\\); console.log\\('=== rawVideoResults ==='\\); \\(s.rawVideoResults||[]\\).forEach\\(r => console.log\\(r.shotId, r.status, r.provider, r.failureCategory, \\(r.error||''\\).substring\\(0,100\\)\\)\\); console.log\\('=== imageResults ==='\\); \\(s.imageResults||[]\\).forEach\\(r => console.log\\(r.shotId, r.success, \\(r.imagePath||''\\).split\\('/'\\).pop\\(\\)\\)\\); console.log\\('=== shotQaReport entries ==='\\); \\(s.shotQaReport?.entries||[]\\).forEach\\(e => console.log\\(e.shotId, e.finalDecision, e.canUseVideo\\)\\);\")",
       "Bash(ls tests/promptEngineering*)",
       "Bash(ls tests/*.test.js)",
-      "Bash(Select-Object -First 20)"
+      "Bash(Select-Object -First 20)",
+      "Bash(Select-Object -First 80)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Select-Object -First 150)",
+      "PowerShell($diff = git diff HEAD -- views/src/pages/Dashboard.tsx; $diff.Split\\(\"`n\"\\)[0..200] -join \"`n\")",
+      "PowerShell($diff = git diff HEAD -- views/src/pages/ProjectDetail.tsx; $diff.Split\\(\"`n\"\\)[0..200] -join \"`n\")",
+      "PowerShell($diff = git diff HEAD -- views/src/pages/DramaDetail.tsx; $diff.Length)",
+      "Bash(Select-String \"test\")",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(cp src/utils/characterBibleStore.js src/utils/characterBibleStore.js.bak)",
+      "Bash(cp src/utils/pronunciationLexiconStore.js src/utils/pronunciationLexiconStore.js.bak)",
+      "Bash(cp src/utils/voicePresetStore.js src/utils/voicePresetStore.js.bak)",
+      "Bash(git *)",
+      "Bash(grep -rlc \"function writeTextFile\" src/ --include=\"*.js\")",
+      "Bash(grep -rlc \"function escapeConcatPath\" src/ --include=\"*.js\")",
+      "Bash(grep -rlc \"normalizeStringOrNull\" src/ tests/ --include=\"*.js\")",
+      "Bash(cp src/utils/fileHelper.js /tmp/orig_fileHelper.js)",
+      "Bash(cp src/agents/videoComposer.js /tmp/orig_videoComposer.js)"
     ]
   }
 }

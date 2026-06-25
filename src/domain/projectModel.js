@@ -14,7 +14,12 @@ function clampEpisodeDuration(value) {
 export function createProject(input = {}) {
   return createEntity(
     {
+      title: null,
       description: null,
+      genre: null,
+      style: null,
+      coverUrl: null,
+      aspectRatio: '9:16',
       ...input,
     },
     'project'

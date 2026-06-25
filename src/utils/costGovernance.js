@@ -1,15 +1,9 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from './fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from './fileHelper.js';
 import { writeAgentQaSummary } from './qaSummary.js';
 
 const NON_GENERATING_PROVIDERS = new Set(['static_image', 'skip', 'fallback_direct_cut', 'direct_cut']);
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function parsePositiveInteger(value, fallback) {
   const parsed = Number(value);

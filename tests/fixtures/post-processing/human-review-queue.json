@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-06-19T00:00:00.000Z",
+  "status": "warn",
+  "summary": {
+    "openCount": 3,
+    "highPriorityCount": 0,
+    "mediumPriorityCount": 3,
+    "lowPriorityCount": 0
+  },
+  "items": [
+    {
+      "id": "post_compose_edit_task_001",
+      "type": "post_compose_edit_task",
+      "priority": "medium",
+      "status": "open",
+      "characterName": null,
+      "characterBibleId": null,
+      "episodeCharacterId": null,
+      "shotId": null,
+      "reason": "AV packaging warning should become an audio packaging edit task.",
+      "suggestedAction": "approve_or_skip",
+      "evidence": [
+        "post-compose-review/edit-task-pack.json"
+      ]
+    },
+    {
+      "id": "post_compose_edit_task_002",
+      "type": "post_compose_edit_task",
+      "priority": "medium",
+      "status": "open",
+      "characterName": null,
+      "characterBibleId": null,
+      "episodeCharacterId": null,
+      "shotId": "shot_002",
+      "reason": "Final compose timeline uses static/image fallback.",
+      "suggestedAction": "approve_or_skip",
+      "evidence": [
+        "post-compose-review/edit-task-pack.json"
+      ]
+    },
+    {
+      "id": "post_compose_edit_task_003",
+      "type": "post_compose_edit_task",
+      "priority": "medium",
+      "status": "open",
+      "characterName": null,
+      "characterBibleId": null,
+      "episodeCharacterId": null,
+      "shotId": null,
+      "reason": "crossVideoConsistencyReport recommended regenerate_sequence.",
+      "suggestedAction": "approve_or_skip",
+      "evidence": [
+        "post-compose-review/edit-task-pack.json"
+      ]
+    }
+  ]
+}

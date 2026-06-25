@@ -9,27 +9,29 @@ import axios from 'axios';
 import Anthropic from '@anthropic-ai/sdk';
 
 // ─── Provider 配置 ───────────────────────────────────────────
-const PROVIDERS = {
-  deepseek: {
-    baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    model: 'deepseek-chat',
-    type: 'openai-compat',
-  },
-  qwen: {
-    baseURL: process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKey: process.env.QWEN_API_KEY,
-    model: 'qwen2.5-72b-instruct',
-    visionModel: 'qwen-vl-max',
-    type: 'openai-compat',
-  },
-  claude: {
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model: 'claude-sonnet-4-6',
-    visionModel: 'claude-sonnet-4-6',
-    type: 'anthropic',
-  },
-};
+function getProviders() {
+  return {
+    deepseek: {
+      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      type: 'openai-compat',
+    },
+    qwen: {
+      baseURL: process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      apiKey: process.env.QWEN_API_KEY,
+      model: process.env.QWEN_MODEL || 'qwen2.5-72b-instruct',
+      visionModel: process.env.QWEN_VISION_MODEL || 'qwen-vl-max',
+      type: 'openai-compat',
+    },
+    claude: {
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      visionModel: process.env.ANTHROPIC_VISION_MODEL || 'claude-sonnet-4-6',
+      type: 'anthropic',
+    },
+  };
+}
 
 // ─── OpenAI 兼容格式请求（DeepSeek / Qwen） ─────────────────
 async function callOpenAICompat(provider, messages, options = {}) {
@@ -64,7 +66,7 @@ async function callOpenAICompat(provider, messages, options = {}) {
 let _anthropicClient = null;
 function getAnthropicClient() {
   if (!_anthropicClient) {
-    _anthropicClient = new Anthropic({ apiKey: PROVIDERS.claude.apiKey });
+    _anthropicClient = new Anthropic({ apiKey: getProviders().claude.apiKey });
   }
   return _anthropicClient;
 }
@@ -72,7 +74,7 @@ function getAnthropicClient() {
 async function callClaude(messages, options = {}) {
   const client = getAnthropicClient();
   const response = await client.messages.create({
-    model: options.model || PROVIDERS.claude.model,
+    model: options.model || getProviders().claude.model,
     max_tokens: options.maxTokens ?? 4096,
     messages,
     temperature: options.temperature ?? 0.7,
@@ -95,7 +97,7 @@ async function callClaude(messages, options = {}) {
  */
 export async function chat(messages, options = {}) {
   const providerName = options.provider || process.env.LLM_PROVIDER || 'qwen';
-  const provider = PROVIDERS[providerName];
+  const provider = getProviders()[providerName];
   if (!provider) throw new Error(`Unknown LLM provider: ${providerName}`);
 
   if (provider.type === 'anthropic') {
@@ -114,7 +116,7 @@ export async function chat(messages, options = {}) {
  */
 export async function visionChat(textPrompt, imageUrls, options = {}) {
   const providerName = options.provider || process.env.LLM_VISION_PROVIDER || 'qwen';
-  const provider = PROVIDERS[providerName];
+  const provider = getProviders()[providerName];
   if (!provider) throw new Error(`Unknown vision provider: ${providerName}`);
 
   const imageContent = imageUrls.map((url) => ({
@@ -150,7 +152,7 @@ export async function visionChat(textPrompt, imageUrls, options = {}) {
         ],
       },
     ];
-    return callClaude(claudeMessages, { ...options, model: PROVIDERS.claude.visionModel });
+    return callClaude(claudeMessages, { ...options, model: getProviders().claude.visionModel });
   }
 
   return callOpenAICompat(
@@ -205,4 +207,56 @@ export function parseJSONResponse(raw) {
   }
 }
 
-export default { chat, visionChat, chatJSON, parseJSONResponse };
+// ─── 健康检查 ──────────────────────────────────────────────
+/**
+ * 发送一个最小请求来检测 LLM API 是否可用
+ * @returns {Promise<{ ok: boolean; provider: string; model: string; latencyMs: number; error?: string; hint?: string }>}
+ */
+export async function healthCheck(options = {}) {
+  const providerName = options.provider || process.env.LLM_PROVIDER || 'qwen';
+  const configuredModel = typeof options.model === 'string' && options.model.trim()
+    ? options.model.trim()
+    : null;
+  const provider = getProviders()[providerName];
+  if (!provider) {
+    return { ok: false, provider: providerName, model: '', latencyMs: 0, error: `未知 Provider: ${providerName}`, hint: '请在 .env 中配置 LLM_PROVIDER' };
+  }
+  if (!provider.apiKey) {
+    return { ok: false, provider: providerName, model: configuredModel || provider.model || '', latencyMs: 0, error: 'API Key 未配置', hint: `请在 .env 中设置 ${providerName.toUpperCase()}_API_KEY` };
+  }
+
+  const startMs = Date.now();
+  try {
+    const messages = [{ role: 'user', content: 'Hi' }];
+    const HEALTH_CHECK_TIMEOUT_MS = 10000;
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_TIMEOUT_MS)
+    );
+
+    let apiCall;
+    if (provider.type === 'anthropic') {
+      apiCall = callClaude(messages, { maxTokens: 8, temperature: 0, model: configuredModel || provider.model });
+    } else {
+      apiCall = callOpenAICompat(provider, messages, {
+        maxTokens: 8,
+        temperature: 0,
+        model: configuredModel || provider.model,
+      });
+    }
+    await Promise.race([apiCall, timeoutPromise]);
+    return { ok: true, provider: providerName, model: configuredModel || provider.model || '', latencyMs: Date.now() - startMs };
+  } catch (err) {
+    const latencyMs = Date.now() - startMs;
+    const msg = String(err?.message || err);
+    let hint = '';
+    if (/401/.test(msg)) hint = 'API Key 无效或已过期，请到对应平台重新生成';
+    else if (/403/.test(msg)) hint = 'API 访问被拒绝，请检查账户余额和模型权限';
+    else if (/404/.test(msg)) hint = 'API 地址或模型名称不存在，请检查配置';
+    else if (/429/.test(msg)) hint = '请求频率超限，请稍后重试';
+    else if (/5\d{2}/.test(msg)) hint = '服务商端故障，通常几分钟后恢复';
+    else if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i.test(msg)) hint = '网络连接异常，请检查网络或 BASE_URL 配置';
+    return { ok: false, provider: providerName, model: configuredModel || provider.model || '', latencyMs, error: msg, hint };
+  }
+}
+
+export default { chat, visionChat, chatJSON, parseJSONResponse, healthCheck };

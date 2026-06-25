@@ -1,11 +1,8 @@
 import path from 'node:path';
+import { normalizeText } from '../utils/normalization.js';
 
 const LEAD_PRIORITIES = new Set(['lead', 'main', 'hero', 'anchor']);
 const TEMPORARY_ROLE_TYPES = new Set(['temporary', 'temp', 'minor', 'guest', 'background', 'extra']);
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
 
 function normalizeId(value) {
   return normalizeText(value) || null;
@@ -239,11 +236,3 @@ export function buildReferenceSummary(records = []) {
     references: (record.canonicalReferences || []).map((ref) => path.basename(ref)),
   }));
 }
-
-export default {
-  buildCharacterAssetGovernanceMarkdown,
-  buildCharacterAssetGovernanceReport,
-  buildReferenceSummary,
-  classifyCharacterAssetPolicy,
-  collectCanonicalReferences,
-};

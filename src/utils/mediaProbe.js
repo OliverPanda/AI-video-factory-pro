@@ -23,9 +23,7 @@ export async function probeVideoDurationSec(videoPath, options = {}) {
 
 export async function probeVideoMetadata(videoPath, options = {}) {
   const durationSec = await probeVideoDurationSec(videoPath, options);
-  return {
-    durationSec,
-  };
+  return { durationSec };
 }
 
 export default {

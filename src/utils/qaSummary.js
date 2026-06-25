@@ -1,17 +1,11 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from './fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from './fileHelper.js';
 import {
   normalizeHarnessAgentSummary,
   normalizeHarnessRunDebug,
   normalizeHarnessRunOverview,
 } from './runArtifacts.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 export function writeAgentQaSummary(summary, artifactContext) {
   if (!artifactContext || !summary) {

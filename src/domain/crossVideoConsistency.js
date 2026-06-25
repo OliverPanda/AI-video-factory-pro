@@ -1,3 +1,5 @@
+import { asArray } from '../utils/normalization.js';
+
 const HAPPY_HORSE_PROJECT_KEY = 'HappyHorse';
 const HAPPY_HORSE_PROVIDER_KEY = 'happyhorse';
 
@@ -10,10 +12,6 @@ const DIMENSIONS = [
   'lipsync_risk',
   'insufficient_evidence',
 ];
-
-function normalizeArray(value) {
-  return Array.isArray(value) ? value : [];
-}
 
 function normalizeString(value) {
   return String(value ?? '').trim();
@@ -53,9 +51,9 @@ function collectProviderSignals(input = {}) {
   for (const [provider, count] of Object.entries(input.providerBreakdown || input.videoProviderBreakdown || {})) {
     if (Number(count) > 0) push(provider);
   }
-  for (const clip of normalizeArray(input.videoResults)
-    .concat(normalizeArray(input.sequenceClipResults), normalizeArray(input.bridgeClipResults))
-    .concat(normalizeArray(input.videoMetadata || input.videos || input.videoManifests))) {
+  for (const clip of asArray(input.videoResults)
+    .concat(asArray(input.sequenceClipResults), asArray(input.bridgeClipResults))
+    .concat(asArray(input.videoMetadata || input.videos || input.videoManifests))) {
     push(clip?.provider || clip?.preferredProvider);
   }
 
@@ -83,7 +81,7 @@ function resolveProjectKey(input = {}) {
 }
 
 function unique(values = []) {
-  return Array.from(new Set(normalizeArray(values).map(normalizeString).filter(Boolean)));
+  return Array.from(new Set(asArray(values).map(normalizeString).filter(Boolean)));
 }
 
 function clipKey(kind, id) {
@@ -135,10 +133,10 @@ function collectReferences(value = {}) {
     value.canonicalReferenceId,
   ];
   const listValues = []
-    .concat(normalizeArray(value.referenceIds))
-    .concat(normalizeArray(value.references))
-    .concat(normalizeArray(value.referenceImages))
-    .concat(normalizeArray(value.referenceVideos))
+    .concat(asArray(value.referenceIds))
+    .concat(asArray(value.references))
+    .concat(asArray(value.referenceImages))
+    .concat(asArray(value.referenceVideos))
     .map((item) => (typeof item === 'string' ? item : item?.id || item?.referenceId || item?.assetId));
 
   return unique(direct.concat(listValues));
@@ -147,8 +145,8 @@ function collectReferences(value = {}) {
 function collectCharacterIds(value = {}) {
   return unique(
     []
-      .concat(normalizeArray(value.characterIds))
-      .concat(normalizeArray(value.characters).map((item) => (typeof item === 'string' ? item : item?.id || item?.characterId)))
+      .concat(asArray(value.characterIds))
+      .concat(asArray(value.characters).map((item) => (typeof item === 'string' ? item : item?.id || item?.characterId)))
       .concat(value.characterId)
   );
 }
@@ -156,8 +154,8 @@ function collectCharacterIds(value = {}) {
 function collectSceneIds(value = {}) {
   return unique(
     []
-      .concat(normalizeArray(value.sceneIds))
-      .concat(normalizeArray(value.scenes).map((item) => (typeof item === 'string' ? item : item?.id || item?.sceneId)))
+      .concat(asArray(value.sceneIds))
+      .concat(asArray(value.scenes).map((item) => (typeof item === 'string' ? item : item?.id || item?.sceneId)))
       .concat(value.sceneId)
   );
 }
@@ -186,7 +184,7 @@ function buildSequenceCoverage(sequenceClipResults = []) {
   const boundaryToSequence = new Map();
   const sequences = [];
 
-  for (const result of normalizeArray(sequenceClipResults)) {
+  for (const result of asArray(sequenceClipResults)) {
     const sequenceId = resolveSequenceId(result);
     if (!sequenceId) continue;
 
@@ -224,7 +222,7 @@ export function buildUnifiedClipIndex(input = {}) {
   const clips = [];
   const byKey = new Map();
 
-  for (const result of normalizeArray(input.videoResults)) {
+  for (const result of asArray(input.videoResults)) {
     const shotId = resolveShotId(result);
     if (!shotId) continue;
     const coveringSequence = shotToSequence.get(shotId) || null;
@@ -259,7 +257,7 @@ export function buildUnifiedClipIndex(input = {}) {
     byKey.set(clipKey('sequence', sequence.sequenceId), sequenceClip);
   }
 
-  for (const result of normalizeArray(input.bridgeClipResults)) {
+  for (const result of asArray(input.bridgeClipResults)) {
     const bridgeId = resolveBridgeId(result);
     if (!bridgeId) continue;
     const bridge = {
@@ -284,7 +282,7 @@ export function buildUnifiedClipIndex(input = {}) {
     byKey.set(clipKey('bridge', bridge.bridgeId), bridge);
   }
 
-  for (const result of normalizeArray(input.lipsyncResults)) {
+  for (const result of asArray(input.lipsyncResults)) {
     const lipsyncId = resolveLipsyncId(result);
     if (!lipsyncId) continue;
 
@@ -320,10 +318,10 @@ export function buildUnifiedClipIndex(input = {}) {
     }
     if (sequence || coveringSequence) {
       const targetSequence = sequence || coveringSequence;
-      targetSequence.lipsyncResults = normalizeArray(targetSequence.lipsyncResults).concat(result);
+      targetSequence.lipsyncResults = asArray(targetSequence.lipsyncResults).concat(result);
     }
     if (bridge) {
-      bridge.lipsyncResults = normalizeArray(bridge.lipsyncResults).concat(result);
+      bridge.lipsyncResults = asArray(bridge.lipsyncResults).concat(result);
     }
   }
 
@@ -360,19 +358,19 @@ function sameOrEmpty(left, right) {
 }
 
 function buildMetadataMaps(input = {}) {
-  const videos = normalizeArray(input.videoMetadata || input.videos || input.videoManifests);
+  const videos = asArray(input.videoMetadata || input.videos || input.videoManifests);
   const memory = input.contextMemory || {};
   return {
     videos,
-    memoryCharacters: new Map(normalizeArray(memory.characters).map((item) => [item.id || item.characterId, item])),
-    memoryScenes: new Map(normalizeArray(memory.scenes).map((item) => [item.id || item.sceneId, item])),
+    memoryCharacters: new Map(asArray(memory.characters).map((item) => [item.id || item.characterId, item])),
+    memoryScenes: new Map(asArray(memory.scenes).map((item) => [item.id || item.sceneId, item])),
   };
 }
 
 function checkCharacterDrift(input, entries) {
   const { videos, memoryCharacters } = buildMetadataMaps(input);
   for (const video of videos) {
-    for (const character of normalizeArray(video.characters)) {
+    for (const character of asArray(video.characters)) {
       const characterId = normalizeId(character.id || character.characterId);
       if (!characterId) continue;
       const prior = memoryCharacters.get(characterId);
@@ -398,7 +396,7 @@ function checkCharacterDrift(input, entries) {
 function checkSceneDrift(input, entries) {
   const { videos, memoryScenes } = buildMetadataMaps(input);
   for (const video of videos) {
-    for (const scene of normalizeArray(video.scenes)) {
+    for (const scene of asArray(video.scenes)) {
       const sceneId = normalizeId(scene.id || scene.sceneId);
       if (!sceneId) continue;
       const prior = memoryScenes.get(sceneId);
@@ -449,7 +447,7 @@ function poseText(value) {
 }
 
 function checkPoseMismatch(input, entries) {
-  const videos = normalizeArray(input.videoMetadata || input.videos || input.videoManifests);
+  const videos = asArray(input.videoMetadata || input.videos || input.videoManifests);
   for (let index = 1; index < videos.length; index += 1) {
     const prev = videos[index - 1];
     const current = videos[index];
@@ -471,10 +469,10 @@ function checkPoseMismatch(input, entries) {
 }
 
 function resolveBoundaries(input = {}) {
-  const explicit = normalizeArray(input.crossVideoBoundaries || input.boundaries);
+  const explicit = asArray(input.crossVideoBoundaries || input.boundaries);
   if (explicit.length > 0) return explicit;
 
-  const videos = normalizeArray(input.videoMetadata || input.videos || input.videoManifests);
+  const videos = asArray(input.videoMetadata || input.videos || input.videoManifests);
   const boundaries = [];
   for (let index = 1; index < videos.length; index += 1) {
     boundaries.push({
@@ -550,13 +548,13 @@ function hasLipsyncDowngrade(value = {}) {
 }
 
 function clipHasPassingLipsync(clip) {
-  return lipsyncPassed(clip?.lipsync) || normalizeArray(clip?.lipsyncResults).some(lipsyncPassed);
+  return lipsyncPassed(clip?.lipsync) || asArray(clip?.lipsyncResults).some(lipsyncPassed);
 }
 
 function checkLipsync(input, index, entries) {
-  const lipsyncByShot = new Map(normalizeArray(input.lipsyncResults).map((result) => [resolveLipsyncShotId(result), result]));
-  const lipsyncBySequence = new Map(normalizeArray(input.lipsyncResults).map((result) => [resolveLipsyncSequenceId(result), result]));
-  const lipsyncByBridge = new Map(normalizeArray(input.lipsyncResults).map((result) => [resolveLipsyncBridgeId(result), result]));
+  const lipsyncByShot = new Map(asArray(input.lipsyncResults).map((result) => [resolveLipsyncShotId(result), result]));
+  const lipsyncBySequence = new Map(asArray(input.lipsyncResults).map((result) => [resolveLipsyncSequenceId(result), result]));
+  const lipsyncByBridge = new Map(asArray(input.lipsyncResults).map((result) => [resolveLipsyncBridgeId(result), result]));
 
   for (const clip of index.mainClips.filter((item) => item.kind === 'shot')) {
     if (!clip.hasDialogue) continue;
@@ -675,11 +673,11 @@ function checkHappyHorseMotionConstraints(index, entries) {
 }
 
 function reportEntries(report = {}) {
-  return normalizeArray(report.entries)
-    .concat(normalizeArray(report.flaggedShots))
-    .concat(normalizeArray(report.flaggedTransitions))
-    .concat(normalizeArray(report.manualReviewShots))
-    .concat(normalizeArray(report.manualReviewSequences));
+  return asArray(report.entries)
+    .concat(asArray(report.flaggedShots))
+    .concat(asArray(report.flaggedTransitions))
+    .concat(asArray(report.manualReviewShots))
+    .concat(asArray(report.manualReviewSequences));
 }
 
 function entryIsRisky(entry = {}) {
@@ -768,17 +766,17 @@ function checkInsufficientEvidence(input, index, entries) {
       dimension: 'insufficient_evidence',
       severity: 'warn',
       message: 'No main timeline clips were available for cross-video consistency checks.',
-      evidence: { videoResults: normalizeArray(input.videoResults).length, sequenceClipResults: normalizeArray(input.sequenceClipResults).length },
+      evidence: { videoResults: asArray(input.videoResults).length, sequenceClipResults: asArray(input.sequenceClipResults).length },
       recommendedAction: 'manual_review',
     });
   }
 
-  if (normalizeArray(input.videoMetadata || input.videos || input.videoManifests).length < 2) {
+  if (asArray(input.videoMetadata || input.videos || input.videoManifests).length < 2) {
     addEntry(entries, {
       dimension: 'insufficient_evidence',
       severity: 'warn',
       message: 'Fewer than two video metadata entries were available for cross-video comparison.',
-      evidence: { videoMetadataCount: normalizeArray(input.videoMetadata || input.videos || input.videoManifests).length },
+      evidence: { videoMetadataCount: asArray(input.videoMetadata || input.videos || input.videoManifests).length },
       recommendedAction: 'manual_review',
     });
   }
@@ -789,6 +787,8 @@ function buildContextMemoryPatch(input, entries) {
     return {
       projectKey: input.projectKey || null,
       writeAllowed: false,
+      patchMode: 'candidate_only',
+      owner: 'project_operational_memory',
       reason: 'non_happyhorse_project',
     };
   }
@@ -797,25 +797,30 @@ function buildContextMemoryPatch(input, entries) {
     return {
       projectKey: HAPPY_HORSE_PROJECT_KEY,
       writeAllowed: false,
+      patchMode: 'candidate_only',
+      owner: 'project_operational_memory',
       reason: providerScope.reason,
       providers: providerScope.providers,
       nonHappyHorseProviders: providerScope.nonHappyHorseProviders || [],
     };
   }
 
-  const videos = normalizeArray(input.videoMetadata || input.videos || input.videoManifests);
+  const videos = asArray(input.videoMetadata || input.videos || input.videoManifests);
   const latest = videos[videos.length - 1] || {};
   return {
     projectKey: HAPPY_HORSE_PROJECT_KEY,
     writeAllowed: true,
+    patchMode: 'candidate_only',
+    owner: 'project_operational_memory',
+    canonicalFactMutation: false,
     latestVideoId: latest.videoId || null,
-    characters: normalizeArray(latest.characters),
-    scenes: normalizeArray(latest.scenes),
+    characters: asArray(latest.characters),
+    scenes: asArray(latest.scenes),
     lastExitPose: latest.exitPose || latest.lastPose || null,
     requiredReferences: unique(
-      normalizeArray(latest.requiredReferenceIds)
-        .concat(normalizeArray(input.requiredReferenceIds))
-        .concat(normalizeArray(input.videoResults).flatMap((item) => collectReferences(item)))
+      asArray(latest.requiredReferenceIds)
+        .concat(asArray(input.requiredReferenceIds))
+        .concat(asArray(input.videoResults).flatMap((item) => collectReferences(item)))
     ),
     unresolvedCrossVideoIssues: entries
       .filter((entry) => entry.status !== 'pass')
@@ -824,6 +829,18 @@ function buildContextMemoryPatch(input, entries) {
         subjectId: entry.subjectId,
         clipId: entry.clipId,
         recommendedAction: entry.recommendedAction,
+      })),
+    candidateChanges: entries
+      .filter((entry) => entry.status !== 'pass')
+      .map((entry, index) => ({
+        candidateId: `cross_video_candidate_${String(index + 1).padStart(3, '0')}`,
+        type: 'cross_video_memory_candidate',
+        dimension: entry.dimension,
+        severity: entry.status,
+        subjectId: entry.subjectId,
+        clipId: entry.clipId,
+        recommendedAction: entry.recommendedAction,
+        message: entry.message,
       })),
   };
 }
@@ -916,7 +933,7 @@ export function checkCrossVideoConsistency(input = {}) {
     projectKey: projectKey || null,
     scope: {
       projectOnly: true,
-      videoIds: unique(normalizeArray(normalizedInput.videoMetadata || normalizedInput.videos || []).map((video) => video.videoId)),
+      videoIds: unique(asArray(normalizedInput.videoMetadata || normalizedInput.videos || []).map((video) => video.videoId)),
     },
     status,
     entries,
@@ -936,9 +953,14 @@ export function checkCrossVideoConsistency(input = {}) {
     },
     flaggedLinks: reviewItems,
     contextMemoryPatch: buildContextMemoryPatch(normalizedInput, entries),
+    writeBoundary: {
+      projectOperationalOnly: true,
+      projectLongTermWrite: false,
+      shotCanonicalFactWrite: false,
+    },
     evidence: {
-      sourceReports: normalizeArray(normalizedInput.sourceReports),
-      sourceArtifacts: normalizeArray(normalizedInput.sourceArtifacts),
+      sourceReports: asArray(normalizedInput.sourceReports),
+      sourceArtifacts: asArray(normalizedInput.sourceArtifacts),
     },
   };
 }
@@ -951,9 +973,4 @@ export const __testables = {
   getHappyHorseProviderScope,
   isHappyHorseProject,
   resolveProjectKey,
-};
-
-export default {
-  buildUnifiedClipIndex,
-  checkCrossVideoConsistency,
 };

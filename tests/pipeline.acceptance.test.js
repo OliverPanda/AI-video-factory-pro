@@ -9,6 +9,17 @@ import { buildCompositionPlan } from '../src/agents/videoComposer.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { buildEpisodeDirName, buildProjectDirName } from '../src/utils/naming.js';
 
+function readFixtureJson(fileName) {
+  return JSON.parse(fs.readFileSync(new URL(`./fixtures/post-processing/${fileName}`, import.meta.url), 'utf-8'));
+}
+
+function assertHasKeys(actual, expectedKeys, label) {
+  assert.equal(Boolean(actual && typeof actual === 'object'), true, `${label} should be an object`);
+  for (const key of expectedKeys) {
+    assert.equal(key in actual, true, `${label}.${key} should exist`);
+  }
+}
+
 function withTempRoot(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-pipeline-acceptance-'));
 
@@ -34,6 +45,14 @@ function createDirs(root) {
 
 test('pipeline acceptance writes all major agent manifests including continuity checker', async () => {
   await withTempRoot(async (tempRoot) => {
+    const fixtureBundle = {
+      storyboardContextMemory: readFixtureJson('storyboard-context-memory.json'),
+      crossVideoConsistencyReport: readFixtureJson('cross-video-consistency-report.json'),
+      avPackagingPlan: readFixtureJson('av-packaging-plan.json'),
+      postComposeReview: readFixtureJson('post-compose-review.json'),
+      editTaskPack: readFixtureJson('edit-task-pack.json'),
+      humanReviewQueue: readFixtureJson('human-review-queue.json'),
+    };
     const dirs = createDirs(path.join(tempRoot, 'job'));
     const runJobs = [];
     const composeCalls = [];
@@ -461,7 +480,12 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     assert.equal(fs.existsSync(artifactContext.agents.actionSequenceRouter.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.sequenceClipGenerator.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.sequenceQaAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.storyboardContextAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.crossVideoConsistencyChecker.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.avPackagingAgent.manifestPath), true);
     assert.equal(fs.existsSync(artifactContext.agents.videoComposer.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.postComposeReviewAgent.manifestPath), true);
+    assert.equal(fs.existsSync(artifactContext.agents.humanReviewQueue.manifestPath), true);
     assert.equal(composeCalls[0].bridgeClips.length, 0);
     assert.equal(composeCalls[0].sequenceClips.length, 1);
     assert.equal(composeCalls[0].sequenceClips[0].sequenceId, 'seq_001');
@@ -473,7 +497,113 @@ test('pipeline acceptance writes all major agent manifests including continuity 
     const qaOverview = JSON.parse(
       fs.readFileSync(path.join(artifactContext.runDir, 'qa-overview.json'), 'utf-8')
     );
-    assert.equal(qaOverview.status, 'pass');
+    const finalState = JSON.parse(fs.readFileSync(path.join(dirs.root, 'state.json'), 'utf-8'));
+    const storyboardContextMemory = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.storyboardContextAgent.outputsDir, 'storyboard-context-memory.json'),
+        'utf-8'
+      )
+    );
+    const crossVideoConsistencyReport = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.crossVideoConsistencyChecker.outputsDir, 'cross-video-consistency-report.json'),
+        'utf-8'
+      )
+    );
+    const avPackagingPlan = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.avPackagingAgent.outputsDir, 'av-packaging-plan.json'),
+        'utf-8'
+      )
+    );
+    const postComposeReview = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.postComposeReviewAgent.outputsDir, 'post-compose-review.json'),
+        'utf-8'
+      )
+    );
+    const editTaskPack = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.postComposeReviewAgent.outputsDir, 'edit-task-pack.json'),
+        'utf-8'
+      )
+    );
+    const humanReviewQueue = JSON.parse(
+      fs.readFileSync(
+        path.join(artifactContext.agents.humanReviewQueue.outputsDir, 'human-review-queue.json'),
+        'utf-8'
+      )
+    );
+
+    assert.equal(qaOverview.status, 'warn');
     assert.equal(qaOverview.releasable, true);
+    assert.equal(Boolean(finalState.storyboardContextMemory), true);
+    assert.equal(Boolean(finalState.crossVideoConsistencyReport), true);
+    assert.equal(Boolean(finalState.avPackagingPlan), true);
+    assert.equal(Boolean(finalState.postComposeReview), true);
+    assert.equal(Boolean(finalState.humanReviewQueue), true);
+    assert.equal(
+      qaOverview.agentSummaries.some((item) => item.agentKey === 'storyboardContextAgent'),
+      true
+    );
+    assert.equal(
+      qaOverview.agentSummaries.some((item) => item.agentKey === 'crossVideoConsistencyAgent'),
+      true
+    );
+    assert.equal(
+      qaOverview.agentSummaries.some((item) => item.agentKey === 'avPackagingAgent'),
+      true
+    );
+    assert.equal(
+      qaOverview.agentSummaries.some((item) => item.agentKey === 'postComposeReviewAgent'),
+      true
+    );
+    assert.equal(
+      qaOverview.agentSummaries.some((item) => item.agentKey === 'humanReviewQueue'),
+      true
+    );
+    assertHasKeys(
+      storyboardContextMemory,
+      Object.keys(fixtureBundle.storyboardContextMemory),
+      'storyboardContextMemory'
+    );
+    assertHasKeys(storyboardContextMemory.metrics, ['shotMemoryCount'], 'storyboardContextMemory.metrics');
+    assertHasKeys(storyboardContextMemory.contextPack, ['currentShotId'], 'storyboardContextMemory.contextPack');
+    assertHasKeys(
+      crossVideoConsistencyReport,
+      Object.keys(fixtureBundle.crossVideoConsistencyReport),
+      'crossVideoConsistencyReport'
+    );
+    assertHasKeys(crossVideoConsistencyReport.summary, ['totalEntries'], 'crossVideoConsistencyReport.summary');
+    assertHasKeys(crossVideoConsistencyReport.clipIndex, ['clips'], 'crossVideoConsistencyReport.clipIndex');
+    assertHasKeys(avPackagingPlan, Object.keys(fixtureBundle.avPackagingPlan), 'avPackagingPlan');
+    assertHasKeys(avPackagingPlan.summary, ['warningCount'], 'avPackagingPlan.summary');
+    assertHasKeys(postComposeReview, Object.keys(fixtureBundle.postComposeReview), 'postComposeReview');
+    assertHasKeys(postComposeReview.summary, ['taskCount'], 'postComposeReview.summary');
+    assertHasKeys(editTaskPack, Object.keys(fixtureBundle.editTaskPack), 'editTaskPack');
+    assertHasKeys(editTaskPack.humanReview, ['items'], 'editTaskPack.humanReview');
+    assertHasKeys(humanReviewQueue, Object.keys(fixtureBundle.humanReviewQueue), 'humanReviewQueue');
+    assertHasKeys(humanReviewQueue.summary, ['openCount'], 'humanReviewQueue.summary');
   });
+});
+
+test('post-processing fixtures are readable and cross-linked for M2 consumers', () => {
+  const storyboardContextMemory = readFixtureJson('storyboard-context-memory.json');
+  const crossVideoConsistencyReport = readFixtureJson('cross-video-consistency-report.json');
+  const avPackagingPlan = readFixtureJson('av-packaging-plan.json');
+  const postComposeReview = readFixtureJson('post-compose-review.json');
+  const editTaskPack = readFixtureJson('edit-task-pack.json');
+  const humanReviewQueue = readFixtureJson('human-review-queue.json');
+
+  assert.equal(storyboardContextMemory.contextPack.currentShotId, 'shot_001');
+  assert.equal(storyboardContextMemory.metrics.shotMemoryCount, 2);
+  assert.equal(crossVideoConsistencyReport.reviewItems.length > 0, true);
+  assert.equal(crossVideoConsistencyReport.clipIndex.clips.length, 2);
+  assert.equal(avPackagingPlan.subtitleStyleProfile.stylePreset, 'short_drama_default');
+  assert.equal(avPackagingPlan.warnings.some((item) => item.code === 'bgm_asset_missing'), true);
+  assert.equal(postComposeReview.editTaskPackRef, 'edit-task-pack.json');
+  assert.equal(editTaskPack.schemaVersion, 'edit-task-pack.v1');
+  assert.equal(editTaskPack.tasks.length, 3);
+  assert.equal(editTaskPack.humanReview.items.length, humanReviewQueue.items.length);
+  assert.equal(humanReviewQueue.summary.openCount, humanReviewQueue.items.length);
 });

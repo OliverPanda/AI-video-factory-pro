@@ -1,9 +1,63 @@
-import { Activity, Cpu, Server, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 
-import { useProviderSettings } from '../hooks/useWorkbench';
+import {
+  useProviderSettings,
+  useProviderSettingsActions,
+} from '../hooks/useWorkbench';
+import type { ProviderSettingSection, ProviderSettingField } from '../lib/workbench';
+
+function FieldEditor({
+  field,
+  value,
+  onChange,
+}: {
+  field: ProviderSettingField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const base = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:outline-none';
+
+  if (field.kind === 'select') {
+    return (
+      <select className={base} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">请选择</option>
+        {field.options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      type={field.kind === 'secret' ? 'password' : 'text'}
+      className={base}
+      value={value}
+      placeholder={field.kind === 'secret' && field.configured ? '留空表示保持原值' : ''}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
 
 export default function SettingsPage() {
   const { settings, loading, error } = useProviderSettings();
+  const { save, saving, saveError, runAllChecks, checkingAll, precheckResult, precheckError } =
+    useProviderSettingsActions();
+  const [draftSections, setDraftSections] = useState<ProviderSettingSection[] | null>(null);
+
+  useEffect(() => {
+    if (!settings) return undefined;
+    const sections = Array.isArray(settings.sections) ? settings.sections : [];
+    setDraftSections(sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => ({
+        ...field,
+        value: field.kind === 'secret' ? '' : field.value || '',
+      })),
+    })));
+    return undefined;
+  }, [settings]);
 
   if (loading) {
     return (
@@ -13,78 +67,134 @@ export default function SettingsPage() {
     );
   }
 
-  if (!settings) {
+  if (!settings || !draftSections) {
     return <div className="glass-card p-6 text-sm text-red-600">加载设置失败{error ? `：${error}` : ''}。</div>;
   }
 
+  const updateField = (sectionId: string, fieldKey: string, value: string) => {
+    setDraftSections((current) =>
+      (current || []).map((section) => (
+        section.id !== sectionId
+          ? section
+          : {
+              ...section,
+              fields: section.fields.map((field) => (field.key !== fieldKey ? field : { ...field, value })),
+            }
+      ))
+    );
+  };
+
+  const handleSave = async () => {
+    const saved = await save(draftSections);
+    setDraftSections(Array.isArray(saved.sections) ? saved.sections : []);
+  };
+
+  const handlePrecheck = async () => {
+    try {
+      await handleSave();
+    } catch {
+      return;
+    }
+    await runAllChecks();
+  };
+
+  const resultsBySection = new Map(precheckResult?.results.map((item) => [item.sectionId, item]) || []);
+
   return (
-    <div className="mx-auto max-w-5xl">
-      <header className="mb-10">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs text-cyan-600">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="rounded-2xl border border-cyan-100 bg-cyan-50 p-6">
+        <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs text-cyan-700">
           <ShieldCheck size={14} />
-          当前后端模式：{settings.mode}
+          {settings.mode}
         </div>
-        <h1 className="text-3xl font-bold text-slate-900 font-heading">系统设置</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
-          这页现在按 `/api/settings/providers` 读取真实工作台配置。由于当前后端是只读 workbench，本页不再提供旧版保存、代理测试和模型切换入口，避免前端误导用户走不存在的写接口。
-        </p>
+        <h1 className="mt-4 text-3xl font-bold text-slate-900">配置页</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{settings.note}</p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            保存配置
+          </button>
+          <button
+            onClick={handlePrecheck}
+            disabled={checkingAll}
+            className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {checkingAll ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            一键预检全部
+          </button>
+        </div>
+        <div className="mt-4 text-xs text-slate-500">
+          工作台地址：{settings.workbenchApiBase}
+        </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section className="glass-card p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <Server className="text-cyan-500" size={22} />
-            <h2 className="text-lg font-semibold text-slate-900">工作台接口</h2>
-          </div>
+      {saveError ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{saveError}</div> : null}
+      {precheckError ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{precheckError}</div> : null}
 
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-400">Workbench API Base</div>
-              <div className="break-all font-mono text-sm text-slate-900">{settings.workbenchApiBase}</div>
+      {draftSections.map((section) => {
+        const result = resultsBySection.get(section.id);
+        return (
+          <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">{section.title}</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-500">{section.description}</p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-400">Frontend Dev Server</div>
-              <div className="break-all font-mono text-sm text-slate-900">{settings.frontendDevServer}</div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {section.fields.map((field) => (
+                <label key={field.key} className="space-y-2">
+                  <div className="flex items-center justify-between text-sm font-medium text-slate-700">
+                    <span>{field.label}</span>
+                    <span className="text-xs text-slate-400">
+                      {field.required ? '必填' : field.kind === 'secret' ? (field.configured ? '已配置' : '未配置') : '可选'}
+                    </span>
+                  </div>
+                  <FieldEditor
+                    field={field}
+                    value={field.value}
+                    onChange={(value) => updateField(section.id, field.key, value)}
+                  />
+                  {field.kind === 'secret' && field.configured ? (
+                    <div className="text-xs text-slate-400">当前已配置，留空保存会保持原值。</div>
+                  ) : null}
+                </label>
+              ))}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-400">后端说明</div>
-              <div className="text-sm leading-6 text-slate-600">{settings.note}</div>
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              {result ? (
+                <div className="flex items-start gap-3">
+                  {result.ok ? <CheckCircle2 className="mt-0.5 text-emerald-600" size={18} /> : <AlertCircle className="mt-0.5 text-amber-600" size={18} />}
+                  <div className="min-w-0 flex-1 text-sm">
+                    <div className="font-semibold text-slate-900">
+                      {result.ok ? '预检通过' : '预检未通过'}
+                    </div>
+                    <div className="mt-1 text-slate-600">
+                      {result.message}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {result.sectionTitle} / {result.provider || '-'} / {result.model || '-'} / {result.checkType}
+                    </div>
+                    {result.hint ? <div className="mt-1 text-xs text-amber-600">{result.hint}</div> : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">还没执行预检。</div>
+              )}
             </div>
-          </div>
-        </section>
+          </section>
+        );
+      })}
 
-        <section className="glass-card p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <Cpu className="text-emerald-500" size={22} />
-            <h2 className="text-lg font-semibold text-slate-900">联调约束</h2>
-          </div>
-
-          <div className="space-y-4 text-sm leading-6 text-slate-600">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              1. 以前端展示为主，但所有状态、资源、阶段和可用能力都以后端真实产物为准。
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              2. 旧版项目、角色、场景、配音的编辑动作已下线；当前前端只展示可从 run 中读到的事实。
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              3. 后续如果后端补出写接口，前端再恢复对应按钮和表单，而不是在当前版本里先做假交互。
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="glass-card mt-6 p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <Activity className="text-amber-500" size={22} />
-          <h2 className="text-lg font-semibold text-slate-900">当前接入说明</h2>
+      {precheckResult ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          已完成全部预检：{precheckResult.results.filter((item) => item.ok).length}/{precheckResult.results.length}
         </div>
-        <p className="text-sm leading-7 text-slate-500">
-          `views` 前端现阶段承担的是运行产物浏览器，不是项目编辑后台。项目首页、详情、角色、场景、配音和设置都已经切到真实
-          workbench 数据源；与旧接口不一致的部分，统一按后端当前只读工作流收敛。
-        </p>
-      </section>
+      ) : null}
     </div>
   );
 }

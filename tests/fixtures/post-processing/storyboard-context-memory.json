@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "project_happyhorse",
+  "runId": "run_post_loop_fixture",
+  "createdAt": "2026-06-19T00:00:00.000Z",
+  "updatedAt": "2026-06-19T00:00:00.000Z",
+  "sourceArtifacts": [
+    {
+      "path": "runs/r_fixture/04-image-generator/1-outputs/image-results.json",
+      "artifactType": "image-results",
+      "agent": "imageGenerator",
+      "version": "fixture-v1"
+    }
+  ],
+  "indexes": {
+    "byShotId": {
+      "shot_001": [
+        "mem-shot_001-context"
+      ],
+      "shot_002": [
+        "mem-shot_002-context"
+      ]
+    }
+  },
+  "records": [
+    {
+      "memoryId": "mem-shot_001-context",
+      "memoryType": "shot",
+      "scope": {
+        "shotId": "shot_001",
+        "characterIds": [
+          "hero"
+        ]
+      },
+      "content": {
+        "scene": "stable-yard",
+        "action": "hero turns back",
+        "imageResult": {
+          "shotId": "shot_001",
+          "imagePath": "frames/shot_001.png"
+        }
+      },
+      "status": "active"
+    }
+  ],
+  "shotMemory": [
+    {
+      "shotId": "shot_001",
+      "scene": "stable-yard"
+    },
+    {
+      "shotId": "shot_002",
+      "scene": "stable-yard"
+    }
+  ],
+  "transitionMemory": [
+    {
+      "transitionId": "transition-shot_001-shot_002",
+      "previousShotId": "shot_001",
+      "nextShotId": "shot_002"
+    }
+  ],
+  "shotContextIndex": {
+    "shot_001": {
+      "shotId": "shot_001",
+      "scene": "stable-yard",
+      "characterIds": [
+        "hero"
+      ],
+      "referenceIds": [
+        "ref_hero"
+      ]
+    },
+    "shot_002": {
+      "shotId": "shot_002",
+      "scene": "stable-yard",
+      "characterIds": [
+        "hero"
+      ],
+      "referenceIds": [
+        "ref_hero"
+      ]
+    }
+  },
+  "transitionContextIndex": {
+    "transition-shot_001-shot_002": {
+      "previousShotId": "shot_001",
+      "nextShotId": "shot_002",
+      "requiresBridgeReview": true
+    }
+  },
+  "happyHorseReferencePlan": {
+    "requiredReferenceIds": [
+      "ref_hero"
+    ]
+  },
+  "warnings": [],
+  "memories": [
+    "mem-shot_001-context",
+    "mem-shot_002-context"
+  ],
+  "compactionLog": [],
+  "conflicts": [],
+  "metrics": {
+    "shotMemoryCount": 2,
+    "transitionMemoryCount": 1,
+    "characterMemoryCount": 1
+  },
+  "contextPack": {
+    "currentShotId": "shot_001",
+    "requiredReferenceIds": [
+      "ref_hero"
+    ],
+    "unresolvedContinuityRiskIds": [
+      "transition-shot_001-shot_002"
+    ]
+  }
+}

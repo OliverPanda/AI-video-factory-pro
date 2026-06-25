@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { ensureDir, saveJSON } from './fileHelper.js';
 import { formatRunTimestamp, normalizeReadableSegment } from './naming.js';
+import { normalizeText } from './normalization.js';
 
 export const AGENT_ARTIFACT_LAYOUT = {
   scriptParser: '01-script-parser',
@@ -95,10 +96,6 @@ function buildArtifactEpisodeDirName(input) {
 
 function buildArtifactRunDirName(input) {
   return `r_${formatRunTimestamp(input?.startedAt)}_${buildArtifactHash(input?.runJobId)}`;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
 }
 
 function normalizeList(items = []) {

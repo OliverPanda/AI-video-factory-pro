@@ -3,10 +3,7 @@ import path from 'node:path';
 import { createDirectorPack } from '../domain/seedanceDirectorProtocol.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+import { normalizeText } from '../utils/normalization.js';
 
 function buildShotIndex(shots = []) {
   return new Map((Array.isArray(shots) ? shots : []).map((shot) => [shot.id, shot]));

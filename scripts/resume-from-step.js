@@ -22,7 +22,9 @@ const STEP_SEQUENCE = [
   'dialogue',
   'audio',
   'lipsync',
+  'cross_consistency',
   'compose',
+  'post_review',
 ];
 
 const STEP_ALIASES = {
@@ -54,9 +56,19 @@ const STEP_ALIASES = {
   'tts-agent': 'audio',
   lipsync: 'lipsync',
   'lipsync-agent': 'lipsync',
+  'cross-consistency': 'cross_consistency',
+  cross_consistency: 'cross_consistency',
+  'cross-video-consistency': 'cross_consistency',
+  cross_video_consistency: 'cross_consistency',
+  'cross-video': 'cross_consistency',
+  'cross-video-checker': 'cross_consistency',
   compose: 'compose',
   composer: 'compose',
   'video-composer': 'compose',
+  'post-review': 'post_review',
+  post_review: 'post_review',
+  'post-compose-review': 'post_review',
+  post_compose_review: 'post_review',
 };
 
 const STEP_STATE_KEYS = {
@@ -271,10 +283,32 @@ const STEP_STATE_KEYS = {
     'lastError',
     'failedAt',
   ],
+  cross_consistency: [
+    'crossVideoConsistencyReport',
+    'avPackagingPlan',
+    'postComposeReview',
+    'humanReviewQueue',
+    'pipelineSummary',
+    'previewOutputPath',
+    'composeResult',
+    'outputPath',
+    'deliverySummaryPath',
+    'completedAt',
+    'lastError',
+    'failedAt',
+  ],
   compose: [
     'composeResult',
     'outputPath',
     'deliverySummaryPath',
+    'completedAt',
+    'lastError',
+    'failedAt',
+  ],
+  post_review: [
+    'postComposeReview',
+    'humanReviewQueue',
+    'pipelineSummary',
     'completedAt',
     'lastError',
     'failedAt',
@@ -290,7 +324,9 @@ const STEP_PREREQUISITES = {
   dialogue: ['characterRegistry', 'imageResults'],
   audio: ['characterRegistry', 'imageResults', 'normalizedShots'],
   lipsync: ['characterRegistry', 'imageResults', 'normalizedShots', 'audioResults'],
+  cross_consistency: ['characterRegistry', 'imageResults', 'normalizedShots', 'audioResults', 'storyboardContextMemory'],
   compose: ['characterRegistry', 'imageResults', 'normalizedShots', 'audioResults'],
+  post_review: ['characterRegistry', 'imageResults', 'normalizedShots', 'audioResults', 'crossVideoConsistencyReport', 'avPackagingPlan'],
 };
 
 function usage() {
@@ -300,7 +336,7 @@ function usage() {
   node scripts/resume-from-step.js --step=<step> --project=<projectId> --script-id=<scriptId> --episode=<episodeId> [选项]
 
 续跑 step：
-  character_registry | prompts | images | consistency | continuity | video | dialogue | audio | lipsync | compose
+  character_registry | prompts | images | consistency | continuity | video | dialogue | audio | lipsync | cross_consistency | compose | post_review
 
 选项：
   --prepare-only           只重置缓存，不自动重新执行
@@ -876,26 +912,6 @@ function backupStateFile(statePath, state) {
   return backupPath;
 }
 
-function buildRunArgs(parsed, context) {
-  const args = [];
-  if (context.mode === 'legacy') {
-    args.push(context.scriptFile);
-    if (parsed.projectIdOverride) {
-      args.push(`--project-id=${parsed.projectIdOverride}`);
-    }
-  } else {
-    args.push(`--project=${context.projectId}`);
-    args.push(`--script=${context.scriptId}`);
-    args.push(`--episode=${context.episodeId}`);
-  }
-
-  if (parsed.style) args.push(`--style=${parsed.style}`);
-  if (parsed.provider) args.push(`--provider=${parsed.provider}`);
-  if (parsed.skipConsistencyCheck) args.push('--skip-consistency');
-
-  return args;
-}
-
 async function executeResumeRun(parsed, context) {
   if (parsed.provider) {
     process.env.LLM_PROVIDER = parsed.provider;
@@ -1145,7 +1161,6 @@ export const __testables = {
   collectFilesToRemove,
   buildLegacyBridgeIdentity,
   resolveResumeContext,
-  buildRunArgs,
   collectMissingPrerequisites,
   getResumeMode,
   getStrictBindingImageRoots,

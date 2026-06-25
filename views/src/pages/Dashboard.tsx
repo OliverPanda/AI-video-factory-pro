@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -9,10 +9,12 @@ import {
   X,
   Plus,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 
-import { useWorkbenchOverview, useWorkbenchProjects } from '../hooks/useWorkbench';
-import { formatRunStatus, getStatusTone } from '../lib/workbench';
+import { useWorkbenchProjects, useWorkbenchOverview } from '../hooks/useWorkbench';
+import { formatRunStatus, getStatusTone, createProjectApi } from '../lib/workbench';
+import { StylePicker, GENRE_OPTIONS, RATIO_OPTIONS } from '../components/StylePresets';
 
 function EmptyState({ query, onClear }: { query: string; onClear: () => void }) {
   return (
@@ -34,11 +36,191 @@ function EmptyState({ query, onClear }: { query: string; onClear: () => void }) 
   );
 }
 
+function CreateProjectModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (projectId: string) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [genre, setGenre] = useState('');
+  const [style, setStyle] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
+  const [aspectRatio, setAspectRatio] = useState('9:16');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const project = await createProjectApi({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        genre: genre || undefined,
+        style: style || undefined,
+        coverUrl: coverUrl.trim() || undefined,
+        aspectRatio,
+      });
+      onCreated(project.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 animate-in max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900 font-heading">新建项目</h2>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          {/* 标题 */}
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">项目标题 *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="输入项目标题…"
+              autoFocus
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all"
+            />
+          </div>
+
+          {/* 简述 */}
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">项目简述</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="简要描述项目内容（可选）…"
+              rows={2}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all resize-none"
+            />
+          </div>
+
+          {/* 题材 */}
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">题材风格</label>
+            <select
+              value={genre}
+              onChange={(e) => setGenre(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all appearance-none"
+            >
+              {GENRE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 画风视觉选择 */}
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">画风</label>
+            <StylePicker value={style} onChange={setStyle} />
+          </div>
+
+          {/* 封面 + 比例 */}
+          <div className="mb-5 grid grid-cols-[1fr_140px] gap-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600">封面图片 URL</label>
+              <input
+                type="text"
+                value={coverUrl}
+                onChange={(e) => setCoverUrl(e.target.value)}
+                placeholder="粘贴封面图链接（可选）"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600">画面比例</label>
+              <select
+                value={aspectRatio}
+                onChange={(e) => setAspectRatio(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all appearance-none"
+              >
+                {RATIO_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 封面预览 */}
+          {coverUrl.trim() && (
+            <div className="mb-5 rounded-xl border border-slate-200 overflow-hidden">
+              <img
+                src={coverUrl.trim()}
+                alt="封面预览"
+                className="w-full h-36 object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim() || submitting}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2 text-sm font-bold text-white shadow-md shadow-cyan-500/20 hover:shadow-cyan-500/35 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {submitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {submitting ? '创建中…' : '创建项目'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { projects, loading, error } = useWorkbenchProjects();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { projects, loading, error } = useWorkbenchProjects(refreshKey);
   const { overview } = useWorkbenchOverview();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const handleProjectCreated = useCallback((projectId: string) => {
+    setShowCreateModal(false);
+    setRefreshKey((k) => k + 1);
+    navigate(`/project/${projectId}`);
+  }, [navigate]);
 
   const filteredProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -89,7 +271,7 @@ export default function Dashboard() {
           </div>
         </div>
         <button
-          onClick={() => navigate('/drama/new')}
+          onClick={() => setShowCreateModal(true)}
           className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-cyan-600 to-teal-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 shrink-0"
         >
           <Plus size={18} />
@@ -208,7 +390,7 @@ export default function Dashboard() {
               return (
                 <button
                   key={project.id}
-                  onClick={() => navigate(`/drama/${project.id}`)}
+                  onClick={() => navigate(`/project/${project.id}`)}
                   className="glass-card overflow-hidden text-left hover:border-cyan-200 hover:ring-2 hover:ring-cyan-100 active:scale-[0.99] transition-all duration-300 group"
                 >
                   <div className="relative aspect-video overflow-hidden border-b border-slate-100">
@@ -274,6 +456,12 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+
+      <CreateProjectModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={handleProjectCreated}
+      />
     </div>
   );
 }

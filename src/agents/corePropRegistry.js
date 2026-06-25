@@ -1,6 +1,4 @@
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+import { normalizeText } from '../utils/normalization.js';
 
 function shotText(shot = {}) {
   return [shot.action, shot.dialogue, shot.scene, shot.subtitle]

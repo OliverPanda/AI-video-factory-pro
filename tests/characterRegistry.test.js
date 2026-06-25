@@ -304,6 +304,26 @@ test('buildEpisodeCharacterRegistry episode path normalizes non-array bible refe
   assert.deepEqual(registry[0].referenceImages, []);
 });
 
+test('buildEpisodeCharacterRegistry accepts parsed episode characters with names but no ids', () => {
+  const registry = buildEpisodeCharacterRegistry(
+    [],
+    [
+      { name: '陆衍' },
+      null,
+      { name: '零' },
+    ],
+    []
+  );
+
+  assert.equal(registry.length, 2);
+  assert.equal(registry[0].name, '陆衍');
+  assert.equal(registry[0].id, 'episode_character_陆衍');
+  assert.equal(registry[0].episodeCharacterId, 'episode_character_陆衍');
+  assert.equal(registry[0].mainCharacterTemplateId, null);
+  assert.equal(registry[1].name, '零');
+  assert.equal(registry[1].id, 'episode_character_零');
+});
+
 test('buildCharacterRegistry regular merge path exposes stable runtime contract fields with defaults', async () => {
   const registry = await buildCharacterRegistry(
     [{ id: 'char_src_1', name: '阿鬼', gender: 'male', age: '28岁' }],

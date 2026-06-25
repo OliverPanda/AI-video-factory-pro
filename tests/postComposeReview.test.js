@@ -208,9 +208,11 @@ test('runPostComposeReview writes complete artifacts', async (t) => {
   };
   fs.mkdirSync(artifactContext.outputsDir, { recursive: true });
   fs.mkdirSync(artifactContext.metricsDir, { recursive: true });
+  fs.writeFileSync(path.join(tempRoot, 'source-final-video.mp4'), Buffer.from('final video bytes'));
 
   const result = await runPostComposeReview(
     baseInput({
+      finalVideoPath: path.join(tempRoot, 'source-final-video.mp4'),
       shotQaReport: {
         status: 'fail',
         failures: [{ shotId: 'shot_001', message: 'blurred frame' }],
@@ -224,6 +226,7 @@ test('runPostComposeReview writes complete artifacts', async (t) => {
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'post-compose-review.md')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'edit-task-pack.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'edit-task-pack.md')), true);
+  assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'review-final-video.mp4')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'post-compose-review-metrics.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.metricsDir, 'qa-summary.json')), true);
   assert.equal(fs.existsSync(path.join(artifactContext.outputsDir, 'qa-summary.md')), true);
@@ -233,7 +236,9 @@ test('runPostComposeReview writes complete artifacts', async (t) => {
   assert.equal(pack.executionMode, 'manual_only');
   assert.equal(pack.manualExecutionRequired, true);
   assert.equal(pack.tasks.some((task) => task.action === 'regenerate_shot'), true);
+  assert.equal(pack.finalVideoRef, 'review-final-video.mp4');
 
   const manifest = JSON.parse(fs.readFileSync(artifactContext.manifestPath, 'utf-8'));
   assert.equal(manifest.status, 'completed_with_warnings');
+  assert.equal(manifest.outputFiles.includes('review-final-video.mp4'), true);
 });

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import { textToSpeech } from '../apis/ttsApi.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, escapeConcatPath, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { ttsQueue, queueWithRetry } from '../utils/queue.js';
 import { buildCharacterIdentityCandidates, resolveShotParticipants, resolveShotSpeaker } from './characterRegistry.js';
@@ -14,11 +14,6 @@ import logger from '../utils/logger.js';
 
 function resolveDefaultTtsProvider(options = {}) {
   return options.ttsProvider || process.env.TTS_PROVIDER || 'minimax';
-}
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
 }
 
 function findVoiceCastEntry(speaker, voiceCast = []) {
@@ -89,9 +84,6 @@ function buildSegmentOutputPath(audioDir, shotId, segment, index, segmentCount) 
   return path.join(audioDir, `${segmentId}.mp3`);
 }
 
-function escapeConcatPath(filePath) {
-  return path.resolve(filePath).replace(/\\/g, '/').replace(/'/g, "'\\''");
-}
 
 export function combineAudioSegmentFiles(segmentPaths, outputPath) {
   const paths = segmentPaths.filter(Boolean);

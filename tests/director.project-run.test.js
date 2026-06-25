@@ -85,6 +85,62 @@ test('runEpisodePipeline returns the requested episode artifact path', async () 
   });
 });
 
+test('runEpisodePipeline rebuilds empty episode shots on fresh retry runs', async () => {
+  await withTempRoot(async (tempRoot) => {
+    const dirs = createDirs(path.join(tempRoot, 'job'));
+    const savedEpisodes = [];
+    const savedScripts = [];
+
+    const director = createDirector({
+      initDirs: () => dirs,
+      generateJobId: () => 'job_rebuild_empty_shots',
+      loadJSON: () => null,
+      saveJSON: () => {},
+      createRunJob: () => {},
+      appendAgentTaskRun: () => {},
+      finishRunJob: () => {},
+      loadProject: () => ({ id: 'project_1', name: '双生囚笼' }),
+      loadScript: () => ({
+        id: 'script_1',
+        projectId: 'project_1',
+        title: '双生囚笼-第1集',
+        sourceText: '【画面1】陆衍睁眼。陆衍：这是哪里？',
+        characters: [],
+      }),
+      loadEpisode: () => ({
+        id: 'episode_1',
+        projectId: 'project_1',
+        scriptId: 'script_1',
+        title: '第一集',
+        shots: [],
+      }),
+      saveScript: (_projectId, script) => savedScripts.push(script),
+      saveEpisode: (_projectId, _scriptId, episode) => savedEpisodes.push(episode),
+      parseScript: async () => ({
+        title: '双生囚笼-第1集',
+        characters: [{ name: '陆衍' }],
+        shots: [{ id: 'shot_001', scene: '虚空', characters: ['陆衍'], action: '睁眼', duration: 3 }],
+        parserMetadata: { parserMode: 'test-repair' },
+      }),
+      buildCharacterRegistry: async () => [{ name: '陆衍', basePromptTokens: 'lu yan' }],
+      generateCharacterRefSheets: async () => [],
+    });
+
+    const result = await director.runEpisodePipeline({
+      projectId: 'project_1',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      options: { stopAt: 'after_ref_sheets' },
+    });
+
+    assert.equal(result.status, 'stopped_after_ref_sheets');
+    assert.equal(savedEpisodes.length, 1);
+    assert.equal(savedEpisodes[0].shots.length, 1);
+    assert.equal(savedScripts.length, 1);
+    assert.equal(savedScripts[0].characters[0].name, '陆衍');
+  });
+});
+
 test('runEpisodePipeline sends only the current episode shots to audio and video composition', async () => {
   await withTempRoot(async (tempRoot) => {
     const dirs = createDirs(path.join(tempRoot, 'job'));

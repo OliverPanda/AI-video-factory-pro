@@ -1,12 +1,6 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 
 function normalizeWhitespace(text) {
   return String(text || '')

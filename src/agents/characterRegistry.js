@@ -2,10 +2,9 @@
  * 角色设定Agent - 维护角色视觉档案，确保跨镜头一致性
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON } from '../llm/client.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
@@ -16,11 +15,6 @@ const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色
 - 描述要具体可视化，避免抽象词汇
 - 优先描述可见特征：发型、发色、面部、体型、服装
 - 生成图像提示词要与所选风格（写实/3D）匹配`;
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildRegistryMarkdown(cards) {
   return `${cards
@@ -486,6 +480,8 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
 }
 
 function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, characterBible = null) {
+  const safeMainTemplate = mainTemplate || {};
+  const safeEpisodeCharacter = episodeCharacter || {};
   const bibleCoreTraits = characterBible?.coreTraits ?? {};
   const bibleHair = bibleCoreTraits.hairStyle ?? null;
   const bibleSkin = bibleCoreTraits.skinTone ?? null;
@@ -494,60 +490,60 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
 
   return {
     ...characterBible,
-    ...mainTemplate,
-    ...episodeCharacter,
-    id: episodeCharacter.id,
-    episodeCharacterId: episodeCharacter.id,
-    characterBibleId: episodeCharacter.characterBibleId ?? characterBible?.id ?? null,
-    mainCharacterTemplateId: episodeCharacter.mainCharacterTemplateId ?? mainTemplate.id ?? null,
+    ...safeMainTemplate,
+    ...safeEpisodeCharacter,
+    id: safeEpisodeCharacter.id,
+    episodeCharacterId: safeEpisodeCharacter.id,
+    characterBibleId: safeEpisodeCharacter.characterBibleId ?? characterBible?.id ?? null,
+    mainCharacterTemplateId: safeEpisodeCharacter.mainCharacterTemplateId ?? safeMainTemplate.id ?? null,
     priority:
-      episodeCharacter.priority ??
-      episodeCharacter.characterPriority ??
+      safeEpisodeCharacter.priority ??
+      safeEpisodeCharacter.characterPriority ??
       characterBible?.priority ??
       characterBible?.characterPriority ??
       'support',
-    name: episodeCharacter.name ?? mainTemplate.name ?? '',
-    gender: episodeCharacter.gender ?? mainTemplate.gender ?? null,
-    age: episodeCharacter.age ?? mainTemplate.age ?? null,
+    name: safeEpisodeCharacter.name ?? safeMainTemplate.name ?? '',
+    gender: safeEpisodeCharacter.gender ?? safeMainTemplate.gender ?? null,
+    age: safeEpisodeCharacter.age ?? safeMainTemplate.age ?? null,
     visualDescription:
-      episodeCharacter.visualOverride ??
-      episodeCharacter.visualDescription ??
+      safeEpisodeCharacter.visualOverride ??
+      safeEpisodeCharacter.visualDescription ??
       characterBible?.basePromptTokens ??
       (visualAnchorParts.join(', ') || null) ??
-      mainTemplate.visualDescription ??
+      safeMainTemplate.visualDescription ??
       null,
     identityAnchor: sanitizeCharacterIdentityTokens(
-      episodeCharacter.identityAnchor ??
+      safeEpisodeCharacter.identityAnchor ??
         characterBible?.identityAnchor ??
-        mainTemplate.identityAnchor ??
-        episodeCharacter.basePromptTokens ??
+        safeMainTemplate.identityAnchor ??
+        safeEpisodeCharacter.basePromptTokens ??
         characterBible?.basePromptTokens ??
-        mainTemplate.basePromptTokens ??
+        safeMainTemplate.basePromptTokens ??
         null
     ),
-    styleFamily: episodeCharacter.styleFamily ?? characterBible?.styleFamily ?? mainTemplate.styleFamily ?? null,
+    styleFamily: safeEpisodeCharacter.styleFamily ?? characterBible?.styleFamily ?? safeMainTemplate.styleFamily ?? null,
     basePromptTokens: sanitizeCharacterIdentityTokens(
-      episodeCharacter.basePromptTokens ??
+      safeEpisodeCharacter.basePromptTokens ??
         characterBible?.basePromptTokens ??
-        mainTemplate.basePromptTokens ??
+        safeMainTemplate.basePromptTokens ??
         null
     ),
     personality:
-      episodeCharacter.personalityOverride ??
-      episodeCharacter.personality ??
-      mainTemplate.personality ??
+      safeEpisodeCharacter.personalityOverride ??
+      safeEpisodeCharacter.personality ??
+      safeMainTemplate.personality ??
       null,
     defaultVoiceProfile:
-      episodeCharacter.voiceOverrideProfile ??
-      episodeCharacter.defaultVoiceProfile ??
-      mainTemplate.defaultVoiceProfile ??
+      safeEpisodeCharacter.voiceOverrideProfile ??
+      safeEpisodeCharacter.defaultVoiceProfile ??
+      safeMainTemplate.defaultVoiceProfile ??
       null,
     negativeDriftTokens: characterBible?.negativeDriftTokens ?? null,
     forbiddenIdentityTokens: sanitizeCharacterIdentityTokens(
-      episodeCharacter.forbiddenIdentityTokens ??
+      safeEpisodeCharacter.forbiddenIdentityTokens ??
         characterBible?.forbiddenIdentityTokens ??
         characterBible?.negativeDriftTokens ??
-        mainTemplate.forbiddenIdentityTokens ??
+        safeMainTemplate.forbiddenIdentityTokens ??
         null
     ),
     lightingAnchor: characterBible?.lightingAnchor ?? {},
@@ -556,7 +552,25 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
     coreTraits: characterBible?.coreTraits ?? {},
     characterBible: characterBible ?? null,
     mainCharacterTemplate: mainTemplate || null,
-    episodeCharacter,
+    episodeCharacter: safeEpisodeCharacter,
+  };
+}
+
+function buildFallbackEpisodeCharacterId(character, index) {
+  const name = String(character?.name || character?.characterName || '').trim();
+  return name ? `episode_character_${name}` : `episode_character_${index + 1}`;
+}
+
+function normalizeEpisodeCharacter(character, index) {
+  if (!character || typeof character !== 'object') return null;
+  const name = String(character.name || character.characterName || '').trim();
+  const id = String(character.id || character.episodeCharacterId || '').trim();
+  if (!id && !name) return null;
+
+  return {
+    ...character,
+    id: id || buildFallbackEpisodeCharacterId(character, index),
+    name,
   };
 }
 
@@ -565,7 +579,7 @@ export function buildEpisodeCharacterRegistry(
   episodeCharacters = [],
   characterBibles = []
 ) {
-  return episodeCharacters.map((episodeCharacter) => {
+  return episodeCharacters.map(normalizeEpisodeCharacter).filter(Boolean).map((episodeCharacter) => {
     const mainTemplate =
       mainCharacterTemplates.find(
         (template) => template?.id === (episodeCharacter?.mainCharacterTemplateId ?? null)

@@ -7,6 +7,7 @@ import axios from 'axios';
 
 import logger from '../utils/logger.js';
 import { saveBuffer } from '../utils/fileHelper.js';
+import { normalizeMediaTaskDuration } from '../utils/normalization.js';
 import { ensureEnglishPrompt } from '../utils/translatePrompt.js';
 import { resolveSingleReferenceAsset, selectSoraReferenceImages } from '../utils/referenceImageAsset.js';
 import {
@@ -511,13 +512,6 @@ function resolveFallbackReferenceUrl(request) {
     }
   }
   return null;
-}
-
-function normalizeMediaTaskDuration(seconds) {
-  const target = Number(seconds);
-  if (!Number.isFinite(target) || target <= 4) return '4';
-  if (target <= 8) return '8';
-  return '12';
 }
 
 function inferMediaTaskOrientation(ratio) {

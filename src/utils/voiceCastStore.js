@@ -1,13 +1,5 @@
 import { getVoiceCastFilePath, loadJSON, saveJSON } from './fileHelper.js';
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
-
-function normalizeIdentity(value) {
-  const text = normalizeText(value);
-  return text || null;
-}
+import { normalizeText, normalizeIdentity } from './normalization.js';
 
 function normalizeGender(value) {
   const text = normalizeText(value).toLowerCase();
@@ -28,14 +20,7 @@ function containsAny(text, keywords = []) {
 
 function normalizeMinimaxVoiceName(value) {
   const text = normalizeText(value);
-  if (!text) return null;
-
-  const localeQualifiedMatch = text.match(/^[^_]+_(.+)$/);
-  if (localeQualifiedMatch && localeQualifiedMatch[1]) {
-    return localeQualifiedMatch[1];
-  }
-
-  return text;
+  return text || null;
 }
 
 function resolveMinimaxVoice(gender, env = process.env) {
@@ -44,10 +29,10 @@ function resolveMinimaxVoice(gender, env = process.env) {
   }
 
   if (gender === 'male') {
-    return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_MALE) || 'Reliable_Executive';
+    return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_MALE) || 'Chinese (Mandarin)_Reliable_Executive';
   }
 
-  return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_FEMALE) || 'Warm_Girl';
+  return normalizeMinimaxVoiceName(env.MINIMAX_TTS_VOICE_FEMALE) || 'Chinese (Mandarin)_Warm_Girl';
 }
 
 function buildIdentityCandidates(entry = {}) {

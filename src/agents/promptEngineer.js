@@ -2,7 +2,6 @@
  * 视觉设计Agent - 为每个分镜生成图像生成Prompt
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON } from '../llm/client.js';
 import {
@@ -18,15 +17,10 @@ import {
   getShotForbiddenIdentityTokens,
   getShotCharacterTokens,
 } from './characterRegistry.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { llmQueue } from '../utils/queue.js';
 import logger from '../utils/logger.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function mergePromptSegments(segments = []) {
   return [

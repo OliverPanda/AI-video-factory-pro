@@ -1,3 +1,5 @@
+import { normalizeText, normalizeStringArray, normalizePlainObject } from '../utils/normalization.js';
+
 const SHOT_GENERATION_PACK_FIELDS = [
   'task_type',
   'scene_id',
@@ -34,23 +36,6 @@ const SEQUENCE_GENERATION_PACK_FIELDS = [
   'negative_rules',
   'candidate_policy',
 ];
-
-function normalizeText(value, fallback = '') {
-  if (value == null) return fallback;
-  return String(value).trim() || fallback;
-}
-
-function normalizeStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => normalizeText(item)).filter(Boolean);
-}
-
-function normalizePlainObject(value, fallback = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { ...fallback };
-  }
-  return { ...fallback, ...value };
-}
 
 function normalizeTimecodedBeats(value) {
   if (!Array.isArray(value)) return [];

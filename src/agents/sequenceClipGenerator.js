@@ -7,14 +7,9 @@ import PQueue from 'p-queue';
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
 import { createSequenceClipResult } from '../utils/actionSequenceProtocol.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { probeVideoDurationSec } from '../utils/mediaProbe.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildOutputPath(videoDir, sequencePackage) {
   return path.join(videoDir, `${sequencePackage.sequenceId}.mp4`);

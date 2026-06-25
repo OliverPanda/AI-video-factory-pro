@@ -1,14 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { probeVideoMetadata } from '../utils/mediaProbe.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
+import { normalizeStringArray } from '../utils/normalization.js';
 
 async function probeVideo(videoPath) {
   return probeVideoMetadata(videoPath);
@@ -22,12 +18,6 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec) {
   const minDuration = Math.max(0.5, targetDurationSec * 0.7);
   const maxDuration = Math.max(3, targetDurationSec * 1.5);
   return actualDurationSec >= minDuration && actualDurationSec <= maxDuration;
-}
-
-function normalizeStringArray(values) {
-  return Array.isArray(values)
-    ? values.map((value) => String(value || '').trim()).filter(Boolean)
-    : [];
 }
 
 function buildBridgePlanMap(bridgeShotPlan = []) {

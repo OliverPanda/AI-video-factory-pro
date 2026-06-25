@@ -19,6 +19,10 @@
 - 运行目录、成果物、断点续跑：[docs/runtime/README.md](docs/runtime/README.md)
 - 排障、验收、接手流程：[docs/sop/README.md](docs/sop/README.md)
 - 测试与 QA 验收：[docs/sop/qa-acceptance.md](docs/sop/qa-acceptance.md)
+- 用户使用指南：[docs/user-guide.md](docs/user-guide.md)
+- 部署说明：[docs/deployment.md](docs/deployment.md)
+- 已知限制：[docs/limitations-v1.md](docs/limitations-v1.md)
+- 版本变更记录：[CHANGELOG.md](CHANGELOG.md)
 - 角色身份统一规范：[docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md](docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md)
 - 角色资产生产级闭环：[docs/agents/production-loop-governance.md](docs/agents/production-loop-governance.md)
 
@@ -606,6 +610,58 @@ npm run workbench
 - 只读展示本地 `temp/projects/...` 下的运行产物
 - 可查看项目、分集、run、QA 概览、artifact 摘要
 - 不直接触发生成、不直接改写状态、不替代 `run.js` / `resume-from-step.js`
+
+当前已落地的工作台页面：
+
+- `/projects`
+- `/project/:id`
+- `/drama/:id`
+- `/review/:runId`
+- `/editor`
+- `/drama/:id/characters`
+- `/drama/:id/scenes`
+- `/drama/:id/voices`
+
+更完整的操作说明见 [docs/user-guide.md](docs/user-guide.md)。
+
+## 后处理闭环
+
+当前后处理链路已经进入主流程：
+
+1. `storyboardContextAgent`
+2. `crossVideoConsistencyAgent`
+3. `avPackagingAgent`
+4. `postComposeReviewAgent`
+
+关键产物：
+
+- `storyboard-context-memory.json`
+- `cross-video-consistency-report.*`
+- `av-packaging-plan.*`
+- `post-compose-review.json`
+- `edit-task-pack.json`
+- `human-review-queue.json`
+
+当前后处理 fixtures 位于：
+
+- `tests/fixtures/post-processing/`
+
+相关自动化回归见：
+
+- `tests/pipeline.acceptance.test.js`
+- `tests/postProcessingLoop.e2e.test.js`
+- `tests/resumeFromStep.test.js`
+- `tests/workbench/workbenchServer.test.js`
+
+## 部署与交付
+
+如果你要在新机器上拉起当前系统，优先看：
+
+- [docs/deployment.md](docs/deployment.md)
+
+如果你要了解当前仍未纳入发布承诺的边界，优先看：
+
+- [docs/limitations-v1.md](docs/limitations-v1.md)
 
 Seedance 替换旧兼容视频路径的后续实现计划：
 

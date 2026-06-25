@@ -141,6 +141,27 @@ test('parseProfessionalScript extracts generic character names from dialogue and
   assert.deepEqual(result.shots[3].characters, ['洛迟', '沈砚']);
 });
 
+test('parseProfessionalScript accepts UI structured fields from one-click optimization', () => {
+  const result = parseProfessionalScript(`
+第1集《精英的困境》
+【画面1】
+场景：高档公寓客厅，夜晚。
+人物：周凛。
+动作：周凛手指在平板电脑上快速滑动点击“全屋照明”，头顶水晶灯闪烁两下后彻底熄灭。
+对白：周凛（眉头紧锁，低声）：怎么回事？
+时长：6秒
+`);
+
+  assert.equal(result.shots.length, 1);
+  assert.equal(result.shots[0].scene, '高档公寓客厅，夜晚。');
+  assert.deepEqual(result.shots[0].characters, ['周凛']);
+  assert.match(result.shots[0].action, /全屋照明/);
+  assert.equal(result.shots[0].speaker, '周凛');
+  assert.equal(result.shots[0].dialogue, '怎么回事？');
+  assert.equal(result.shots[0].duration, 6);
+  assert.deepEqual(result.characters.map((character) => character.name), ['周凛']);
+});
+
 test('professional parser preserves ten authored picture beats', () => {
   const pictureBlocks = Array.from({ length: 10 }, (_, index) =>
     [

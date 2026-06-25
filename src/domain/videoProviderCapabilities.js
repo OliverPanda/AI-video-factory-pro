@@ -1,15 +1,9 @@
+import { normalizeBoolean } from '../utils/normalization.js';
+
 function normalizeString(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
-}
-
-function normalizeBoolean(value, fallback = false) {
-  if (typeof value === 'boolean') return value;
-  const normalized = normalizeString(value)?.toLowerCase();
-  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
-  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
-  return fallback;
 }
 
 export function resolveVideoProviderCapabilities(provider, env = process.env) {
@@ -83,8 +77,3 @@ export function chooseBridgeContinuityStrategy({ bridgeType, continuityRisk, pro
     capabilities,
   };
 }
-
-export default {
-  chooseBridgeContinuityStrategy,
-  resolveVideoProviderCapabilities,
-};

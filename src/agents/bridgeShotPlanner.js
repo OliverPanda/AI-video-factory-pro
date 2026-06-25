@@ -5,6 +5,7 @@ import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { shapeBridgeShotPlanEntry } from '../utils/bridgeShotProtocol.js';
 import { chooseBridgeContinuityStrategy } from '../domain/videoProviderCapabilities.js';
+import { normalizeText } from '../utils/normalization.js';
 
 function resolvePreferredBridgeProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
@@ -12,10 +13,6 @@ function resolvePreferredBridgeProvider(options = {}) {
     return 'sora2';
   }
   return rawProvider;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
 }
 
 function normalizeShotType(value) {

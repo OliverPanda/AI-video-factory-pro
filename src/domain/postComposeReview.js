@@ -1,3 +1,5 @@
+import { asArray } from '../utils/normalization.js';
+
 const ACTIONS = new Set([
   'approve',
   'regenerate_shot',
@@ -8,10 +10,6 @@ const ACTIONS = new Set([
   'manual_review',
   'skip',
 ]);
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
 
 function normalizeStatus(value) {
   return String(value || '').toLowerCase();
@@ -169,6 +167,12 @@ function addTask(tasks, input) {
     evidenceRefs: asArray(input.evidenceRefs),
     confidence: input.confidence ?? 0.8,
     executionMode: 'manual_only',
+    writeBoundary: {
+      candidateOnly: true,
+      canMutateFinalVideo: false,
+      canMutateComposePlan: false,
+      canWriteCanonicalMemory: false,
+    },
   });
   return tasks[tasks.length - 1];
 }
@@ -448,10 +452,26 @@ export function buildPostComposeReview(input = {}) {
     createdAt: input.now || new Date().toISOString(),
     executionMode: 'manual_only',
     manualExecutionRequired: tasks.some((task) => task.approvalRequired),
+    memoryBoundary: {
+      owner: 'review_queue',
+      patchMode: 'candidate_only',
+      autoPromoteToConstraint: false,
+      requiresHumanApprovalForConstraint: true,
+    },
     reviewSummary,
     findings,
     tasks,
     humanReview: buildHumanReview(tasks),
+    candidateChanges: tasks
+      .filter((task) => task.action !== 'approve')
+      .map((task) => ({
+        candidateId: `post_compose_candidate_${task.id}`,
+        type: 'post_compose_edit_candidate',
+        action: task.action,
+        targetRef: task.targetRef,
+        reason: task.reason,
+        evidenceRefs: task.evidenceRefs,
+      })),
   };
 
   const report = {
@@ -466,6 +486,7 @@ export function buildPostComposeReview(input = {}) {
       automaticProviderCalls: false,
       finalVideoMutation: false,
       composePlanMutation: false,
+      canonicalMemoryMutation: false,
     },
   };
 
@@ -480,8 +501,4 @@ export function buildPostComposeReview(input = {}) {
 export const __testables = {
   buildTimelineIndex,
   collectReportItems,
-};
-
-export default {
-  buildPostComposeReview,
 };

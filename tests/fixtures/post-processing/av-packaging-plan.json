@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "av-packaging-plan.v1",
+  "runId": "run_post_loop_fixture",
+  "timeline": {
+    "durationSec": 7,
+    "fps": 24,
+    "resolution": "1080x1920"
+  },
+  "subtitleStyleProfile": {
+    "format": "ass",
+    "stylePreset": "short_drama_default",
+    "fontFamily": "Microsoft YaHei",
+    "fontSize": 52
+  },
+  "subtitleStyle": {
+    "format": "ass",
+    "stylePreset": "short_drama_default",
+    "fontFamily": "Microsoft YaHei",
+    "fontSize": 52
+  },
+  "bgmCues": [
+    {
+      "id": "bgm_suspense_001",
+      "assetId": "suspense_loop",
+      "path": "assets/audio/missing-bgm.mp3",
+      "assetExists": false,
+      "mood": "suspense",
+      "startSec": 0,
+      "endSec": 7
+    }
+  ],
+  "sfxCues": [],
+  "rhythmCues": [
+    {
+      "id": "rhythm_bgm_suspense_001",
+      "timeSec": 0,
+      "type": "beat",
+      "strength": 0.65
+    }
+  ],
+  "rhythmPoints": [
+    {
+      "id": "rhythm_bgm_suspense_001",
+      "timeSec": 0,
+      "type": "beat",
+      "strength": 0.65
+    }
+  ],
+  "priorityHints": [
+    {
+      "shotId": "shot_001",
+      "kind": "lipsync",
+      "priority": 100
+    }
+  ],
+  "shotPriorityHints": [
+    {
+      "shotId": "shot_001",
+      "kind": "lipsync",
+      "priority": 100
+    }
+  ],
+  "warnings": [
+    {
+      "code": "bgm_asset_missing",
+      "message": "BGM cues were planned without matching local BGM files; continuing without blocking.",
+      "blocking": false
+    }
+  ],
+  "summary": {
+    "shotCount": 2,
+    "durationSec": 7,
+    "bgmCueCount": 1,
+    "sfxCueCount": 0,
+    "rhythmCueCount": 1,
+    "priorityHintCount": 1,
+    "warningCount": 1,
+    "blockingWarningCount": 0
+  }
+}

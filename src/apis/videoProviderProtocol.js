@@ -2,7 +2,7 @@ function sanitizeObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return value ?? null;
   }
-  return JSON.parse(JSON.stringify(value));
+  return structuredClone(value);
 }
 
 export function normalizeVideoProviderRequest({

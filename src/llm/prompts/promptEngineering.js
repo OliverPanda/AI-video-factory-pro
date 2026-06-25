@@ -117,25 +117,6 @@ export const STYLE_BASE = {
  * 视频模型风格词库（Seedance 2.0 / HappyHorse 等动态模型）
  * 重点：运动质量、时间一致性、镜头行为，而非静态画质词
  */
-export const VIDEO_STYLE_BASE = {
-  seedance: {
-    quality:
-      'cinematic live-action footage, natural film grain, 35mm aesthetic, organic human motion, realistic fabric physics, coherent temporal consistency',
-    lighting:
-      'motivated lighting continuity, natural light falloff, consistent shadow direction across frames, atmospheric depth',
-    negative:
-      'overactive camera, rapid motion blur, jittery handheld, ghosting artifacts, morphing faces, identity drift, frame flicker, inconsistent lighting, broken limb motion, unnatural body twist',
-  },
-  happyhorse: {
-    quality:
-      'cinematic live-action footage, smooth motion cadence, stable subject tracking, natural body mechanics, controlled movement amplitude, coherent frame-to-frame transition',
-    lighting:
-      'stable lighting across frames, motivated practical light, consistent exposure, natural color temperature',
-    negative:
-      'overactive camera movement, rapid erratic motion, jittery handheld shake, ghosting artifacts, identity morphing, face swapping, frame flicker, lighting pop, motion blur excess, body part teleportation, limb distortion, floating limbs, unsupported body twist',
-  },
-};
-
 export function buildCharacterRefSheetPrompt(character, style = 'realistic') {
   const identityAnchor = getCharacterIdentityAnchor(character);
   const tokens = getSanitizedCharacterTokens(character);

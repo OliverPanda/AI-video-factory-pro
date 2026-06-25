@@ -4,6 +4,7 @@ import { resolveCharacterIdentity } from './characterRegistry.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { createActionSequencePlanEntry } from '../utils/actionSequenceProtocol.js';
+import { normalizeText } from '../utils/normalization.js';
 
 function resolvePreferredSequenceProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
@@ -11,10 +12,6 @@ function resolvePreferredSequenceProvider(options = {}) {
     return 'sora2';
   }
   return rawProvider;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
 }
 
 function normalizeLowerText(value) {

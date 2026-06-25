@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import PQueue from 'p-queue';
@@ -6,13 +5,8 @@ import PQueue from 'p-queue';
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { createFallbackVideoClip as createSeedanceBridgeClipViaFallback } from '../apis/fallbackVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildOutputPath(videoDir, bridgePackage) {
   return path.join(videoDir, `${bridgePackage.bridgeId}.mp4`);

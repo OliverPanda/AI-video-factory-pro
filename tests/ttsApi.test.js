@@ -17,7 +17,7 @@ test('MiniMax request builder uses official /v1/t2a_v2 JSON shape and GroupId qu
       MINIMAX_TTS_BASE_URL: 'https://api.minimax.io',
       MINIMAX_TTS_REQUEST_PATH: '/v1/t2a_v2',
       MINIMAX_TTS_MODEL: 'speech-2.5-hd-preview',
-      MINIMAX_TTS_VOICE_FEMALE: 'Warm_Girl',
+      MINIMAX_TTS_VOICE_FEMALE: 'Chinese (Mandarin)_Warm_Girl',
     }
   );
 
@@ -30,9 +30,25 @@ test('MiniMax request builder uses official /v1/t2a_v2 JSON shape and GroupId qu
   assert.equal(request.headers.Authorization, 'Bearer demo-key');
   assert.equal(body.model, 'speech-2.5-hd-preview');
   assert.equal(body.text, '你好，世界');
-  assert.equal(body.voice_setting.voice_id, 'Warm_Girl');
+  assert.equal(body.voice_setting.voice_id, 'Chinese (Mandarin)_Warm_Girl');
   assert.equal(body.voice_setting.speed, 1.3);
   assert.equal(body.audio_setting.format, 'mp3');
+});
+
+test('MiniMax request builder upgrades legacy short voice ids to the current locale-qualified ids', () => {
+  const request = __testables.buildMiniMaxTtsRequest(
+    '你好，世界',
+    {
+      voice: 'Warm_Girl',
+    },
+    {
+      MINIMAX_API_KEY: 'demo-key',
+      MINIMAX_TTS_VOICE_FEMALE: 'Chinese (Mandarin)_Warm_Girl',
+    }
+  );
+
+  const body = JSON.parse(request.body);
+  assert.equal(body.voice_setting.voice_id, 'Chinese (Mandarin)_Warm_Girl');
 });
 
 test('讯飞鉴权 URL 会生成 authorization/date/host 查询参数', () => {

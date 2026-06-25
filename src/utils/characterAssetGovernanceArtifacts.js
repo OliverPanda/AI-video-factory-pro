@@ -1,17 +1,11 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import {
   buildCharacterAssetGovernanceMarkdown,
   buildReferenceSummary,
 } from '../domain/characterAssetGovernance.js';
-import { ensureDir, saveJSON } from './fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from './fileHelper.js';
 import { writeAgentQaSummary } from './qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 export function writeCharacterAssetGovernanceArtifacts(report, artifactContext) {
   if (!artifactContext || !report) {

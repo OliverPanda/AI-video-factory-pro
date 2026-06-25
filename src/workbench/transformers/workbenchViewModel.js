@@ -1,5 +1,6 @@
 const stageConfig = {
   preproduction: new Set([
+    'script_parser',
     'build_character_registry',
     'generate_character_ref_sheets',
     'generate_prompts',
@@ -37,6 +38,7 @@ const stageConfig = {
 
 const stageFlowConfig = {
   preproduction: [
+    { step: 'script_parser', label: '剧本解析' },
     { step: 'build_character_registry', label: '角色档案' },
     { step: 'generate_character_ref_sheets', label: '三视图' },
     { step: 'generate_prompts', label: 'Prompt' },

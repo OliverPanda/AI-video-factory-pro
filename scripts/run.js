@@ -24,12 +24,19 @@ const USAGE = `
   --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
   --input-format=professional-script|raw-novel|auto
                              输入文本类型（默认：professional-script）
+  --stop-at=full|after_ref_sheets|after_images|before_video
+                             运行到指定阶段后停止（默认：full）
+  --continue                 根据现有进度继续运行（复用最近一次的 jobId）
+  --continue-job-id=<id>     继续运行时显式指定要复用的 jobId
+  --run-attempt-id=<id>      指定本次运行 attempt ID（用于前后端状态对齐）
 
 示例：
   node scripts/run.js samples/test_script.txt
   node scripts/run.js samples/test_script.txt --style=3d --skip-consistency
   node scripts/run.js samples/test_script.txt --project-id=demo-project
   node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
+  node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --stop-at=after_images
+  node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --continue --stop-at=before_video
 `.trim();
 
 function getFlagValue(args, flagName) {
@@ -67,8 +74,10 @@ export function parseCliArgs(args) {
   const provider = normalizeId(getFlagValue(args, 'provider'));
   const maxShotsRaw = normalizeId(getFlagValue(args, 'max-shots'));
   const skipConsistencyCheck = args.includes('--skip-consistency');
-  const stopAfterImages = args.includes('--stop-after-images');
-  const stopBeforeVideo = args.includes('--stop-before-video');
+  const stopAtFlag = normalizeId(getFlagValue(args, 'stop-at'));
+  const continueRun = args.includes('--continue');
+  const continueJobId = normalizeId(getFlagValue(args, 'continue-job-id'));
+  const runAttemptId = normalizeId(getFlagValue(args, 'run-attempt-id'));
   const inputFormat = normalizeInputFormat(getFlagValue(args, 'input-format'));
 
   let maxShots = null;
@@ -95,6 +104,8 @@ export function parseCliArgs(args) {
     throw new Error(USAGE);
   }
 
+  let stopAt = stopAtFlag || 'full';
+
   return {
     mode: hasCompleteProjectMode ? 'project' : 'legacy',
     scriptFile,
@@ -105,8 +116,10 @@ export function parseCliArgs(args) {
     style,
     maxShots,
     skipConsistencyCheck,
-    stopAfterImages,
-    stopBeforeVideo,
+    stopAt,
+    continueRun,
+    continueJobId,
+    runAttemptId,
     provider,
     inputFormat,
   };
@@ -166,6 +179,10 @@ export function createCli(overrides = {}) {
             maxShots: parsedArgs.maxShots,
             skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
             inputFormat: parsedArgs.inputFormat,
+            stopAt: parsedArgs.stopAt,
+            continue: parsedArgs.continueRun,
+            continueJobId: parsedArgs.continueJobId,
+            runAttemptId: parsedArgs.runAttemptId,
             storeOptions: resolveStoreOptions(),
           },
         });
@@ -177,18 +194,14 @@ export function createCli(overrides = {}) {
         style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
         maxShots: parsedArgs.maxShots,
         skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
-        stopAfterImages: parsedArgs.stopAfterImages,
-        stopBeforeVideo: parsedArgs.stopBeforeVideo,
+        stopAt: parsedArgs.stopAt,
         projectId: parsedArgs.projectIdOverride,
         inputFormat: parsedArgs.inputFormat,
+        runAttemptId: parsedArgs.runAttemptId,
         storeOptions: resolveStoreOptions(),
       });
-      if (parsedArgs.stopAfterImages) {
-        deps.logger.info('Main', '已完成到出图阶段，跳过视频生成');
-        return result;
-      }
-      if (parsedArgs.stopBeforeVideo) {
-        deps.logger.info('Main', '已完成到视频前阶段，跳过视频生成');
+      if (parsedArgs.stopAt && parsedArgs.stopAt !== 'full') {
+        deps.logger.info('Main', `已完成到 ${parsedArgs.stopAt} 阶段，提前退出`);
         return result;
       }
       deps.writeSuccess(result);

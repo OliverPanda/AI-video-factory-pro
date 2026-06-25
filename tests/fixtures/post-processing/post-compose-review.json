@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "post-compose-review.v1",
+  "projectId": "project_happyhorse",
+  "runId": "run_post_loop_fixture",
+  "status": "needs_review",
+  "summary": {
+    "status": "needs_review",
+    "totalFindings": 3,
+    "blockingFindings": 0,
+    "taskCount": 3,
+    "manualTaskCount": 3
+  },
+  "findings": [
+    {
+      "id": "finding_001",
+      "severity": "warn",
+      "category": "audio_packaging",
+      "message": "BGM cues were planned without matching local BGM files; continuing without blocking.",
+      "targetRef": {
+        "type": "audio_packaging",
+        "id": "bgm_asset_missing"
+      },
+      "evidenceRefs": [
+        "avPackagingPlan"
+      ],
+      "confidence": 0.76
+    }
+  ],
+  "editTaskPackRef": "edit-task-pack.json",
+  "executionBoundary": {
+    "automaticProviderCalls": false,
+    "finalVideoMutation": false,
+    "composePlanMutation": false
+  }
+}

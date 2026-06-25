@@ -1,15 +1,16 @@
 import { NavLink, useLocation, useParams } from 'react-router-dom';
-import { Home, Bell, HelpCircle, Package, Users, MapPin, Mic, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, Bell, HelpCircle, Package, Users, MapPin, BookOpen, ChevronDown, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const mainNavItems = [
   { icon: Home, label: '首页', path: '/' },
+  { icon: Settings, label: '配置页', path: '/settings' },
 ];
 
 const assetSubItems = [
-  { icon: Users, label: '人物管理', pathSuffix: 'characters' },
-  { icon: MapPin, label: '场景管理', pathSuffix: 'scenes' },
-  { icon: Mic, label: '配音管理', pathSuffix: 'voices' },
+  { icon: BookOpen, label: '资产库', pathSuffix: 'assets', basePath: 'project' },
+  { icon: Users, label: '人物 / 配音', pathSuffix: 'characters', basePath: 'drama' },
+  { icon: MapPin, label: '场景管理', pathSuffix: 'scenes', basePath: 'drama' },
 ];
 
 interface SidebarProps {
@@ -136,8 +137,9 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
           {assetsExpanded && (
             <div className="mt-1 ml-4 pl-3 border-l-2 border-slate-200 space-y-1 relative animate-in fade-in duration-300">
               {assetSubItems.map((item) => {
+                const baseRoute = item.basePath || 'drama';
                 const targetPath = currentProjectId
-                  ? `/drama/${currentProjectId}/${item.pathSuffix}`
+                  ? `/${baseRoute}/${currentProjectId}/${item.pathSuffix}`
                   : '#';
                 const isActive = location.pathname.includes(item.pathSuffix);
 

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { visionChat, parseJSONResponse } from '../llm/client.js';
 import { CONSISTENCY_CHECK_SYSTEM, CONSISTENCY_CHECK_USER } from '../llm/prompts/consistencyCheck.js';
-import { imageToBase64, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, imageToBase64, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import {
   classifyShotConsistencyClass,
@@ -27,11 +27,6 @@ const KNOWN_HARD_DRIFT_TAGS = new Set([
   'face_mismatch',
 ]);
 const CONSISTENCY_CHECK_UNAVAILABLE_REASON = 'consistency_check_unavailable';
-
-function writeTextFile(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildConsistencyMarkdown(reports, needsRegeneration, qaDecisionCounts, regenStrategyCounts) {
   const lines = [

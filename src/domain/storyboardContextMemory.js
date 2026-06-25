@@ -1,13 +1,11 @@
+import { buildStoryboardContextMemoryMarkdown } from './storyboardContextMemory/markdown.js';
+import { asArray, normalizeText } from '../utils/normalization.js';
+
 const SCHEMA_VERSION = '1.0.0';
 const HAPPY_HORSE_REF_LIMIT = 9;
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+const TRUST_LEVELS = new Set(['synthetic', 'inferred', 'verified', 'human_approved']);
+const STABILITY_CLASSES = new Set(['ephemeral', 'working', 'operational', 'canonical', 'evidence']);
+const MEMORY_LAYERS = new Set(['working', 'project_operational', 'project_long_term', 'evidence']);
 
 function normalizeId(value) {
   return normalizeText(value) || null;
@@ -132,6 +130,120 @@ function sourceIntegrityFor(sourceArtifacts = []) {
   };
 }
 
+function normalizeTrustLevel(value, fallback = 'inferred') {
+  const normalized = normalizeText(value).toLowerCase();
+  return TRUST_LEVELS.has(normalized) ? normalized : fallback;
+}
+
+function normalizeStabilityClass(value, fallback = 'operational') {
+  const normalized = normalizeText(value).toLowerCase();
+  return STABILITY_CLASSES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeMemoryLayer(value, fallback = 'project_operational') {
+  const normalized = normalizeText(value).toLowerCase();
+  return MEMORY_LAYERS.has(normalized) ? normalized : fallback;
+}
+
+function deriveTrustLevel({
+  memoryType,
+  sourceIntegrity = {},
+  humanVerified = false,
+  pinned = false,
+  sourceArtifacts = [],
+}) {
+  const hasHardEvidence = sourceIntegrity?.status === 'verified' && sourceIntegrity?.constraintStrength === 'hard';
+  const hasSource = hasUsableSourceArtifact(sourceArtifacts);
+
+  if (memoryType === 'working') return hasHardEvidence ? 'verified' : 'inferred';
+  if (memoryType === 'evidence') return hasSource ? 'verified' : 'synthetic';
+  if (memoryType === 'experience') return humanVerified ? 'human_approved' : 'inferred';
+  if (memoryType === 'character') {
+    if (humanVerified) return 'human_approved';
+    if (hasHardEvidence) return 'verified';
+    return 'inferred';
+  }
+  if (humanVerified) return 'human_approved';
+  if (hasHardEvidence) return 'verified';
+  return 'inferred';
+}
+
+function deriveStabilityClass({
+  memoryType,
+  trustLevel,
+  layer,
+}) {
+  if (layer === 'evidence' || memoryType === 'evidence') return 'evidence';
+  if (layer === 'working' || memoryType === 'working') return 'ephemeral';
+  if (trustLevel === 'human_approved') return 'canonical';
+  if (trustLevel === 'verified') return 'operational';
+  if (trustLevel === 'synthetic') return 'ephemeral';
+  return 'operational';
+}
+
+function deriveMemoryLayer({
+  memoryType,
+  trustLevel,
+  explicitLayer = null,
+}) {
+  const normalizedExplicit = normalizeMemoryLayer(explicitLayer, null);
+  if (normalizedExplicit) return normalizedExplicit;
+  if (memoryType === 'working') return 'working';
+  if (memoryType === 'evidence') return 'evidence';
+  if (['shot', 'transition'].includes(memoryType)) return 'project_operational';
+  if (['character', 'location', 'experience', 'summary'].includes(memoryType)) return 'project_long_term';
+  if (trustLevel === 'human_approved') return 'project_long_term';
+  return 'project_operational';
+}
+
+function buildMemorySignature(input = {}) {
+  const normalizeList = (items = []) =>
+    asArray(items)
+      .map((item) => {
+        if (!item || typeof item !== 'object') return normalizeText(item);
+        return {
+          id: normalizeId(item.id || item.shotId || item.transitionId || item.characterId || item.locationId || item.path || item.artifactType),
+          path: normalizeText(item.path || item.imagePath || item.videoPath || item.outputPath),
+          hash: normalizeText(item.hash),
+          version: normalizeText(item.version),
+          generatedAt: normalizeText(item.generatedAt),
+          status: normalizeText(item.status || item.severity || item.finalDecision),
+        };
+      })
+      .filter(Boolean);
+
+  return JSON.stringify({
+    projectId: normalizeText(input.projectId || 'unknown-project'),
+    runId: normalizeText(input.runId || input.runJobId || 'unknown-run'),
+    currentShotId: normalizeId(input.currentShotId || input.shotId),
+    shotIds: normalizeList(input.shots).map((item) => item.id || item.shotId || item.transitionId || item.characterId || item.locationId || item.path || item.artifactType),
+    sourceArtifacts: normalizeList(input.sourceArtifacts),
+    imageResults: normalizeList(input.imageResults),
+    continuityReport: normalizeList(input.continuityReport),
+    continuityFlaggedTransitions: normalizeList(input.continuityFlaggedTransitions),
+    motionPlan: normalizeList(input.motionPlan),
+    performancePlan: normalizeList(input.performancePlan),
+    characterAssetGovernanceReport: normalizeList(input.characterAssetGovernanceReport?.records || input.characterAssetGovernanceReport?.characters),
+    videoProviderCapabilities: normalizeList(input.videoProviderCapabilities),
+  });
+}
+
+function buildArtifactSignature(sourceArtifacts = []) {
+  return unique(
+    asArray(sourceArtifacts).map((artifact) =>
+      JSON.stringify({
+        path: normalizeText(artifact?.path),
+        artifactType: normalizeText(artifact?.artifactType),
+        agent: normalizeText(artifact?.agent),
+        hash: normalizeText(artifact?.hash),
+        version: normalizeText(artifact?.version),
+        generatedAt: normalizeText(artifact?.generatedAt),
+        synthetic: Boolean(artifact?.synthetic),
+      })
+    )
+  ).join('|');
+}
+
 function firstPresent(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && normalizeText(value)) return value;
@@ -203,8 +315,20 @@ function extractPropContinuity(shot = {}) {
     .filter((prop) => prop.propId);
 }
 
-function scoreMemory({ pinned = false, referenceCount = 0, risk = 0.2, importance = 0.5, relevance = 0.5, humanVerified = false } = {}) {
+function scoreMemory({
+  pinned = false,
+  referenceCount = 0,
+  reuseCount = 0,
+  crossRunConsistency = 0.5,
+  conflictRate = 0.2,
+  sourceCredibility = 0.5,
+  risk = 0.2,
+  importance = 0.5,
+  relevance = 0.5,
+  humanVerified = false,
+} = {}) {
   const frequency = Math.min(1, referenceCount / 5);
+  const reuse = Math.min(1, reuseCount / 5);
   const confidence = humanVerified ? 0.95 : 0.82;
   const retentionScore = Number(
     Math.min(
@@ -217,6 +341,21 @@ function scoreMemory({ pinned = false, referenceCount = 0, risk = 0.2, importanc
         0.1 * (1 - Math.min(1, risk))
     ).toFixed(3)
   );
+  const promotionScore = Number(
+    Math.min(
+      1,
+      0.25 * importance +
+        0.2 * relevance +
+        0.2 * confidence +
+        0.1 * frequency +
+        0.1 * reuse +
+        0.1 * Math.min(1, crossRunConsistency) +
+        0.1 * Math.min(1, sourceCredibility) +
+        0.05 * (1 - Math.min(1, conflictRate)) +
+        0.1 * (pinned ? 1 : 0) +
+        0.1 * (1 - Math.min(1, risk))
+    ).toFixed(3)
+  );
   const retentionClass = pinned || retentionScore >= 0.8 ? 'hot' : retentionScore >= 0.55 ? 'warm' : 'cold';
 
   return {
@@ -224,10 +363,15 @@ function scoreMemory({ pinned = false, referenceCount = 0, risk = 0.2, importanc
     risk,
     relevance,
     frequency,
+    reuseCount,
+    crossRunConsistency,
+    conflictRate,
+    sourceCredibility,
     humanVerified,
     referenceCount,
     refCount: referenceCount,
     retentionScore,
+    promotionScore,
     retentionClass,
     confidence,
   };
@@ -241,10 +385,17 @@ function createMemory({
   kind = 'fact',
   content,
   sourceArtifacts,
+  producer = 'storyboardContextAgent',
+  producedAt = new Date().toISOString(),
   pinned = false,
   reverseDependencies = [],
+  supersedes = [],
+  supersededBy = [],
   status = 'active',
   scoring = {},
+  trustLevel = null,
+  stabilityClass = null,
+  invalidatedAt = null,
 }) {
   const scores = scoreMemory({ pinned, ...scoring });
   const normalizedSources = asArray(sourceArtifacts);
@@ -253,11 +404,39 @@ function createMemory({
       ? normalizedSources
       : [buildSourceArtifact('in-memory/synthetic-source.json', 'synthetic-source', 'storyboardContextAgent', { synthetic: true })];
   const sourceIntegrity = sourceIntegrityFor(finalSources);
+  const resolvedTrustLevel = normalizeTrustLevel(
+    trustLevel ||
+      deriveTrustLevel({
+        memoryType,
+        sourceIntegrity,
+        humanVerified: Boolean(scoring.humanVerified),
+        pinned,
+        sourceArtifacts: finalSources,
+      }),
+    sourceIntegrity.status === 'verified' ? 'verified' : 'inferred'
+  );
+  const resolvedStabilityClass = normalizeStabilityClass(
+    stabilityClass ||
+      deriveStabilityClass({
+        memoryType,
+        trustLevel: resolvedTrustLevel,
+        layer,
+      }),
+    memoryType === 'working' ? 'ephemeral' : 'operational'
+  );
+  const resolvedLayer = normalizeMemoryLayer(
+    deriveMemoryLayer({
+      memoryType,
+      trustLevel: resolvedTrustLevel,
+      explicitLayer: layer,
+    }),
+    'project_operational'
+  );
   return {
     memoryId,
     memoryType,
     type: memoryType,
-    layer: layer || (sourceIntegrity.status === 'review_required' ? 'review_required' : scores.retentionClass),
+    layer: sourceIntegrity.status === 'review_required' ? 'review_required' : resolvedLayer,
     scope,
     kind,
     content,
@@ -265,11 +444,15 @@ function createMemory({
     sourceArtifacts: finalSources,
     sourceIntegrity,
     constraintStrength: sourceIntegrity.constraintStrength,
+    producer,
+    producedAt,
+    invalidatedAt,
     pinned,
     refCount: scores.refCount,
     referenceCount: scores.referenceCount,
     reverseDependencies: unique(reverseDependencies),
     retentionScore: scores.retentionScore,
+    promotionScore: scores.promotionScore,
     retentionClass: sourceIntegrity.status === 'review_required' ? 'review_required' : scores.retentionClass,
     importance: scores.importance,
     risk: scores.risk,
@@ -277,9 +460,21 @@ function createMemory({
     frequency: scores.frequency,
     humanVerified: scores.humanVerified,
     confidence: scores.confidence,
+    trustLevel: resolvedTrustLevel,
+    stabilityClass: resolvedStabilityClass,
+    supersedes: unique(supersedes),
+    supersededBy: unique(supersededBy),
     conflictGroupId: null,
     status,
   };
+}
+
+function memoryWriteModeFor(memory = {}) {
+  if (!memory || typeof memory !== 'object') return 'candidate_only';
+  if (memory.stabilityClass === 'canonical' || memory.trustLevel === 'human_approved') return 'canonical';
+  if (memory.memoryType === 'evidence' || memory.layer === 'evidence') return 'evidence';
+  if (memory.memoryType === 'working' || memory.layer === 'working') return 'ephemeral';
+  return 'candidate_only';
 }
 
 function byShot(items = []) {
@@ -584,6 +779,10 @@ function buildCharacterMemories({ characters, sourceArtifacts }) {
         risk: refs.length === 0 && !character.isTemporary ? 0.75 : 0.2,
         relevance: 0.82,
         referenceCount: refs.length,
+        reuseCount: refs.length > 0 ? 1 : 0,
+        crossRunConsistency: character.crossRunConsistency ?? (character.humanVerified ? 1 : 0.6),
+        conflictRate: character.conflictRate ?? 0.1,
+        sourceCredibility: character.humanVerified || character.characterBibleId ? 1 : 0.65,
         humanVerified: Boolean(character.humanVerified || character.characterBibleId),
       },
     });
@@ -608,14 +807,18 @@ function buildWorkingMemory({ shots, sourceArtifacts }) {
       shotIds: shots.map(getShotId).filter(Boolean),
       sceneIds: unique(shots.map(getSceneId).filter(Boolean)),
     },
-    sourceArtifacts,
-    pinned: true,
-    scoring: {
-      importance: 0.8,
-      relevance: 0.9,
-      referenceCount: shots.length,
-    },
-  });
+      sourceArtifacts,
+      pinned: true,
+      scoring: {
+        importance: 0.8,
+        relevance: 0.9,
+        referenceCount: shots.length,
+        reuseCount: shots.length > 1 ? 1 : 0,
+        crossRunConsistency: 0.8,
+        conflictRate: 0.05,
+        sourceCredibility: 0.9,
+      },
+    });
 }
 
 function buildLocationMemories({ shots, sourceArtifacts }) {
@@ -673,6 +876,10 @@ function buildLocationMemories({ shots, sourceArtifacts }) {
         importance: 0.62,
         relevance: 0.78,
         referenceCount: unique(location.shotIds).length,
+        reuseCount: unique(location.shotIds).length > 1 ? 1 : 0,
+        crossRunConsistency: 0.75,
+        conflictRate: 0.1,
+        sourceCredibility: 0.85,
       },
     })
   );
@@ -698,15 +905,19 @@ function buildExperienceMemory({ input, sourceArtifacts }) {
       flaggedTransitionCount: flaggedTransitions.length,
       failedContinuityShotIds: failedContinuity.map((item) => normalizeId(item.shotId)).filter(Boolean),
     },
-    sourceArtifacts,
-    pinned: false,
-    scoring: {
-      importance: flaggedTransitions.length || failedContinuity.length ? 0.74 : 0.52,
-      risk: flaggedTransitions.length || failedContinuity.length ? 0.65 : 0.25,
-      relevance: 0.7,
-      referenceCount: flaggedTransitions.length + failedContinuity.length,
-    },
-  });
+      sourceArtifacts,
+      pinned: false,
+      scoring: {
+        importance: flaggedTransitions.length || failedContinuity.length ? 0.74 : 0.52,
+        risk: flaggedTransitions.length || failedContinuity.length ? 0.65 : 0.25,
+        relevance: 0.7,
+        referenceCount: flaggedTransitions.length + failedContinuity.length,
+        reuseCount: flaggedTransitions.length,
+        crossRunConsistency: failedContinuity.length === 0 ? 0.72 : 0.45,
+        conflictRate: failedContinuity.length > 0 ? 0.3 : 0.1,
+        sourceCredibility: 0.7,
+      },
+    });
 }
 
 function buildEvidenceMemories({ sourceArtifacts }) {
@@ -733,6 +944,10 @@ function buildEvidenceMemories({ sourceArtifacts }) {
         importance: artifact?.synthetic === true ? 0.35 : 0.85,
         relevance: 0.8,
         referenceCount: 1,
+        reuseCount: artifact?.synthetic === true ? 0 : 1,
+        crossRunConsistency: artifact?.synthetic === true ? 0.2 : 0.95,
+        conflictRate: 0,
+        sourceCredibility: artifact?.synthetic === true ? 0.2 : 1,
         humanVerified: artifact?.synthetic !== true,
       },
     })
@@ -825,6 +1040,127 @@ function attachReverseDependencies(memories = []) {
   }
 
   return memories;
+}
+
+function recordInvalidation(memory = {}, { runId, reason, changedArtifacts = [], invalidatedAt = new Date().toISOString() } = {}) {
+  const changedArtifactSignatures = unique(
+    asArray(changedArtifacts).map((artifact) =>
+      JSON.stringify({
+        path: normalizeText(artifact?.path),
+        artifactType: normalizeText(artifact?.artifactType),
+        agent: normalizeText(artifact?.agent),
+        hash: normalizeText(artifact?.hash),
+        version: normalizeText(artifact?.version),
+      })
+    )
+  );
+  const updatedRecords = asArray(memory.records).map((record) => {
+    const recordArtifactSignature = JSON.stringify({
+      path: normalizeText(record.sourceArtifact?.path),
+      artifactType: normalizeText(record.sourceArtifact?.artifactType),
+      agent: normalizeText(record.sourceArtifact?.agent),
+      hash: normalizeText(record.sourceArtifact?.hash),
+      version: normalizeText(record.sourceArtifact?.version),
+    });
+    const changed = changedArtifactSignatures.includes(recordArtifactSignature);
+    if (!changed) return record;
+    return {
+      ...record,
+      status: 'invalidated',
+      invalidatedAt,
+    };
+  });
+
+  return {
+    ...memory,
+    invalidatedAt,
+    invalidation: {
+      runId: runId || memory.runId || null,
+      reason: reason || 'artifact_changed',
+      changedArtifacts,
+    },
+    records: updatedRecords,
+    memories: updatedRecords,
+    updatedAt: invalidatedAt,
+  };
+}
+
+function isMemoryFresh(memory = {}, input = {}) {
+  const nextSignature = buildMemorySignature(input);
+  const memorySignature = normalizeText(memory.memorySignature || memory.signature);
+  const artifactSignature = normalizeText(memory.artifactSignature || memory.sourceArtifactSignature);
+  const nextArtifactSignature = buildArtifactSignature(defaultSourceArtifacts(input));
+  if (memory.invalidatedAt) return false;
+  if (!memorySignature || memorySignature !== nextSignature) return false;
+  if (artifactSignature && artifactSignature !== nextArtifactSignature) return false;
+  return true;
+}
+
+function readContext({
+  memory = {},
+  input = {},
+  currentShotId = null,
+  shotId = null,
+  transitionId = null,
+  tokenBudget = 2400,
+  windowSize = 1,
+} = {}) {
+  const currentId = currentShotId || shotId || null;
+  return {
+    fresh: isMemoryFresh(memory, input),
+    memory,
+    contextPack: buildDirectorContextPack(memory, {
+      currentShotId: currentId,
+      transitionId,
+      tokenBudget,
+      windowSize,
+    }),
+  };
+}
+
+function writeMemory({
+  records = [],
+  sourceArtifacts = [],
+  producer = 'storyboardContextAgent',
+  scope = {},
+  memoryType = 'summary',
+  memoryId = null,
+  kind = 'fact',
+  content = {},
+  pinned = false,
+  scoring = {},
+  layer = null,
+  trustLevel = null,
+  stabilityClass = null,
+  status = 'active',
+} = {}) {
+  return createMemory({
+    memoryId: memoryId || `mem-${memoryType}-${normalizeId(scope.shotId || scope.transitionId || scope.locationId || 'general')}`,
+    memoryType,
+    layer,
+    scope,
+    kind,
+    content,
+    sourceArtifacts,
+    producer,
+    pinned,
+    scoring,
+    trustLevel,
+    stabilityClass,
+    status,
+  });
+}
+
+function compactMemory({ memory = {}, strategy = 'default' } = {}) {
+  const compaction = compactMemories(asArray(memory.records));
+  return {
+    ...memory,
+    compactionStrategy: strategy,
+    compactionLog: compaction.compactionLog,
+    records: compaction.memories,
+    memories: compaction.memories,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function makeConflict(groupId, conflictType, scope, fields, memoryIds = []) {
@@ -1224,7 +1560,7 @@ export function buildDirectorContextPack(memory = {}, options = {}) {
   for (const item of currentShot) addToSection('currentShot', item, true, true);
   for (const item of transitions) addToSection('transitions', item, true);
   for (const item of adjacent) addToSection('adjacentShots', item, true, true);
-  for (const item of hardConstraints) addToSection('hardConstraints', item, false, true);
+  for (const item of hardConstraints) addToSection('hardConstraints', item, true, true);
 
   const remainingSoft = softCandidates
     .filter((item) => !includedIds.has(item.memoryId))
@@ -1232,7 +1568,7 @@ export function buildDirectorContextPack(memory = {}, options = {}) {
   for (const item of remainingSoft) addToSection('softContext', item, false);
 
   for (const item of reviewRequired) {
-    addToSection('reviewRequired', item, false, true);
+    addToSection('reviewRequired', item, true, true);
   }
 
   return {
@@ -1261,6 +1597,8 @@ function buildMetrics(memory, warnings = []) {
 export function buildStoryboardContextMemory(input = {}) {
   const shots = asArray(input.shots);
   const sourceArtifacts = defaultSourceArtifacts(input);
+  const memorySignature = buildMemorySignature(input);
+  const artifactSignature = buildArtifactSignature(sourceArtifacts);
   const characters = registryWithGovernance(input.characterRegistry, input.characterAssetGovernanceReport);
   const warnings = [];
   if (!hasUsableSourceArtifact(sourceArtifacts)) {
@@ -1321,6 +1659,8 @@ export function buildStoryboardContextMemory(input = {}) {
     runId: input.runId || input.runJobId || 'unknown-run',
     createdAt: now,
     updatedAt: now,
+    memorySignature,
+    sourceArtifactSignature: artifactSignature,
     sourceArtifacts,
     indexes,
     records: memories,
@@ -1339,48 +1679,30 @@ export function buildStoryboardContextMemory(input = {}) {
   return memory;
 }
 
-export function buildStoryboardContextMemoryMarkdown(memory = {}) {
-  const metrics = memory.metrics || {};
-  const lines = [
-    '# Storyboard Context Memory',
-    '',
-    `- Project: ${memory.projectId || 'unknown-project'}`,
-    `- Run: ${memory.runId || 'unknown-run'}`,
-    `- Memories: ${metrics.memoryCount || 0}`,
-    `- Shot memories: ${metrics.shotMemoryCount || 0}`,
-    `- Transition memories: ${metrics.transitionMemoryCount || 0}`,
-    `- Character memories: ${metrics.characterMemoryCount || 0}`,
-    `- HappyHorse refs: ${metrics.happyHorseReferenceCount || 0}/${HAPPY_HORSE_REF_LIMIT}`,
-    `- Warnings: ${metrics.warningCount || 0}`,
-    '',
-    '## Shot Index',
-  ];
-
-  const shotIds = Object.keys(memory.shotContextIndex || {});
-  lines.push(...(shotIds.length ? shotIds.map((shotId) => `- ${shotId}: ${(memory.shotContextIndex[shotId].memoryIds || []).join(', ')}`) : ['- None']));
-  lines.push('', '## Transition Index');
-  const transitionIds = Object.keys(memory.transitionContextIndex || {});
-  lines.push(
-    ...(transitionIds.length
-      ? transitionIds.map((transitionId) => `- ${transitionId}: ${(memory.transitionContextIndex[transitionId].memoryIds || []).join(', ')}`)
-      : ['- None'])
-  );
-  lines.push('', '## Warnings');
-  lines.push(...(asArray(memory.warnings).length ? memory.warnings.map((warning) => `- [${warning.code}] ${warning.message}`) : ['- None']));
-  lines.push('');
-  return lines.join('\n');
-}
+export {
+  buildArtifactSignature,
+  buildStoryboardContextMemoryMarkdown,
+  buildMemorySignature,
+  compactMemory,
+  isMemoryFresh,
+  memoryWriteModeFor,
+  readContext,
+  recordInvalidation,
+  writeMemory,
+};
 
 export const __testables = {
   HAPPY_HORSE_REF_LIMIT,
   buildHappyHorseReferencePlan,
+  buildArtifactSignature,
+  buildMemorySignature,
   buildIndexes,
+  compactMemory,
   hasUsableSourceArtifact,
+  isMemoryFresh,
+  memoryWriteModeFor,
   scoreMemory,
-};
-
-export default {
-  buildDirectorContextPack,
-  buildStoryboardContextMemory,
-  buildStoryboardContextMemoryMarkdown,
+  readContext,
+  recordInvalidation,
+  writeMemory,
 };

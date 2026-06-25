@@ -212,6 +212,68 @@ test('missing sourceArtifact downgrades memory constraints and warns', () => {
   assert.equal(memory.warnings.some((warning) => warning.code === 'SOURCE_ARTIFACT_REVIEW_REQUIRED'), true);
 });
 
+test('memory contract exposes trust and stability metadata for operational layers', () => {
+  const memory = buildStoryboardContextMemory(sampleInput());
+  const shotMemory = memory.records.find((item) => item.memoryType === 'shot');
+  const characterMemory = memory.records.find((item) => item.memoryType === 'character');
+  const evidenceMemory = memory.records.find((item) => item.memoryType === 'evidence');
+
+  assert.equal(shotMemory.trustLevel, 'verified');
+  assert.equal(shotMemory.stabilityClass, 'operational');
+  assert.equal(characterMemory.trustLevel, 'human_approved');
+  assert.equal(characterMemory.stabilityClass, 'canonical');
+  assert.equal(evidenceMemory.stabilityClass, 'evidence');
+  assert.equal(shotMemory.producer, 'storyboardContextAgent');
+  assert.equal(typeof shotMemory.producedAt, 'string');
+  assert.equal(Array.isArray(shotMemory.supersedes), true);
+  assert.equal(Array.isArray(shotMemory.supersededBy), true);
+});
+
+test('freshness invalidation rebuilds memory when upstream artifacts change', () => {
+  const baseMemory = buildStoryboardContextMemory(sampleInput());
+  const updatedMemory = buildStoryboardContextMemory(
+    sampleInput({
+      imageResults: [{ shotId: 'shot-001', imagePath: '/images/shot-001-v2.png', status: 'success' }],
+      sourceArtifacts: [
+        {
+          path: 'output/run-demo/director/shot-plan-v2.json',
+          artifactType: 'director-pack',
+          agent: 'director',
+          hash: 'sha256-test-v2',
+        },
+      ],
+    })
+  );
+
+  assert.notEqual(baseMemory.records.find((item) => item.memoryId === 'mem-shot-001-context').sourceArtifact.path, updatedMemory.records.find((item) => item.memoryId === 'mem-shot-001-context').sourceArtifact.path);
+  assert.equal(updatedMemory.records.find((item) => item.memoryId === 'mem-shot-001-context').trustLevel, 'verified');
+});
+
+test('context pack marks synthetic and review-required memories as soft only', () => {
+  const memory = buildStoryboardContextMemory(sampleInput({ sourceArtifacts: [] }));
+  const pack = buildDirectorContextPack(memory, { currentShotId: 'shot-001', tokenBudget: 4000 });
+
+  assert.equal(pack.hardConstraints.length, 0);
+  assert.equal(pack.reviewRequired.some((item) => item.memoryId === 'mem-shot-001-context'), true);
+  assert.equal(pack.softContext.some((item) => item.memoryId === 'mem-shot-001-context'), false);
+});
+
+test('high confidence verified memories are promoted into canonical context', () => {
+  const memory = buildStoryboardContextMemory(sampleInput());
+  const pack = buildDirectorContextPack(memory, { currentShotId: 'shot-001', tokenBudget: 4000 });
+
+  assert.equal(pack.hardConstraints.some((item) => item.memoryId === 'mem-shot-001-context'), true);
+  assert.equal(pack.hardConstraints.some((item) => item.memoryId === 'mem-working-summary'), true);
+  assert.equal(pack.reviewRequired.length, 0);
+});
+
+test('memory compaction exposes promotion candidates for repeated verified memories', () => {
+  const memory = buildStoryboardContextMemory(sampleInput());
+
+  assert.equal(memory.compactionLog.some((entry) => ['deduplicate', 'migrate'].includes(entry.action)), true);
+  assert.equal(memory.records.some((item) => item.memoryType === 'experience' && item.trustLevel === 'inferred'), true);
+});
+
 test('incomplete source artifact cannot create hard constraints', () => {
   const memory = buildStoryboardContextMemory(
     sampleInput({
@@ -227,15 +289,6 @@ test('incomplete source artifact cannot create hard constraints', () => {
   assert.equal(memory.records.find((item) => item.memoryType === 'shot').constraintStrength, 'soft');
   assert.equal(pack.hardConstraints.length, 0);
   assert.equal(pack.reviewRequired.some((item) => item.memoryId === 'mem-shot-001-context'), true);
-});
-
-test('complete high-importance source enters hard constraints', () => {
-  const memory = buildStoryboardContextMemory(sampleInput());
-  const pack = buildDirectorContextPack(memory, { currentShotId: 'shot-001', tokenBudget: 4000 });
-
-  assert.equal(memory.records.find((item) => item.memoryId === 'mem-shot-001-context').constraintStrength, 'hard');
-  assert.equal(pack.hardConstraints.some((item) => item.memoryId === 'mem-working-summary'), true);
-  assert.equal(pack.reviewRequired.length, 0);
 });
 
 test('conflicting storyboard context produces conflicts and warning', () => {

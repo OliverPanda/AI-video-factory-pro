@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { asArray } from '../utils/normalization.js';
 
 const SCHEMA_VERSION = 'av-packaging-plan.v1';
 
@@ -43,10 +44,6 @@ const SFX_RULES = [
     pattern: /(转场|切到|闪回|推入|拉开|transition|cut to|flashback|whoosh)/i,
   },
 ];
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
 
 function cleanText(value) {
   return String(value || '').trim();
@@ -422,8 +419,4 @@ export const __testables = {
   buildShotTimeline,
   buildSubtitleStyleProfile,
   normalizeAssets,
-};
-
-export default {
-  buildAvPackagingPlan,
 };

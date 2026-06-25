@@ -13,6 +13,7 @@ import {
   Hash,
   Pencil,
   Trash2,
+  ImageIcon,
   X,
   FileText,
   Upload,
@@ -21,6 +22,7 @@ import {
   FilePlus,
   BookOpen,
   User,
+  RefreshCw,
 } from 'lucide-react';
 
 import { useProjectDetail, useWorkbenchProject } from '../hooks/useWorkbench';
@@ -30,12 +32,40 @@ import {
   fetchScripts,
   fetchScriptDetail,
   uploadScript,
+  professionalizeScript,
   updateScript,
   deleteScript,
   triggerRun,
+  clearRequestCache,
+  isRunReviewable,
+  subscribeToRunStream,
+  isRunTerminal,
   type ScriptEntry,
+  type RunMode,
+  type RunStreamSubscription,
 } from '../lib/workbench';
 import { StylePicker, StyleBadge, GENRE_OPTIONS, RATIO_OPTIONS } from '../components/StylePresets';
+
+const PROFESSIONAL_SCRIPT_EXAMPLE = `【画面1】
+场景：周凛的智能公寓客厅，夜晚。
+人物：周凛。
+动作：周凛用平板电脑尝试打开客厅灯光，灯闪烁一下后熄灭。他皱眉，又尝试启动空调，空调发出故障提示音。
+对白：周凛（压着怒火）：这套系统到底还能不能用？
+时长：6秒
+
+【画面2】
+场景：同一客厅，酒柜旁。
+人物：周凛。
+动作：智能窗帘卡在半空，智能音箱毫无反应。周凛松开领带，拿出手机拨给物业。
+对白：周凛（冰冷）：我每年交的智能系统维护费，是让你们用来听响的吗？
+时长：8秒
+
+【画面3】
+场景：客厅沙发区，手机冷光映在周凛脸上。
+人物：周凛、物业客服（电话声）。
+动作：周凛挂断电话，环顾漆黑失控的房间，疲惫地坐进沙发。
+对白：物业客服（电话）：周先生，我们立刻派最好的电工上门，他姓向，半小时后到。
+时长：7秒`;
 
 const statusConfig: Record<string, { label: string; tone: string; dot: string }> = {
   pass:    { label: '已完成', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
@@ -58,28 +88,96 @@ function formatDate(iso?: string) {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function ScriptManager({ projectId }: { projectId: string }) {
+function getScriptParseState(script: ScriptEntry) {
+  if (script.parseOk === true && Number(script.shotCount || 0) > 0) {
+    return {
+      runnable: true,
+      label: `${Number(script.shotCount || 0)} 镜头`,
+      tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      message: '',
+    };
+  }
+  if (script.parseError) {
+    return {
+      runnable: false,
+      label: '解析失败',
+      tone: 'border-rose-200 bg-rose-50 text-rose-700',
+      message: script.parseError,
+    };
+  }
+  return {
+    runnable: false,
+    label: '未解析',
+    tone: 'border-slate-200 bg-slate-50 text-slate-500',
+    message: '剧本尚未解析出可运行分镜，请先编辑或使用一键优化。',
+  };
+}
+
+function ScriptManager({
+  projectId,
+  onUploadSuccess,
+  onRunStateChange,
+}: {
+  projectId: string;
+  onUploadSuccess?: () => void;
+  onRunStateChange?: (polling: boolean) => void;
+}) {
   const [scripts, setScripts] = useState<ScriptEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadContent, setUploadContent] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [optimizingScript, setOptimizingScript] = useState(false);
   const [previewScript, setPreviewScript] = useState<{ title: string; content: string } | null>(null);
   const [editingScript, setEditingScript] = useState<{ id: string; title: string; content: string } | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [optimizingEditScript, setOptimizingEditScript] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runningScriptId, setRunningScriptId] = useState<string | null>(null);
+  const [runModeScriptId, setRunModeScriptId] = useState<string | null>(null);
+  const [pollingRunId, setPollingRunId] = useState<string | null>(null);
+  const runModeRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const reload = useCallback(() => {
+  // Stable refs for callbacks to avoid re-subscribing SSE on every render
+  const onUploadSuccessRef = useRef(onUploadSuccess);
+  onUploadSuccessRef.current = onUploadSuccess;
+  const onRunStateChangeRef = useRef(onRunStateChange);
+  onRunStateChangeRef.current = onRunStateChange;
+
+  useEffect(() => {
+    if (!runModeScriptId) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (runModeRef.current && !runModeRef.current.contains(e.target as Node)) {
+        setRunModeScriptId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [runModeScriptId]);
+
+  const reload = useCallback(async () => {
     setLoading(true);
-    fetchScripts(projectId).then(setScripts).catch(() => {}).finally(() => setLoading(false));
+    setError(null);
+    try {
+      const data = await fetchScripts(projectId);
+      setScripts(data);
+      return data;
+    } catch (err) {
+      setScripts([]);
+      setError(err instanceof Error ? err.message : '加载剧本失败');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   }, [projectId]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    void reload().catch(() => undefined);
+  }, [reload]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,11 +198,30 @@ function ScriptManager({ projectId }: { projectId: string }) {
       setShowUpload(false);
       setUploadTitle('');
       setUploadContent('');
-      reload();
+      clearRequestCache('/api/projects');
+      await reload().catch(() => undefined);
+      onUploadSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '上传失败');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleProfessionalizeScript = async () => {
+    if (!uploadContent.trim()) {
+      setError('请先输入需要优化的剧本内容');
+      return;
+    }
+    setOptimizingScript(true);
+    setError(null);
+    try {
+      const result = await professionalizeScript(uploadTitle.trim() || '未命名剧本', uploadContent);
+      setUploadContent(result.content);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '一键优化失败');
+    } finally {
+      setOptimizingScript(false);
     }
   };
 
@@ -134,7 +251,8 @@ function ScriptManager({ projectId }: { projectId: string }) {
     try {
       await updateScript(projectId, editingScript.id, { title: editTitle.trim(), content: editContent });
       setEditingScript(null);
-      reload();
+      await reload().catch(() => undefined);
+      onUploadSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -142,24 +260,68 @@ function ScriptManager({ projectId }: { projectId: string }) {
     }
   };
 
+  const handleProfessionalizeEditScript = async () => {
+    if (!editContent.trim()) {
+      setError('请先输入需要优化的剧本内容');
+      return;
+    }
+    setOptimizingEditScript(true);
+    setError(null);
+    try {
+      const result = await professionalizeScript(editTitle.trim() || '未命名剧本', editContent);
+      setEditContent(result.content);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '一键优化失败');
+    } finally {
+      setOptimizingEditScript(false);
+    }
+  };
+
   const handleDelete = async (entry: ScriptEntry) => {
     if (!confirm(`确认删除剧本「${entry.title}」？此操作不可恢复。`)) return;
     try {
       await deleteScript(projectId, entry.id);
-      reload();
+      await reload().catch(() => undefined);
+      onUploadSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败');
     }
   };
 
-  const handleRun = async (entry: ScriptEntry) => {
-    if (!confirm(`确认运行剧本「${entry.title}」？`)) return;
+  const handleRun = async (entry: ScriptEntry, mode: RunMode = { kind: 'stop', stopAt: 'full' }) => {
+    const parseState = getScriptParseState(entry);
+    if (!parseState.runnable) {
+      setRunModeScriptId(null);
+      setError(parseState.message || '剧本解析失败，请先编辑剧本或使用一键优化。');
+      return;
+    }
+    let modeLabel = '完整运行';
+    if (mode.kind === 'continue') {
+      modeLabel = mode.stopAt === 'before_video' ? '根据现有进度继续运行到生视频前' : '根据现有进度继续运行';
+    } else if (mode.kind === 'retry') {
+      modeLabel = '清理上次阻断产物并重新运行';
+    } else if (mode.stopAt === 'after_ref_sheets') {
+      modeLabel = '生成角色三视图后';
+    } else if (mode.stopAt === 'after_images') {
+      modeLabel = '生成角色/场景图后';
+    } else if (mode.stopAt === 'before_video') {
+      modeLabel = '生视频前';
+    }
+    if (!confirm(`确认「${modeLabel}」剧本「${entry.title}」？`)) return;
     setRunningScriptId(entry.id);
+    setRunModeScriptId(null);
     setError(null);
     try {
-      const episodeId = entry.episodeId || 'default';
-      await triggerRun(projectId, entry.id, episodeId);
-      alert('运行已触发，请刷新页面查看结果');
+      const episodeId = entry.episodeId;
+      if (!episodeId) {
+        throw new Error('剧本尚未绑定真实分集，当前不能发起运行。请先确认上传/解析结果。');
+      }
+      const result = await triggerRun(projectId, entry.id, episodeId, { mode });
+      const runId = (result as { runId?: string })?.runId;
+      if (runId) {
+        setPollingRunId(runId);
+        onRunStateChange?.(true);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : '运行失败';
       if (message.includes('Episode not found')) {
@@ -171,6 +333,36 @@ function ScriptManager({ projectId }: { projectId: string }) {
       setRunningScriptId(null);
     }
   };
+
+  // SSE-based run status subscription (replaces interval polling)
+  // Uses refs for callbacks to avoid re-subscribing on every render
+  useEffect(() => {
+    if (!pollingRunId) return;
+
+    const subscription: RunStreamSubscription = subscribeToRunStream(pollingRunId, {
+      onStatus(data) {
+        if (isRunTerminal(data.status)) {
+          setPollingRunId(null);
+          onRunStateChangeRef.current?.(false);
+          clearRequestCache('/api/projects');
+          onUploadSuccessRef.current?.();
+        }
+      },
+      onDone() {
+        setPollingRunId(null);
+        onRunStateChangeRef.current?.(false);
+        clearRequestCache('/api/projects');
+        onUploadSuccessRef.current?.();
+      },
+      onConnectionError() {
+        // On SSE failure, fall back: just stop and let user refresh manually
+        setPollingRunId(null);
+        onRunStateChangeRef.current?.(false);
+      },
+    });
+
+    return () => subscription.close();
+  }, [pollingRunId]);
 
   return (
     <div>
@@ -210,9 +402,26 @@ function ScriptManager({ projectId }: { projectId: string }) {
       ) : (
         <div className="space-y-3">
           {scripts.map((s) => (
-            <div key={s.id} className="glass-card p-4 flex items-center justify-between gap-4 group hover:border-cyan-200 transition-all">
+            <div key={s.id} className="glass-card p-4 flex items-start justify-between gap-4 group hover:border-cyan-200 transition-all">
               <div className="min-w-0 flex-1">
-                <h3 className="text-sm font-bold text-slate-900 truncate">{s.title}</h3>
+                {(() => {
+                  const parseState = getScriptParseState(s);
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 truncate text-sm font-bold text-slate-900">{s.title}</h3>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-extrabold ${parseState.tone}`}>
+                          {parseState.label}
+                        </span>
+                      </div>
+                      {!parseState.runnable && parseState.message ? (
+                        <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-medium leading-5 text-rose-600">
+                          {parseState.message}
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
                 <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-400 font-medium">
                   <span>{s.charCount.toLocaleString()} 字</span>
                   <span>上传于 {new Date(s.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
@@ -222,14 +431,37 @@ function ScriptManager({ projectId }: { projectId: string }) {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => handleRun(s)}
-                  disabled={runningScriptId === s.id}
-                  className="rounded-lg p-2 text-cyan-500 hover:bg-cyan-50 hover:text-cyan-600 transition-colors disabled:opacity-50"
-                  title="运行这一集"
-                >
-                  {runningScriptId === s.id ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-                </button>
+                <div className="relative" ref={runModeScriptId === s.id ? runModeRef : undefined}>
+                  <button
+                    onClick={() => setRunModeScriptId(runModeScriptId === s.id ? null : s.id)}
+                    disabled={runningScriptId === s.id || !getScriptParseState(s).runnable}
+                    className="rounded-lg p-2 text-cyan-500 hover:bg-cyan-50 hover:text-cyan-600 transition-colors disabled:opacity-50"
+                    title={getScriptParseState(s).runnable ? '运行这一集' : '剧本解析失败，暂不可运行'}
+                  >
+                    {runningScriptId === s.id ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+                  </button>
+                  {runModeScriptId === s.id && (
+                    <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white rounded-lg shadow-lg border border-slate-200 py-1">
+                      {[
+                        { label: '完整运行', icon: <Play size={12} className="text-cyan-500" />, mode: { kind: 'stop' as const, stopAt: 'full' as const } },
+                        { label: '生成角色三视图后', icon: <User size={12} className="text-pink-500" />, mode: { kind: 'stop' as const, stopAt: 'after_ref_sheets' as const } },
+                        { label: '生成角色/场景图后', icon: <ImageIcon size={12} className="text-amber-500" />, mode: { kind: 'stop' as const, stopAt: 'after_images' as const } },
+                        { label: '生视频前', icon: <Film size={12} className="text-violet-500" />, mode: { kind: 'stop' as const, stopAt: 'before_video' as const } },
+                        { label: '根据现有进度继续运行', icon: <RefreshCw size={12} className="text-emerald-500" />, mode: { kind: 'continue' as const } },
+                        { label: '继续运行到生视频前', icon: <RefreshCw size={12} className="text-blue-500" />, mode: { kind: 'continue' as const, stopAt: 'before_video' as const } },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={() => handleRun(s, item.mode)}
+                          className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        >
+                          {item.icon}
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button onClick={() => openPreview(s)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-cyan-600 transition-colors" title="预览">
                   <Eye size={15} />
                 </button>
@@ -263,8 +495,45 @@ function ScriptManager({ projectId }: { projectId: string }) {
                 <input ref={fileRef} type="file" accept=".txt,.md" onChange={handleFileSelect} className="w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-cyan-700 hover:file:bg-cyan-100 file:cursor-pointer" />
               </div>
               <div className="mb-5">
-                <label className="mb-1.5 block text-xs font-semibold text-slate-600">剧本内容 *</label>
-                <textarea value={uploadContent} onChange={(e) => setUploadContent(e.target.value)} placeholder="直接粘贴或输入剧本内容…" rows={10} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all resize-y font-mono leading-relaxed" />
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <label className="block text-xs font-semibold text-slate-600">剧本内容 *</label>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        className="flex h-4 w-4 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[10px] font-bold text-amber-700"
+                        aria-label="专业剧本格式提示"
+                      >
+                        ?
+                      </button>
+                      <div className="pointer-events-none absolute left-0 top-5 z-50 hidden w-72 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium leading-5 text-amber-800 shadow-lg group-hover:block">
+                        默认按专业剧本解析，请使用【画面1】、【画面2】分段，并写清场景、人物、动作、对白、时长。
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleProfessionalizeScript}
+                      disabled={!uploadContent.trim() || optimizingScript}
+                      className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {optimizingScript ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                      一键优化
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadTitle((current) => current || 'S1E1：精英的困境');
+                        setUploadContent(PROFESSIONAL_SCRIPT_EXAMPLE);
+                      }}
+                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[10px] font-bold text-cyan-700 transition hover:bg-cyan-100"
+                    >
+                      填入专业剧本示例
+                    </button>
+                  </div>
+                </div>
+                <textarea value={uploadContent} onChange={(e) => setUploadContent(e.target.value)} placeholder={PROFESSIONAL_SCRIPT_EXAMPLE} rows={14} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all resize-y font-mono leading-relaxed" />
                 {uploadContent && <p className="mt-1 text-[10px] text-slate-400 font-medium">{uploadContent.length} 字</p>}
               </div>
               {error && <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">{error}</div>}
@@ -316,7 +585,32 @@ function ScriptManager({ projectId }: { projectId: string }) {
                 <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all" />
               </div>
               <div className="mb-4 flex-1 flex flex-col min-h-0">
-                <label className="mb-1.5 block text-xs font-semibold text-slate-600 shrink-0">剧本内容</label>
+                <div className="mb-1.5 flex items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <label className="block text-xs font-semibold text-slate-600">剧本内容</label>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        className="flex h-4 w-4 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[10px] font-bold text-amber-700"
+                        aria-label="专业剧本格式提示"
+                      >
+                        ?
+                      </button>
+                      <div className="pointer-events-none absolute left-0 top-5 z-50 hidden w-72 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium leading-5 text-amber-800 shadow-lg group-hover:block">
+                        默认按专业剧本解析，请使用【画面1】、【画面2】分段，并写清场景、人物、动作、对白、时长。
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleProfessionalizeEditScript}
+                    disabled={!editContent.trim() || optimizingEditScript}
+                    className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {optimizingEditScript ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                    一键优化
+                  </button>
+                </div>
                 <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={16} className="flex-1 min-h-[200px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:border-cyan-400 focus:bg-white focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all resize-y font-mono leading-relaxed" />
                 <p className="mt-1 text-[10px] text-slate-400 font-medium shrink-0">{editContent.length} 字</p>
               </div>
@@ -340,9 +634,17 @@ export default function ProjectDetail() {
   const { id: projectId } = useParams();
   const navigate = useNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [runPolling, setRunPolling] = useState(false);
   const { project, loading, error } = useProjectDetail(projectId, refreshKey);
   const { project: fullProject } = useWorkbenchProject(projectId);
   const characters = fullProject?.characters || [];
+
+  const handleUploadSuccess = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+  const handleRunStateChange = useCallback((polling: boolean) => {
+    setRunPolling(polling);
+  }, []);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -502,6 +804,12 @@ export default function ProjectDetail() {
               {getStatus(latestRun.status).label}
             </span>
           )}
+          {runPolling && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-0.5 text-[10px] font-bold text-cyan-700">
+              <Loader2 size={11} className="animate-spin" />
+              运行中…
+            </span>
+          )}
           {latestRun && (
             <span className="text-[11px] text-slate-400 font-medium">
               <Clock size={11} className="inline -mt-0.5 mr-0.5 text-slate-400" />
@@ -565,13 +873,26 @@ export default function ProjectDetail() {
               )[0];
               const epStatus = getStatus(latestEpRun?.status);
               const passCount = episode.runs.filter(r => ['pass', 'completed', 'cached', 'success'].includes((r.status || '').toLowerCase())).length;
+              const episodeQuery = new URLSearchParams({
+                episode: episode.id,
+                script: script.id,
+              });
+              if (latestEpRun?.id) {
+                episodeQuery.set('run', latestEpRun.id);
+              }
+              const detailQuery = `?${episodeQuery.toString()}`;
+              const canReview = Boolean(latestEpRun?.id && isRunReviewable(latestEpRun.status));
 
               return (
-                <button
+                <div
                   key={episode.id}
-                  onClick={() => navigate(`/drama/${projectId}?episode=${episode.id}`)}
-                  className="glass-card p-4 text-left hover:border-cyan-200 hover:ring-2 hover:ring-cyan-100 active:scale-[0.98] transition-all duration-300 group"
+                  className="glass-card p-4 transition-all duration-300 group hover:border-cyan-200 hover:ring-2 hover:ring-cyan-100"
                 >
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/drama/${projectId}${detailQuery}`)}
+                    className="w-full text-left"
+                  >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -604,7 +925,25 @@ export default function ProjectDetail() {
                     </div>
                     <ChevronRight size={14} className="text-slate-300 group-hover:text-cyan-500 transition-colors shrink-0 mt-0.5" />
                   </div>
-                </button>
+                  </button>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Link
+                      to={`/editor?projectId=${encodeURIComponent(projectId || '')}&scriptId=${encodeURIComponent(script.id)}&episodeId=${encodeURIComponent(episode.id)}&runId=${encodeURIComponent(latestEpRun?.id || '')}`}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      编辑分镜
+                    </Link>
+                    {canReview ? (
+                      <Link
+                        to={`/review/${encodeURIComponent(latestEpRun!.id)}?projectId=${encodeURIComponent(projectId || '')}&scriptId=${encodeURIComponent(script.id)}&episodeId=${encodeURIComponent(episode.id)}&runId=${encodeURIComponent(latestEpRun!.id)}`}
+                        className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100"
+                      >
+                        审片
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -613,7 +952,11 @@ export default function ProjectDetail() {
 
       {/* 剧本管理 */}
       <div className="mt-8">
-        <ScriptManager projectId={projectId!} />
+        <ScriptManager
+          projectId={projectId!}
+          onUploadSuccess={handleUploadSuccess}
+          onRunStateChange={handleRunStateChange}
+        />
       </div>
 
       {/* Action error toast */}

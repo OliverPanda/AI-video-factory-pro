@@ -8,10 +8,7 @@ import {
 } from '../src/domain/projectModel.js';
 import {
   createAnimationClip,
-  createEpisodeCut,
   createKeyframeAsset,
-  createSubtitleAsset,
-  createVoiceAsset,
 } from '../src/domain/assetModel.js';
 
 test('createProject sets default status and timestamps', () => {
@@ -168,41 +165,3 @@ test('createAnimationClip falls back to single_keyframe for invalid sourceMode',
   assert.equal(clip.sourceMode, 'single_keyframe');
 });
 
-test('createVoiceAsset sets shot and speaker linkage fields', () => {
-  const asset = createVoiceAsset({
-    shotId: 'sh1',
-    episodeCharacterId: 'c1',
-    audioPath: '/tmp/voice.mp3',
-  });
-
-  assert.equal(asset.shotId, 'sh1');
-  assert.equal(asset.episodeCharacterId, 'c1');
-  assert.equal(asset.audioPath, '/tmp/voice.mp3');
-  assert.equal(asset.status, 'draft');
-});
-
-test('createSubtitleAsset records subtitle text and status', () => {
-  const asset = createSubtitleAsset({
-    shotId: 'sh1',
-    text: '你好，世界',
-    startTime: 0,
-    endTime: 2.5,
-  });
-
-  assert.equal(asset.shotId, 'sh1');
-  assert.equal(asset.text, '你好，世界');
-  assert.equal(asset.startTime, 0);
-  assert.equal(asset.endTime, 2.5);
-  assert.equal(asset.status, 'draft');
-});
-
-test('createEpisodeCut records output path and status', () => {
-  const cut = createEpisodeCut({
-    episodeId: 'e1',
-    outputPath: '/tmp/episode-1.mp4',
-  });
-
-  assert.equal(cut.episodeId, 'e1');
-  assert.equal(cut.outputPath, '/tmp/episode-1.mp4');
-  assert.equal(cut.status, 'draft');
-});

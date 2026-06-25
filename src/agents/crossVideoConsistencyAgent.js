@@ -1,14 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { checkCrossVideoConsistency } from '../domain/crossVideoConsistency.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildMarkdown(report) {
   return [
