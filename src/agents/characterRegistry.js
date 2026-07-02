@@ -34,6 +34,37 @@ function buildRegistryMarkdown(cards) {
     .join('\n')}\n`;
 }
 
+function buildCharacterRegistryPrompt(characters = [], scriptContext = '', style = 'realistic') {
+  return `
+根据以下剧本信息，为每个角色创建详细的视觉档案：
+
+<剧本背景>
+${scriptContext}
+</剧本背景>
+
+<角色列表>
+${characters.map((c) => `- ${c.name}（${c.gender === 'female' ? '女' : '男'}，${c.age || '成年'}）`).join('\n')}
+</角色列表>
+
+<视觉风格>
+${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（电影级人像）'}
+</视觉风格>
+
+请为每个角色输出JSON档案，格式：
+{
+  "characters": [
+    {
+      "name": "角色名",
+      "gender": "male/female",
+      "age": "年龄描述",
+      "visualDescription": "用于Prompt的英文外观描述（含发型、肤色、服装等，50词内）",
+      "basePromptTokens": "核心提示词（10-15个英文词，每次生成该角色时必须包含）",
+      "personality": "性格特点（中文，影响表情/姿态生成）"
+    }
+  ]
+}`;
+}
+
 function hasUsefulProfile(character = {}) {
   return Boolean(character.visualDescription || character.basePromptTokens);
 }
@@ -310,11 +341,42 @@ export async function buildCharacterRegistry(characters, scriptContext, style = 
   logger.info('CharacterRegistry', `构建 ${characters.length} 个角色的视觉档案...`);
 
   if (Array.isArray(deps.episodeCharacters) && deps.episodeCharacters.length > 0) {
-    const cards = buildEpisodeCharacterRegistry(
+    let cards = buildEpisodeCharacterRegistry(
       deps.mainCharacterTemplates || [],
       deps.episodeCharacters,
       deps.characterBibles || []
     );
+    const missingProfileCards = cards.filter((card) => !hasUsefulProfile(card));
+    if (missingProfileCards.length > 0) {
+      logger.info('CharacterRegistry', `补齐 ${missingProfileCards.length} 个缺少视觉档案的分集角色...`);
+      const prompt = buildCharacterRegistryPrompt(missingProfileCards, scriptContext, style);
+      const result = await runChatJSON(
+        [
+          { role: 'system', content: CHARACTER_SYSTEM },
+          { role: 'user', content: prompt },
+        ],
+        { temperature: 0.4 }
+      );
+      const supplemented = mergeCharacterSources(result.characters || [], missingProfileCards).map((card) => {
+        const generated = (result.characters || []).find(
+          (entry) => normalizeNameKey(entry?.name) === normalizeNameKey(card?.generatedName || card?.name)
+        );
+        if (!generated) {
+          return card;
+        }
+        return {
+          ...card,
+          visualDescription: card?.visualDescription || generated?.visualDescription || null,
+          basePromptTokens: card?.basePromptTokens || sanitizeCharacterIdentityTokens(generated?.basePromptTokens || ''),
+          personality: card?.personality || generated?.personality || null,
+          identityAnchor: card?.identityAnchor || getCharacterIdentityAnchor(generated),
+        };
+      });
+      const supplementedById = new Map(
+        supplemented.map((card) => [card?.episodeCharacterId || card?.id || card?.name, card])
+      );
+      cards = cards.map((card) => supplementedById.get(card?.episodeCharacterId || card?.id || card?.name) || card);
+    }
     writeCharacterRegistryArtifacts(
       cards,
       deps.episodeCharacters,
@@ -329,34 +391,7 @@ export async function buildCharacterRegistry(characters, scriptContext, style = 
     return cards;
   }
 
-  const prompt = `
-根据以下剧本信息，为每个角色创建详细的视觉档案：
-
-<剧本背景>
-${scriptContext}
-</剧本背景>
-
-<角色列表>
-${characters.map((c) => `- ${c.name}（${c.gender === 'female' ? '女' : '男'}，${c.age || '成年'}）`).join('\n')}
-</角色列表>
-
-<视觉风格>
-${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（电影级人像）'}
-</视觉风格>
-
-请为每个角色输出JSON档案，格式：
-{
-  "characters": [
-    {
-      "name": "角色名",
-      "gender": "male/female",
-      "age": "年龄描述",
-      "visualDescription": "用于Prompt的英文外观描述（含发型、肤色、服装等，50词内）",
-      "basePromptTokens": "核心提示词（10-15个英文词，每次生成该角色时必须包含）",
-      "personality": "性格特点（中文，影响表情/姿态生成）"
-    }
-  ]
-}`;
+  const prompt = buildCharacterRegistryPrompt(characters, scriptContext, style);
 
   const result = await runChatJSON(
     [

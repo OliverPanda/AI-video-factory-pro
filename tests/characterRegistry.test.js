@@ -447,3 +447,44 @@ test('buildCharacterRegistry fallback source path also exposes stable runtime co
   assert.deepEqual(registry[0].referenceImages, []);
   assert.equal(registry[0].negativeDriftTokens, null);
 });
+
+test('buildCharacterRegistry supplements missing episode-character profiles through existing registry LLM flow', async () => {
+  const registry = await buildCharacterRegistry(
+    [],
+    '物业办公室内争执升级',
+    'realistic',
+    {
+      episodeCharacters: [
+        {
+          id: 'ep_char_1',
+          name: '周凛',
+          priority: 'lead',
+        },
+        {
+          id: 'ep_char_2',
+          name: '物业客服',
+          priority: 'support',
+          visualDescription: 'customer service woman in neat uniform',
+          basePromptTokens: 'neat uniform, tied hair',
+        },
+      ],
+      chatJSON: async () => ({
+        characters: [
+          {
+            name: '周凛',
+            visualDescription: 'young man, short black hair, dark jacket',
+            basePromptTokens: 'short black hair, dark jacket, stern face',
+            personality: '冷峻',
+          },
+        ],
+      }),
+    }
+  );
+
+  assert.equal(registry.length, 2);
+  assert.equal(registry[0].name, '周凛');
+  assert.equal(registry[0].visualDescription, 'young man, short black hair, dark jacket');
+  assert.equal(registry[0].basePromptTokens, 'short black hair, dark jacket, stern face');
+  assert.equal(registry[1].name, '物业客服');
+  assert.equal(registry[1].basePromptTokens, 'neat uniform, tied hair');
+});
