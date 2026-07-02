@@ -17,24 +17,22 @@ test('buildCharacterRefSheetPrompt produces correct prompt structure for realist
   };
   const result = buildCharacterRefSheetPrompt(character, 'realistic');
 
-  assert.ok(result.prompt.includes('use the provided reference image(s)'));
-  assert.ok(result.prompt.includes('turnaround sheet'));
-  assert.ok(result.prompt.includes('3 full-body core views'));
-  assert.ok(result.prompt.includes('front'));
-  assert.ok(result.prompt.includes('back'));
+  assert.ok(result.prompt.includes('character reference sheet'));
+  assert.ok(result.prompt.includes('3 full-body views side by side'));
+  assert.ok(result.prompt.includes('front view'));
+  assert.ok(result.prompt.includes('back view'));
   assert.ok(result.prompt.includes('slim, athletic, short black hair, scruffy beard'));
   assert.ok(result.prompt.includes('photorealistic'));
-  assert.ok(result.prompt.includes('one single male character reference sheet'));
-  assert.ok(result.prompt.includes('pure white background'));
-  assert.ok(result.prompt.includes('aspect ratio 1.25:1'));
+  assert.ok(result.prompt.includes('one single male character'));
+  assert.ok(result.prompt.includes('clean white background'));
   assert.ok(result.prompt.includes('facial close-up'));
-  assert.ok(result.prompt.includes('golden ratio reference lines'));
+  assert.ok(result.prompt.includes('color palette chips'));
   assert.ok(result.prompt.includes('no props'));
   assert.equal(result.prompt.includes('metal ladder'), false);
   assert.ok(result.negative.includes('cartoon'));
   assert.ok(result.negative.includes('multiple people'));
-  assert.ok(result.negative.includes('ladder'));
-  assert.ok(result.negative.includes('pillar'));
+  assert.ok(result.negative.includes('background structures'));
+  assert.ok(result.negative.includes('props'));
   assert.ok(result.negative.includes('different hairstyle'));
 });
 
@@ -47,8 +45,9 @@ test('buildCharacterRefSheetPrompt produces 3d style when requested', () => {
   const result = buildCharacterRefSheetPrompt(character, '3d');
 
   assert.ok(result.prompt.includes('3D render'));
-  assert.ok(result.prompt.includes('turnaround sheet'));
-  assert.ok(result.prompt.includes('production-ready presentation board'));
+  assert.ok(result.prompt.includes('character reference sheet'));
+  assert.ok(result.prompt.includes('clean studio presentation'));
+  assert.ok(result.prompt.includes('3 full-body views side by side'));
   assert.ok(result.negative.includes('photograph'));
 });
 
@@ -242,4 +241,80 @@ test('generateCharacterRefSheets uses test policy retry budget instead of produc
 
   assert.equal(results[0].success, false);
   assert.equal(attempts, 1);
+});
+
+test('generateCharacterRefSheets skips empty support characters without calling provider', async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-refsheet-skip-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+
+  let generateCalls = 0;
+  const results = await generateCharacterRefSheets(
+    [{ episodeCharacterId: 'char_support', name: '路人甲', priority: 'support' }],
+    path.join(tempDir, 'ref'),
+    {
+      style: 'realistic',
+      executionPolicy: { mode: 'test' },
+      generateImage: async () => {
+        generateCalls += 1;
+        return 'should-not-run';
+      },
+    }
+  );
+
+  assert.equal(generateCalls, 0);
+  assert.equal(results[0].success, false);
+  assert.equal(results[0].skipped, true);
+  assert.equal(results[0].readinessStatus, 'skipped');
+  assert.equal(results[0].blocking, false);
+});
+
+test('generateCharacterRefSheets blocks empty lead characters before provider call', async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-refsheet-block-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+
+  let generateCalls = 0;
+  const results = await generateCharacterRefSheets(
+    [{ episodeCharacterId: 'char_lead', name: '周凛', priority: 'lead' }],
+    path.join(tempDir, 'ref'),
+    {
+      style: 'realistic',
+      executionPolicy: { mode: 'test' },
+      generateImage: async () => {
+        generateCalls += 1;
+        return 'should-not-run';
+      },
+    }
+  );
+
+  assert.equal(generateCalls, 0);
+  assert.equal(results[0].success, false);
+  assert.equal(results[0].skipped, false);
+  assert.equal(results[0].readinessStatus, 'blocked');
+  assert.equal(results[0].blocking, true);
+  assert.equal(results[0].failureCategory, 'missing_character_profile');
+});
+
+test('generateCharacterRefSheets forwards custom timeout to image generation', async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-refsheet-timeout-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+
+  const calls = [];
+  await generateCharacterRefSheets(
+    [{ episodeCharacterId: 'char_timeout', name: '沈清', basePromptTokens: 'red coat', visualDescription: 'young woman' }],
+    path.join(tempDir, 'ref'),
+    {
+      style: 'realistic',
+      timeoutMs: 345678,
+      executionPolicy: { mode: 'test' },
+      generateImage: async (_prompt, _negative, outputPath, requestOptions) => {
+        calls.push(requestOptions);
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        fs.writeFileSync(outputPath, 'mock-ref-sheet-data');
+        return outputPath;
+      },
+    }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].timeoutMs, 345678);
 });

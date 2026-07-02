@@ -108,8 +108,16 @@ export async function generateImage(prompt, negativePrompt, outputPath, options 
     route,
     env,
     size: options.size || null,
+    timeoutMs: options.timeoutMs || null,
     transportProvider,
     references: options.references || [],
+    referenceGroups: options.referenceGroups || null,
+    referencesByType: {
+      character: options.referenceGroups?.character || [],
+      scene: options.referenceGroups?.scene || [],
+      props: options.referenceGroups?.props || [],
+    },
+    characterPriority: options.characterPriority || null,
   });
   return result.outputPath;
 }
