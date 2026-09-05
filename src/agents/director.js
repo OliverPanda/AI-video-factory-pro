@@ -513,7 +513,6 @@ export function createDirector(overrides = {}) {
         }
 
         await executeGenerateVideoClipsStage(ctx, deps, { dirs });
-        const rawVideoResults = ctx.rawVideoResults;
 
         await executeCostGovernanceStage(ctx, deps, { phase: 'post_video' });
         costGovernanceReport = ctx.costGovernanceReport;
@@ -522,20 +521,10 @@ export function createDirector(overrides = {}) {
         await executeEnhanceVideoClipsStage(ctx, deps, {});
 
         await executeShotQaStage(ctx, deps, {});
-        const shotQaReport = ctx.shotQaReport;
-        const videoResults = ctx.videoResults;
 
         await executeBridgeSubPipelineStage(ctx, deps, { dirs });
-        const bridgeShotPlan = ctx.bridgeShotPlan;
-        const bridgeShotPackages = ctx.bridgeShotPackages;
-        const bridgeClipResults = ctx.bridgeClipResults;
-        const bridgeQaReport = ctx.bridgeQaReport;
 
         await executeSequenceSubPipelineStage(ctx, deps, { dirs });
-        const actionSequencePlan = ctx.actionSequencePlan;
-        const actionSequencePackages = ctx.actionSequencePackages;
-        const sequenceClipResults = ctx.sequenceClipResults;
-        const sequenceQaReport = ctx.sequenceQaReport;
 
         await executeNormalizeDialogueStage(ctx, deps, {});
         await executeGenerateAudioStage(ctx, deps, { dirs });
