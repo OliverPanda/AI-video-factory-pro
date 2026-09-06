@@ -3,14 +3,9 @@ import path from 'node:path';
 
 import { createFallbackVideoClip } from '../apis/fallbackVideoApi.js';
 import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { videoQueue, queueWithRetry } from '../utils/queue.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildOutputPath(videoDir, shotPackage) {
   return path.join(videoDir, `${shotPackage.shotId}.mp4`);

@@ -2,7 +2,6 @@
  * 编剧Agent - 将剧本文本拆解为分集与分镜 JSON
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON as defaultChatJSON } from '../llm/client.js';
 import { parseProfessionalScript } from './professionalScriptParser.js';
@@ -12,7 +11,7 @@ import {
   EPISODE_STORYBOARD_SYSTEM,
   EPISODE_STORYBOARD_USER,
 } from '../llm/prompts/scriptAnalysis.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
@@ -36,11 +35,6 @@ export function detectInputFormat(scriptText) {
   return /【画面\s*\d+】/.test(scriptText)
     ? INPUT_FORMATS.PROFESSIONAL_SCRIPT
     : INPUT_FORMATS.RAW_NOVEL;
-}
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
 }
 
 function buildShotsTable(shots) {
@@ -177,8 +171,6 @@ export async function decomposeScriptToEpisodes(scriptText, deps = {}) {
   logger.info('ScriptParser', `分集拆解完成：${normalized.episodes.length} 集`);
   return normalized;
 }
-
-export const parseScriptToEpisodes = decomposeScriptToEpisodes;
 
 /**
  * 解析单集为分镜数据

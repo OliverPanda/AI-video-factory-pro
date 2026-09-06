@@ -1,0 +1,8 @@
+﻿node : (node:39396) Warning: node:test run() is being called recursively within a test file. skipping running files.
+At line:1 char:63
++ ... ICY="test"; node --test tests/director.project-run.test.js 2>&1 | Out ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:39396) Wa... running files.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)

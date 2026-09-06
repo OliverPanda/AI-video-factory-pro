@@ -1,5 +1,6 @@
 const stageConfig = {
   preproduction: new Set([
+    'script_parser',
     'build_character_registry',
     'generate_character_ref_sheets',
     'generate_prompts',
@@ -37,6 +38,7 @@ const stageConfig = {
 
 const stageFlowConfig = {
   preproduction: [
+    { step: 'script_parser', label: '剧本解析' },
     { step: 'build_character_registry', label: '角色档案' },
     { step: 'generate_character_ref_sheets', label: '三视图' },
     { step: 'generate_prompts', label: 'Prompt' },
@@ -232,6 +234,7 @@ function buildRecentRuns(runJobs, qaOverviewsByRunId) {
     const statusClass = normalizeRunStatus(runJob, qaOverview);
     return {
       id: runJob.id,
+      runKey: runJob.runKey || null,
       displayTitle: `${runJob.scriptTitle || '未命名脚本'} / ${runJob.episodeTitle || runJob.episodeId || '未命名分集'}`,
       subtitle: `${runJob.projectId} · ${humanStatusLabel(statusClass)} · ${new Date(runJob.startedAt).toLocaleDateString('zh-CN')}`,
       headline: qaOverview.headline || runJob.error || '当前 run 没有额外摘要。',
@@ -301,6 +304,7 @@ export function buildWorkbenchViewModel({
           outputFiles: [],
         },
       },
+      projects: [],
       recentRuns: [],
     };
   }
@@ -326,6 +330,7 @@ export function buildWorkbenchViewModel({
     },
     currentRun: {
       id: currentRun.id,
+      runKey: currentRun.runKey || null,
       displayTitle: `${currentRun.scriptTitle || '未命名脚本'} / ${currentRun.episodeTitle || currentRun.episodeId || '未命名分集'}`,
       sidebarSummary: `${currentRun.projectId} · ${humanStatusLabel(normalizeRunStatus(currentRun, qaOverview))} · ${currentRun.artifactRunDir || ''}`,
       progressPercent: Math.min(100, Math.max(8, Math.round(((currentRun.agentTaskRuns || []).length / 27) * 100))),
@@ -342,6 +347,18 @@ export function buildWorkbenchViewModel({
       },
       ...currentAction,
     },
+    projects: runJobs
+      .reduce((acc, runJob) => {
+        if (!acc.some((item) => item.id === runJob.projectId)) {
+          acc.push({
+            id: runJob.projectId,
+            title: runJob.scriptTitle || runJob.projectId,
+            latestRunId: runJob.id,
+            latestRunKey: runJob.runKey || null,
+          });
+        }
+        return acc;
+      }, []),
     recentRuns: buildRecentRuns(runJobs, qaOverviewsByRunId),
   };
 }

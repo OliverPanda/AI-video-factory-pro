@@ -4,6 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { createVideoGenerationResult, createVideoGenerationRequest, normalizeVideoProvider, resolveVideoPackageId, resolveVideoPackageType, summarizeReferenceBindings } from './videoGenerationContract.js';
 import { resolveVideoGenerationConfig } from './videoGenerationConfig.js';
 import { createVideoRequestRouter } from './videoRequestRouter.js';
+import { shouldUseAiSdk, createAiSdkVideoClient } from './aiSdkVideoClient.js';
 
 function normalizeRequestPrompt(videoPackage = {}) {
   if (Array.isArray(videoPackage.seedancePromptBlocks) && videoPackage.seedancePromptBlocks.length > 0) {
@@ -124,6 +125,14 @@ function createInjectedRoute(bundle) {
 }
 
 export function createUnifiedVideoProviderClient(options = {}) {
+  const env = options.env || process.env;
+
+  // 如果设置了 VIDEO_MODEL 且是 AI SDK 支持的格式，使用 AI SDK 客户端
+  if (shouldUseAiSdk(env)) {
+    return createAiSdkVideoClient(options);
+  }
+
+  // 否则使用原有的 adapter + transport 路径
   const router = options.router || createVideoRequestRouter(options.routerOptions);
   const taskRegistry = new Map();
   const outputRegistry = new Map();

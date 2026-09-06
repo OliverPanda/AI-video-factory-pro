@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { getEpisodeDir, loadJSON, saveJSON } from './fileHelper.js';
+import { RunJobStore } from './contracts/RunJobStore.js';
+import { buildRunKey } from './runKey.js';
 
 function resolveBaseTempDir(options = {}) {
   return options.baseTempDir;
@@ -41,6 +43,7 @@ function writeRunJob(runJob, options = {}) {
 export function createRunJob(input, options = {}) {
   const runJob = {
     id: validateId(input?.id, 'runJob.id'),
+    runKey: buildRunKey(input),
     projectId: validateId(input?.projectId, 'runJob.projectId'),
     scriptId: validateId(input?.scriptId, 'runJob.scriptId'),
     episodeId: validateId(input?.episodeId, 'runJob.episodeId'),
@@ -110,8 +113,26 @@ export function finishRunJob(runJobRef, finishInput = {}, options = {}) {
   return writeRunJob(runJob, options);
 }
 
+export class FsRunJobStore extends RunJobStore {
+  createRunJob(input, options = {}) {
+    return createRunJob(input, options);
+  }
+
+  appendAgentTaskRun(runJobRef, taskRunInput, options = {}) {
+    return appendAgentTaskRun(runJobRef, taskRunInput, options);
+  }
+
+  finishRunJob(runJobRef, finishInput = {}, options = {}) {
+    return finishRunJob(runJobRef, finishInput, options);
+  }
+}
+
+export const fsRunJobStore = new FsRunJobStore();
+
 export default {
   createRunJob,
   finishRunJob,
   appendAgentTaskRun,
+  fsRunJobStore,
+  FsRunJobStore,
 };

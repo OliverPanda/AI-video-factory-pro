@@ -1,0 +1,17 @@
+﻿✔ TTS warning creates audio packaging edit task without provider execution (5.288ms)
+✔ shot QA failure creates regenerate_shot task (0.3728ms)
+✔ sequence QA manual review creates sequence regeneration or manual review task (0.2189ms)
+✔ compose static fallback creates replace_clip or regenerate_shot task (0.1649ms)
+✔ composer array compose plan creates timeline-aware edit task (0.2229ms)
+✔ clean inputs approve without human review items (0.2081ms)
+✔ null upstream reports are treated as missing evidence instead of crashing (0.2105ms)
+✔ cross-video and cost governance review items become manual candidate tasks (0.2553ms)
+✔ runPostComposeReview writes complete artifacts (12.9137ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 24.7896

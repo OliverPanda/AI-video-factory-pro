@@ -182,6 +182,46 @@ function cleanActionLine(line, shot) {
   return line.replace(CAMERA_PREFIX_RE, '').trim();
 }
 
+function parseStructuredField(line) {
+  const match = line.match(/^(场景|人物|动作|对白|时长)[:：]\s*(.*)$/);
+  if (!match) return null;
+  return {
+    field: match[1],
+    value: match[2].trim(),
+  };
+}
+
+function parseDurationSeconds(value) {
+  const match = String(value || '').match(/(\d+(?:\.\d+)?)\s*(?:秒|s)?/i);
+  if (!match) return null;
+  const seconds = Number.parseFloat(match[1]);
+  return Number.isFinite(seconds) ? seconds : null;
+}
+
+function addDialogueCueFromStructuredValue(value, shot) {
+  const text = String(value || '').trim();
+  if (!text || text === '无') return false;
+
+  const normalized = text.replace(/^对白[:：]\s*/, '').trim();
+  const cue = parseSpeakerCue(normalized);
+  if (cue) {
+    shot.audioCues.push(cue);
+    return true;
+  }
+
+  const firstCharacter = Array.isArray(shot.characters) && shot.characters.length > 0 ? shot.characters[0] : '';
+  if (firstCharacter) {
+    shot.audioCues.push({
+      type: 'dialogue',
+      speaker: firstCharacter,
+      text: normalized,
+    });
+    return true;
+  }
+
+  return false;
+}
+
 export function parsePictureBlock(block, options = {}) {
   const shot = {
     id: options.id || '',
@@ -224,6 +264,36 @@ export function parsePictureBlock(block, options = {}) {
       continue;
     }
 
+    const structuredField = parseStructuredField(line);
+    if (structuredField) {
+      if (structuredField.field === '场景' && structuredField.value) {
+        shot.scene = structuredField.value;
+        continue;
+      }
+      if (structuredField.field === '人物') {
+        shot.characters = structuredField.value
+          .split(/[、,，]/)
+          .map((item) => item.replace(/[。.\s]+$/g, '').trim())
+          .filter(Boolean);
+        continue;
+      }
+      if (structuredField.field === '动作') {
+        if (structuredField.value) actionLines.push(cleanActionLine(structuredField.value, shot));
+        continue;
+      }
+      if (structuredField.field === '对白') {
+        addDialogueCueFromStructuredValue(structuredField.value, shot);
+        continue;
+      }
+      if (structuredField.field === '时长') {
+        const seconds = parseDurationSeconds(structuredField.value);
+        if (seconds != null) {
+          shot.duration = clampDuration(seconds);
+        }
+        continue;
+      }
+    }
+
     const audioCue = parseSpeakerCue(line);
     if (audioCue) {
       shot.audioCues.push(audioCue);
@@ -254,7 +324,9 @@ export function parsePictureBlock(block, options = {}) {
 
   const dialogueText = dialogueCues.map((cue) => cue.text).join('');
   const dialogueSeconds = dialogueText ? Math.ceil(dialogueText.length / 12) : 0;
-  shot.duration = clampDuration(3 + dialogueSeconds);
+  if (!shot.duration || shot.duration === 3) {
+    shot.duration = clampDuration(3 + dialogueSeconds);
+  }
 
   return shot;
 }

@@ -1,0 +1,17 @@
+﻿[31m16:53:27 ERROR [LipsyncAgent][0m shot_001 口型同步失败：provider unavailable
+[31m16:53:27 ERROR [LipsyncAgent][0m shot_timeout 口型同步失败：provider timeout
+✔ shouldApplyLipsync matches close-up rules from shot metadata (0.7227ms)
+✔ runLipsync only generates clips for triggered shots and writes artifacts (114.7563ms)
+✔ runLipsync records per-shot error evidence when provider fails (108.6658ms)
+✔ runLipsync preserves structured provider failure categories for downgrade reporting (0.8125ms)
+✔ runLipsync records fallback provider usage in result entries (83.8455ms)
+✔ runLipsync blocks close-up shots when timing offset exceeds threshold (2.5032ms)
+✔ runLipsync downgrades invalid video outputs instead of forwarding fake mp4 artifacts (2.9764ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 319.1431

@@ -1,27 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { probeVideoMetadata } from '../utils/mediaProbe.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
-
-function normalizeArray(value) {
-  return Array.isArray(value) ? value : [];
-}
+import { asArray } from '../utils/normalization.js';
 
 function hasValidCoverageRange(coveredShotIds = []) {
-  const normalizedShotIds = normalizeArray(coveredShotIds).filter(Boolean);
+  const normalizedShotIds = asArray(coveredShotIds).filter(Boolean);
   return normalizedShotIds.length >= 2 && new Set(normalizedShotIds).size === normalizedShotIds.length;
 }
 
 function isContiguousInShotOrder(coveredShotIds = [], shots = []) {
-  const shotOrder = new Map(normalizeArray(shots).map((shot, index) => [shot?.id, index]));
-  const indexes = normalizeArray(coveredShotIds).map((shotId) => shotOrder.get(shotId));
+  const shotOrder = new Map(asArray(shots).map((shot, index) => [shot?.id, index]));
+  const indexes = asArray(coveredShotIds).map((shotId) => shotOrder.get(shotId));
 
   if (indexes.some((index) => !Number.isFinite(index))) {
     return false;
@@ -36,7 +28,7 @@ async function probeVideo(videoPath) {
 }
 
 function resolveMinDuration(targetDurationSec, coveredShotIds = []) {
-  const normalizedShotIds = normalizeArray(coveredShotIds).filter(Boolean);
+  const normalizedShotIds = asArray(coveredShotIds).filter(Boolean);
   if (targetDurationSec >= 10 && normalizedShotIds.length >= 3) {
     return Math.max(0.5, targetDurationSec * (2 / 3));
   }
@@ -56,7 +48,7 @@ function isDurationAcceptable(targetDurationSec, actualDurationSec, coveredShotI
 
 function buildSequenceContextMap(sequenceEntries = []) {
   return new Map(
-    normalizeArray(sequenceEntries)
+    asArray(sequenceEntries)
       .filter((entry) => entry?.sequenceId)
       .map((entry) => [entry.sequenceId, entry])
   );
@@ -67,10 +59,10 @@ function defaultEvaluateSequenceContinuity(result, options = {}) {
     buildSequenceContextMap(options.actionSequencePackages).get(result?.sequenceId) ||
     buildSequenceContextMap(options.actionSequencePlan).get(result?.sequenceId) ||
     {};
-  const continuityTargets = normalizeArray(sequenceContext.continuityTargets)
-    .concat(normalizeArray(sequenceContext.motionContinuityTargets))
-    .concat(normalizeArray(sequenceContext.subjectContinuityTargets))
-    .concat(normalizeArray(sequenceContext.environmentContinuityTargets))
+  const continuityTargets = asArray(sequenceContext.continuityTargets)
+    .concat(asArray(sequenceContext.motionContinuityTargets))
+    .concat(asArray(sequenceContext.subjectContinuityTargets))
+    .concat(asArray(sequenceContext.environmentContinuityTargets))
     .filter(Boolean);
   const hasEntryConstraint = Boolean(String(sequenceContext.entryConstraint || '').trim());
   const hasExitConstraint = Boolean(String(sequenceContext.exitConstraint || '').trim());
@@ -314,7 +306,7 @@ function formatNotes({
     notes.push(`reason=${decisionReason}`);
   }
 
-  const referenceCount = normalizeArray(referenceContext?.videoResults).length + normalizeArray(referenceContext?.bridgeClipResults).length;
+  const referenceCount = asArray(referenceContext?.videoResults).length + asArray(referenceContext?.bridgeClipResults).length;
   if (referenceCount > 0) {
     notes.push(`references=${referenceCount}`);
   }
@@ -324,8 +316,8 @@ function formatNotes({
 
 function buildReferenceContext(options) {
   const referenceContext = options.referenceContext || options.context || {};
-  const videoResults = normalizeArray(options.videoResults);
-  const bridgeClipResults = normalizeArray(options.bridgeClipResults);
+  const videoResults = asArray(options.videoResults);
+  const bridgeClipResults = asArray(options.bridgeClipResults);
 
   return {
     referenceContext: {
@@ -391,10 +383,10 @@ export async function evaluateSequenceClips(sequenceClipResults = [], options = 
     options.evaluator ||
     (async (result, context) => defaultEvaluateSequenceContinuity(result, context));
   const { referenceContext, videoResults, bridgeClipResults } = buildReferenceContext(options);
-  const shots = normalizeArray(options.shots);
+  const shots = asArray(options.shots);
 
   for (const result of sequenceClipResults) {
-    const coveredShotIds = normalizeArray(result.coveredShotIds);
+    const coveredShotIds = asArray(result.coveredShotIds);
 
     if (!hasValidCoverageRange(coveredShotIds)) {
       const engineCheck = 'fail';
@@ -630,7 +622,7 @@ function buildReport(entries = []) {
 
 function buildSequenceQaContext(report, actionSequencePackages = []) {
   const packageMap = new Map(
-    normalizeArray(actionSequencePackages).map((entry) => [entry?.sequenceId, entry])
+    asArray(actionSequencePackages).map((entry) => [entry?.sequenceId, entry])
   );
 
   return report.entries.map((entry) => {
@@ -641,7 +633,7 @@ function buildSequenceQaContext(report, actionSequencePackages = []) {
       fallbackAction: entry.fallbackAction,
       qaFailureCategory: entry.qaFailureCategory || null,
       recommendedAction: entry.recommendedAction || null,
-      coveredShotIds: normalizeArray(entry.coveredShotIds),
+      coveredShotIds: asArray(entry.coveredShotIds),
       referenceStrategy: sequencePackage.referenceStrategy || null,
       referenceTier: sequencePackage.providerRequestHints?.referenceTier || null,
       referenceCount: sequencePackage.providerRequestHints?.referenceCount ?? null,

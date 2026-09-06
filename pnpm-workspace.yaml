@@ -1,0 +1,8 @@
+allowBuilds:
+  sharp: set this to true or false
+
+ignoredBuiltDependencies:
+  - sharp@0.33.5
+
+onlyBuiltDependencies:
+  - sharp@0.33.5

@@ -34,12 +34,30 @@ function normalizeVolume(value, fallback = 1) {
   return Math.min(Math.max(Number((numericValue / 10).toFixed(2)), 0.1), 10);
 }
 
-function resolveDefaultVoice(options = {}, env = process.env) {
-  if (options.voice) return options.voice;
-  if (options.gender === 'male') {
-    return env.MINIMAX_TTS_VOICE_MALE || env.MINIMAX_TTS_VOICE || 'Reliable_Executive';
+function normalizeLegacyVoiceId(value, env = process.env) {
+  const voiceId = String(value || '').trim();
+  if (!voiceId) return '';
+  if (voiceId === 'Warm_Girl') {
+    return env.MINIMAX_TTS_VOICE_FEMALE || 'Chinese (Mandarin)_Warm_Girl';
   }
-  return env.MINIMAX_TTS_VOICE_FEMALE || env.MINIMAX_TTS_VOICE || 'Warm_Girl';
+  if (voiceId === 'Reliable_Executive') {
+    return env.MINIMAX_TTS_VOICE_MALE || 'Chinese (Mandarin)_Reliable_Executive';
+  }
+  return voiceId;
+}
+
+function resolveDefaultVoice(options = {}, env = process.env) {
+  if (options.voice) return normalizeLegacyVoiceId(options.voice, env);
+  if (options.gender === 'male') {
+    return normalizeLegacyVoiceId(
+      env.MINIMAX_TTS_VOICE_MALE || env.MINIMAX_TTS_VOICE || 'Chinese (Mandarin)_Reliable_Executive',
+      env
+    );
+  }
+  return normalizeLegacyVoiceId(
+    env.MINIMAX_TTS_VOICE_FEMALE || env.MINIMAX_TTS_VOICE || 'Chinese (Mandarin)_Warm_Girl',
+    env
+  );
 }
 
 export function buildMiniMaxTtsRequest(text, options = {}, env = process.env) {
@@ -127,6 +145,7 @@ export const __testables = {
   normalizePitch,
   normalizeRate,
   normalizeVolume,
+  normalizeLegacyVoiceId,
   readMiniMaxAudioBuffer,
   resolveDefaultVoice,
 };

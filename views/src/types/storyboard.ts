@@ -34,3 +34,28 @@ export interface StoryboardProject {
   config: StoryboardConfig;
   lastModified: number;
 }
+
+export interface StoryboardShotRecord {
+  id: string;
+  index: number;
+  title: string;
+  scene: string;
+  cameraType: string;
+  durationSec: number;
+  dialogue: string;
+  action: string;
+  speaker: string;
+  characters: string[];
+  imageUrl: string | null;
+  videoUrl: string | null;
+  audioUrl: string | null;
+  status: string;
+}
+
+export interface StoryboardEditablePayload {
+  projectId: string;
+  scriptId: string;
+  episodeId: string;
+  title: string;
+  shots: StoryboardShotRecord[];
+}

@@ -3,10 +3,7 @@ import path from 'node:path';
 import { createShotGenerationPack } from '../domain/seedanceGenerationProtocol.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+import { normalizeText } from '../utils/normalization.js';
 
 function findScenePackForShot(shot, scenePacks = []) {
   return (Array.isArray(scenePacks) ? scenePacks : []).find((scenePack) =>

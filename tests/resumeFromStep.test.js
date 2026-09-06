@@ -11,15 +11,34 @@ test('normalizeStepName resolves common aliases', () => {
   assert.equal(__testables.normalizeStepName('video-composer'), 'compose');
   assert.equal(__testables.normalizeStepName('shot-qa'), 'video');
   assert.equal(__testables.normalizeStepName('tts'), 'audio');
+  assert.equal(__testables.normalizeStepName('cross-consistency'), 'cross_consistency');
+  assert.equal(__testables.normalizeStepName('post-review'), 'post_review');
 });
 
-test('parseCliArgs enters project mode selection when no legacy script file is provided', () => {
+test('parseCliArgs returns null ids when no project flags are provided for interactive selection', () => {
   const parsed = __testables.parseCliArgs(['--step=lipsync']);
 
-  assert.equal(parsed.mode, 'project');
   assert.equal(parsed.projectId, null);
   assert.equal(parsed.scriptId, null);
   assert.equal(parsed.episodeId, null);
+});
+
+test('parseCliArgs rejects positional script file arguments (D1 removed legacy mode)', () => {
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', 'samples/寒烬宫变-pro.txt']),
+    /位置参数剧本文件（samples\/寒烬宫变-pro\.txt）已不再支持/
+  );
+});
+
+test('parseCliArgs rejects legacy --script-file and --project-id flags (D1 removed legacy mode)', () => {
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', '--script-file=samples/x.txt']),
+    /--script-file \/ --project-id 已随兼容单文件模式整体移除/
+  );
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', '--project-id=demo']),
+    /--script-file \/ --project-id 已随兼容单文件模式整体移除/
+  );
 });
 
 test('parseCliArgs records explicit paid video confirmation', () => {
@@ -61,6 +80,11 @@ test('getStateKeysToDelete for video step clears video generation caches but pre
   assert.deepEqual(__testables.getStateKeysToDelete('video'), [
     'performancePlan',
     'shotPackages',
+    'preflightShotPackages',
+    'preflightQaReport',
+    'upstreamFailureInsights',
+    'pipelineSummary',
+    'stoppedBeforeVideoAt',
     'rawVideoResults',
     'enhancedVideoResults',
     'videoResults',
@@ -107,6 +131,34 @@ test('getStateKeysToDelete for compose step preserves Phase 2 planning and video
   ]) {
     assert.equal(composeKeys.includes(sequenceKey), false, `compose step should preserve ${sequenceKey}`);
   }
+});
+
+test('getStateKeysToDelete for cross-consistency clears post-processing and delivery state only', () => {
+  assert.deepEqual(__testables.getStateKeysToDelete('cross_consistency'), [
+    'crossVideoConsistencyReport',
+    'avPackagingPlan',
+    'postComposeReview',
+    'humanReviewQueue',
+    'pipelineSummary',
+    'previewOutputPath',
+    'composeResult',
+    'outputPath',
+    'deliverySummaryPath',
+    'completedAt',
+    'lastError',
+    'failedAt',
+  ]);
+});
+
+test('getStateKeysToDelete for post-review preserves compose output but clears review state', () => {
+  assert.deepEqual(__testables.getStateKeysToDelete('post_review'), [
+    'postComposeReview',
+    'humanReviewQueue',
+    'pipelineSummary',
+    'completedAt',
+    'lastError',
+    'failedAt',
+  ]);
 });
 
 test('collectFilesToRemove targets shared lipsync clips and final delivery outputs without clearing audio cache', () => {
@@ -339,6 +391,19 @@ test('collectMissingPrerequisites warns when requested resume step cannot reuse 
   });
 
   assert.deepEqual(missing, ['imageResults', 'audioResults']);
+});
+
+test('collectMissingPrerequisites for post-review warns when post-processing inputs are missing', () => {
+  const missing = __testables.collectMissingPrerequisites('post_review', {
+    characterRegistry: [{ name: '沈惊鸿' }],
+    imageResults: [{ shotId: 'shot_001', imagePath: 'frames/shot_001.png' }],
+    normalizedShots: [{ id: 'shot_001' }],
+    audioResults: [{ shotId: 'shot_001', audioPath: 'audio/shot_001.mp3' }],
+    crossVideoConsistencyReport: null,
+    avPackagingPlan: null,
+  });
+
+  assert.deepEqual(missing, ['crossVideoConsistencyReport', 'avPackagingPlan']);
 });
 
 test('getResumeMode requires snapshot when run-id is explicitly bound', () => {
@@ -689,6 +754,174 @@ test('resumeFromStep blocks video prepare-only without confirmation so cached cl
     assert.equal(result.executed, false);
     assert.deepEqual(writtenState, originalState);
     assert.equal(fs.existsSync(videoPath), true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resumeFromStep prepare-only from cross-consistency clears downstream delivery state and output files', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-resume-cross-consistency-'));
+  const previousOutputDir = process.env.OUTPUT_DIR;
+
+  try {
+    const runJobsDir = path.join(
+      tempRoot,
+      'projects',
+      'demo-project',
+      'scripts',
+      'pilot',
+      'episodes',
+      'episode-1',
+      'run-jobs'
+    );
+    const liveStateDir = path.join(tempRoot, 'job_demo');
+    const outputDir = path.join(tempRoot, 'output', 'demo');
+    fs.mkdirSync(runJobsDir, { recursive: true });
+    fs.mkdirSync(liveStateDir, { recursive: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const statePath = path.join(liveStateDir, 'state.json');
+    const outputPath = path.join(outputDir, 'final-video.mp4');
+    const deliverySummaryPath = path.join(outputDir, 'delivery-summary.md');
+    process.env.OUTPUT_DIR = path.join(tempRoot, 'output');
+    fs.writeFileSync(outputPath, 'video');
+    fs.writeFileSync(deliverySummaryPath, 'summary');
+    fs.writeFileSync(
+      path.join(runJobsDir, 'run_demo.json'),
+      JSON.stringify(
+        {
+          id: 'run_demo',
+          projectId: 'demo-project',
+          scriptId: 'pilot',
+          episodeId: 'episode-1',
+          jobId: 'job_demo',
+        },
+        null,
+        2
+      )
+    );
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify(
+        {
+          characterRegistry: [{ name: '阿坤' }],
+          imageResults: [{ shotId: 'shot_001', imagePath: path.join(liveStateDir, 'images', 'shot_001.png'), success: true }],
+          normalizedShots: [{ id: 'shot_001' }],
+          audioResults: [{ shotId: 'shot_001', audioPath: path.join(liveStateDir, 'audio', 'shot_001.mp3') }],
+          storyboardContextMemory: { contextPack: { currentShotId: 'shot_001' } },
+          crossVideoConsistencyReport: { status: 'pass' },
+          avPackagingPlan: { schemaVersion: 'av-packaging-plan.v1' },
+          postComposeReview: { status: 'needs_review' },
+          humanReviewQueue: { status: 'warn' },
+          composeResult: { status: 'completed' },
+          pipelineSummary: { status: 'pass' },
+          outputPath,
+          deliverySummaryPath,
+        },
+        null,
+        2
+      )
+    );
+
+    const result = await __testables.resumeFromStep(
+      ['--step=cross-consistency', '--project=demo-project', '--script-id=pilot', '--episode=episode-1', '--prepare-only'],
+      { baseTempDir: tempRoot }
+    );
+
+    const writtenState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(result.executed, false);
+    assert.equal(result.parsed.step, 'cross_consistency');
+    assert.equal('crossVideoConsistencyReport' in writtenState, false);
+    assert.equal('avPackagingPlan' in writtenState, false);
+    assert.equal('postComposeReview' in writtenState, false);
+    assert.equal('humanReviewQueue' in writtenState, false);
+    assert.equal('composeResult' in writtenState, false);
+    assert.equal(fs.existsSync(outputPath), false);
+    assert.equal(fs.existsSync(deliverySummaryPath), false);
+  } finally {
+    if (previousOutputDir === undefined) {
+      delete process.env.OUTPUT_DIR;
+    } else {
+      process.env.OUTPUT_DIR = previousOutputDir;
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resumeFromStep prepare-only from post-review preserves final video while clearing review state', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-resume-post-review-'));
+
+  try {
+    const runJobsDir = path.join(
+      tempRoot,
+      'projects',
+      'demo-project',
+      'scripts',
+      'pilot',
+      'episodes',
+      'episode-1',
+      'run-jobs'
+    );
+    const liveStateDir = path.join(tempRoot, 'job_demo');
+    const outputDir = path.join(tempRoot, 'output', 'demo');
+    fs.mkdirSync(runJobsDir, { recursive: true });
+    fs.mkdirSync(liveStateDir, { recursive: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const statePath = path.join(liveStateDir, 'state.json');
+    const outputPath = path.join(outputDir, 'final-video.mp4');
+    const deliverySummaryPath = path.join(outputDir, 'delivery-summary.md');
+    fs.writeFileSync(outputPath, 'video');
+    fs.writeFileSync(deliverySummaryPath, 'summary');
+    fs.writeFileSync(
+      path.join(runJobsDir, 'run_demo.json'),
+      JSON.stringify(
+        {
+          id: 'run_demo',
+          projectId: 'demo-project',
+          scriptId: 'pilot',
+          episodeId: 'episode-1',
+          jobId: 'job_demo',
+        },
+        null,
+        2
+      )
+    );
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify(
+        {
+          characterRegistry: [{ name: '阿坤' }],
+          imageResults: [{ shotId: 'shot_001', imagePath: path.join(liveStateDir, 'images', 'shot_001.png'), success: true }],
+          normalizedShots: [{ id: 'shot_001' }],
+          audioResults: [{ shotId: 'shot_001', audioPath: path.join(liveStateDir, 'audio', 'shot_001.mp3') }],
+          crossVideoConsistencyReport: { status: 'pass' },
+          avPackagingPlan: { schemaVersion: 'av-packaging-plan.v1' },
+          postComposeReview: { status: 'needs_review' },
+          humanReviewQueue: { status: 'warn' },
+          composeResult: { status: 'completed' },
+          pipelineSummary: { status: 'pass' },
+          outputPath,
+          deliverySummaryPath,
+        },
+        null,
+        2
+      )
+    );
+
+    const result = await __testables.resumeFromStep(
+      ['--step=post-review', '--project=demo-project', '--script-id=pilot', '--episode=episode-1', '--prepare-only'],
+      { baseTempDir: tempRoot }
+    );
+
+    const writtenState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(result.executed, false);
+    assert.equal(result.parsed.step, 'post_review');
+    assert.equal('postComposeReview' in writtenState, false);
+    assert.equal('humanReviewQueue' in writtenState, false);
+    assert.equal('composeResult' in writtenState, true);
+    assert.equal(fs.existsSync(outputPath), true);
+    assert.equal(fs.existsSync(deliverySummaryPath), true);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

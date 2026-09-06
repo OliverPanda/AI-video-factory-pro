@@ -1,0 +1,13 @@
+﻿✔ cost governance warns when planned video requests exceed budget in advisory mode (1.6825ms)
+✔ cost governance blocks when enforce mode is enabled (0.1511ms)
+✔ cost governance records actual video failures (0.1851ms)
+✔ cost governance accumulates metrics across resume runs (0.1696ms)
+✔ cost governance overwrites the same run id instead of double counting it (0.1707ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7.5214

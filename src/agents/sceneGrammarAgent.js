@@ -3,10 +3,7 @@ import path from 'node:path';
 import { createScenePack } from '../domain/seedanceSceneProtocol.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+import { normalizeText } from '../utils/normalization.js';
 
 function normalizeCharacterList(value) {
   if (!Array.isArray(value)) {

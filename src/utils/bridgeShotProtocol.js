@@ -11,6 +11,9 @@ export const BRIDGE_SHOT_PLAN_FIELDS = [
   'environmentContinuityTargets',
   'mustPreserveElements',
   'bridgeGenerationMode',
+  'continuityStrategy',
+  'strategyReason',
+  'providerCapabilities',
   'preferredProvider',
   'fallbackStrategy',
 ];

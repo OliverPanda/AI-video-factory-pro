@@ -1,0 +1,15 @@
+﻿✔ tts QA returns pass when all dialogue shots have audio and stay within duration budget (132.0863ms)
+✔ tts QA returns warn when fallback voices are used but delivery is still complete (109.5796ms)
+✔ tts QA evaluates every voice segment for multi-speaker shots (142.4024ms)
+✔ tts QA returns block when a dialogue shot is missing audio (101.811ms)
+✔ tts QA returns warn when the same speaker drifts across different voices (99.8952ms)
+✔ tts QA writes ASR report and warns when transcript drift exceeds threshold (164.9513ms)
+✔ tts QA writes manual review sampling plan into report artifacts (94.4037ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 850.6942

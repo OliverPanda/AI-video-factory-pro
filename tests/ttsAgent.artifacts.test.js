@@ -39,7 +39,7 @@ test('consistency checker writes report flagged shots metrics and manifest when 
         artifactContext: ctx.agents.consistencyChecker,
         checkCharacterConsistency: async () => ({
           character: '小红',
-          overallScore: 8.2,
+          overallScore: 7.9,
           identityDriftTags: ['hair_drift', 'outfit_drift'],
           hardFailureReasons: [],
           softRiskTags: ['hair_drift', 'outfit_drift'],
@@ -80,7 +80,7 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
     assert.equal(report.length, 1);
     assert.equal(report[0].character, '小红');
-    assert.equal(report[0].overallScore, 8.2);
+    assert.equal(report[0].overallScore, 7.9);
     assert.equal(report[0].characterPriority, 'lead');
     assert.equal(report[0].shotConsistencyClass, 'anchor');
     assert.deepEqual(report[0].hardFailureReasons, []);
@@ -91,7 +91,7 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     const markdown = fs.readFileSync(markdownPath, 'utf-8');
     assert.match(markdown, /# Consistency Report/);
     assert.match(markdown, /## 小红/);
-    assert.match(markdown, /Overall Score: 8.2/);
+    assert.match(markdown, /Overall Score: 7.9/);
     assert.match(markdown, /Character Priority: lead/);
     assert.match(markdown, /Shot Consistency Class: anchor/);
     assert.match(markdown, /QA Decision: warn/);
@@ -102,7 +102,7 @@ test('consistency checker writes report flagged shots metrics and manifest when 
     assert.deepEqual(flaggedShots, [
       {
         shotId: 'shot_002',
-        reason: '小红 一致性评分 8.2/10（lead/anchor）',
+        reason: '小红 一致性评分 7.9/10（lead/anchor）',
         regenStrategy: 'prompt_tighten',
         hardFailureReasons: [],
         softRiskTags: ['hair_drift', 'outfit_drift'],
@@ -115,13 +115,14 @@ test('consistency checker writes report flagged shots metrics and manifest when 
       checked_character_count: 1,
       checked_shot_count: 2,
       flagged_shot_count: 1,
-      avg_consistency_score: 8.2,
+      avg_consistency_score: 7.9,
       identity_drift_tag_counts: {
         hair_drift: 1,
         outfit_drift: 1,
       },
       qa_decision_counts: {
         pass: 0,
+        pass_with_review: 0,
         warn: 1,
         block: 0,
       },

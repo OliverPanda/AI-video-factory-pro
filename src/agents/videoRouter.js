@@ -4,8 +4,13 @@ import { getContextualShotCharacterCards } from './characterRegistry.js';
 import { buildSeedancePromptPackages } from './seedancePromptAgent.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
+import { shouldUseAiSdk } from '../apis/aiSdkVideoClient.js';
 
 function resolvePreferredVideoProvider(options = {}) {
+  // 如果设置了 VIDEO_MODEL 且是 AI SDK 支持的格式，使用 AI SDK
+  if (shouldUseAiSdk(options.env || process.env)) {
+    return 'ai_sdk';
+  }
   const rawProvider = options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
   if (rawProvider === 'fallback_video') {
     return 'sora2';

@@ -258,6 +258,7 @@ export async function composeVideo(shots, imageResults, audioResults, outputPath
       animationClips: options.animationClips || [],
       lipsyncResults: options.lipsyncClips || [],
       bridgeClips: options.bridgeClips || [],
+      packagingPlan: options.packagingPlan || null,
       ttsQaReport: options.ttsQaReport,
       lipsyncReport: options.lipsyncReport,
     },
@@ -277,6 +278,7 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
   const warnings = [
     ...(input?.ttsQaReport?.status === 'warn' ? input.ttsQaReport.warnings || ['tts_qa_warn'] : []),
     ...(input?.lipsyncReport?.status === 'warn' ? input.lipsyncReport.warnings || ['lipsync_warn'] : []),
+    ...(Array.isArray(input?.packagingPlan?.warnings) ? input.packagingPlan.warnings : []),
   ];
 
   if (input?.ttsQaReport?.status === 'block') {
@@ -319,10 +321,16 @@ export async function composeFromLegacy(input, outputPath, options = {}) {
   logger.info('VideoComposer', `合成计划：${safePlan.length} 个分镜`);
 
   const subtitlePath = safeOutputPath.replace(/\.mp4$/i, '.ass');
-  runGenerateSubtitleFile(safePlan, subtitlePath, { allowedRoots });
+  runGenerateSubtitleFile(safePlan, subtitlePath, {
+    allowedRoots,
+    subtitleStyleProfile: input?.packagingPlan?.subtitleStyleProfile || input?.packagingPlan?.subtitleStyle,
+  });
 
   try {
-    await runMergeWithFFmpeg(safePlan, subtitlePath, safeOutputPath, { allowedRoots });
+    await runMergeWithFFmpeg(safePlan, subtitlePath, safeOutputPath, {
+      allowedRoots,
+      packagingPlan: input?.packagingPlan || null,
+    });
   } catch (error) {
     writeComposerArtifacts(safePlan, safeOutputPath, options.artifactContext, {
       status: 'failed',
@@ -482,6 +490,7 @@ function adaptLegacyComposeInput(input = {}) {
     animationClips: input.animationClips || [],
     lipsyncResults: input.lipsyncResults || [],
     bridgeClips: input.bridgeClips || [],
+    packagingPlan: input.packagingPlan || null,
     assets: buildLegacyAssetBundle(input),
     normalizedShots,
   };
@@ -713,21 +722,21 @@ export function buildCompositionPlan(
 
 function resolveShotVisual(shot, imageResults, videoClips, animationClips, lipsyncClips) {
   const shotDuration = shot.duration || shot.durationSec || 3;
+  const lipsyncClip = lipsyncClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
+  if (lipsyncClip && (shot.dialogue || shot.visualSpeechRequired || shot.requiresLipsync)) {
+    return {
+      visualType: 'lipsync_clip',
+      videoPath: lipsyncClip.videoPath,
+      duration: lipsyncClip.durationSec || shotDuration,
+    };
+  }
+
   const generatedVideoClip = videoClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
   if (generatedVideoClip) {
     return {
       visualType: 'generated_video_clip',
       videoPath: generatedVideoClip.videoPath,
       duration: generatedVideoClip.durationSec || shotDuration,
-    };
-  }
-
-  const lipsyncClip = lipsyncClips.find((clip) => clip.shotId === shot.id && clip.videoPath);
-  if (lipsyncClip) {
-    return {
-      visualType: 'lipsync_clip',
-      videoPath: lipsyncClip.videoPath,
-      duration: lipsyncClip.durationSec || shotDuration,
     };
   }
 
@@ -869,10 +878,35 @@ function validatePlanPaths(plan, options = {}) {
   }));
 }
 
+function normalizeSubtitleStyleProfile(profile = {}) {
+  const numberOrDefault = (value, fallback) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  };
+
+  return {
+    fontFamily: profile.fontFamily || profile.fontName || SUBTITLE_FONT,
+    fontSize: numberOrDefault(profile.fontSize, 52),
+    primaryColor: profile.primaryColor || '&H00FFFFFF',
+    secondaryColor: profile.secondaryColor || '&H000000FF',
+    outlineColor: profile.outlineColor || '&H00000000',
+    backColor: profile.backColor || '&H80000000',
+    bold: numberOrDefault(profile.bold, -1),
+    italic: numberOrDefault(profile.italic, 0),
+    outline: numberOrDefault(profile.outline, 3),
+    shadow: numberOrDefault(profile.shadow, 1),
+    alignment: numberOrDefault(profile.alignment, 2),
+    marginL: numberOrDefault(profile.marginL, 40),
+    marginR: numberOrDefault(profile.marginR, 40),
+    marginV: numberOrDefault(profile.marginV, 80),
+  };
+}
+
 function generateSubtitleFile(plan, subtitlePath, options = {}) {
   const safeSubtitlePath = assertSafeWorkspacePath(subtitlePath, '字幕文件', {
     allowedRoots: options.allowedRoots,
   });
+  const subtitleStyle = normalizeSubtitleStyleProfile(options.subtitleStyleProfile);
   let currentTime = 0;
   const dialogues = [];
 
@@ -910,7 +944,7 @@ PlayResY: ${VIDEO_HEIGHT}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${SUBTITLE_FONT},52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,80,1
+Style: Default,${subtitleStyle.fontFamily},${subtitleStyle.fontSize},${subtitleStyle.primaryColor},${subtitleStyle.secondaryColor},${subtitleStyle.outlineColor},${subtitleStyle.backColor},${subtitleStyle.bold},${subtitleStyle.italic},0,0,100,100,0,0,1,${subtitleStyle.outline},${subtitleStyle.shadow},${subtitleStyle.alignment},${subtitleStyle.marginL},${subtitleStyle.marginR},${subtitleStyle.marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1041,7 +1075,10 @@ function concatVisualSegments(concatListPath, concatVideoPath) {
 }
 
 function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath, options = {}) {
-  const audioItems = collectExistingAudioItems(plan);
+  const audioItems = [
+    ...collectExistingAudioItems(plan),
+    ...collectPackagingAudioItems(options.packagingPlan, { allowedRoots: options.allowedRoots }),
+  ];
   const safeConcatVideoPath = assertSafeWorkspacePath(concatVideoPath, '视频拼接输出', {
     mustExist: true,
     allowedRoots: options.allowedRoots,
@@ -1075,11 +1112,7 @@ function muxAudioAndSubtitles(plan, concatVideoPath, subtitlePath, outputPath, o
   ];
 
   if (audioItems.length > 0) {
-    const delayedInputs = audioItems
-      .map((item, index) => `[${index + 1}:a]adelay=${item.offsetMs}|${item.offsetMs}[a${index}]`)
-      .join(';');
-    const mixInputs = audioItems.map((_, index) => `[a${index}]`).join('');
-    cmd = cmd.complexFilter(`${delayedInputs};${mixInputs}amix=inputs=${audioItems.length}:normalize=0[aout]`);
+    cmd = cmd.complexFilter(buildAudioMixFilter(audioItems));
     outputOptions.push('-map', '0:v', '-map', '[aout]', '-c:a', 'aac', '-b:a', '128k');
   }
 
@@ -1117,7 +1150,61 @@ export function buildAudioTimeline(plan) {
 }
 
 export function collectExistingAudioItems(plan, existsSync = fs.existsSync) {
-  return buildAudioTimeline(plan).filter((item) => item.audioPath && existsSync(item.audioPath));
+  return buildAudioTimeline(plan)
+    .filter((item) => item.audioPath && existsSync(item.audioPath))
+    .map((item) => ({ ...item, gainDb: 0, source: 'dialogue' }));
+}
+
+function gainDbToVolume(gainDb) {
+  const number = Number(gainDb);
+  if (!Number.isFinite(number)) return 1;
+  return Number(Math.pow(10, number / 20).toFixed(4));
+}
+
+function collectPackagingAudioItems(packagingPlan = {}, options = {}, existsSync = fs.existsSync) {
+  const allowedRoots = options.allowedRoots;
+  const items = [];
+  for (const cue of Array.isArray(packagingPlan?.bgmCues) ? packagingPlan.bgmCues : []) {
+    if (!cue?.path || !existsSync(cue.path)) continue;
+    items.push({
+      shotId: cue.id,
+      audioPath: assertSafeWorkspacePath(cue.path, `BGM cue ${cue.id}`, {
+        mustExist: true,
+        allowedRoots,
+      }),
+      offsetMs: Math.max(0, Math.round(Number(cue.startSec || 0) * 1000)),
+      gainDb: cue.gainDb ?? -20,
+      source: 'bgm',
+      cueId: cue.id,
+    });
+  }
+  for (const cue of Array.isArray(packagingPlan?.sfxCues) ? packagingPlan.sfxCues : []) {
+    if (!cue?.path || !existsSync(cue.path)) continue;
+    items.push({
+      shotId: cue.id,
+      audioPath: assertSafeWorkspacePath(cue.path, `SFX cue ${cue.id}`, {
+        mustExist: true,
+        allowedRoots,
+      }),
+      offsetMs: Math.max(0, Math.round(Number(cue.atSec || 0) * 1000)),
+      gainDb: cue.gainDb ?? -12,
+      source: 'sfx',
+      cueId: cue.id,
+    });
+  }
+  return items;
+}
+
+function buildAudioMixFilter(audioItems = []) {
+  const delayedInputs = audioItems
+    .map((item, index) => {
+      const inputIndex = index + 1;
+      const volume = gainDbToVolume(item.gainDb);
+      return `[${inputIndex}:a]adelay=${item.offsetMs}|${item.offsetMs},volume=${volume}[a${index}]`;
+    })
+    .join(';');
+  const mixInputs = audioItems.map((_, index) => `[a${index}]`).join('');
+  return `${delayedInputs};${mixInputs}amix=inputs=${audioItems.length}:normalize=0[aout]`;
 }
 
 export function buildVisualSegmentJobs(plan, tempDir) {
@@ -1176,6 +1263,9 @@ export const __testables = {
   buildSequenceCoverageSummary,
   buildVideoMetrics,
   buildApprovedSequenceClips,
+  buildAudioMixFilter,
+  collectPackagingAudioItems,
+  gainDbToVolume,
   insertBridgeClips,
   buildSubtitlePath: (outputPath) => outputPath.replace(/\.mp4$/i, '.ass'),
   normalizeAudioDuration: normalizeDuration,

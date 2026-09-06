@@ -1,0 +1,1980 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="canvas:aspect-ratio" content="16:9" />
+<title>审片工作台 - 宫墙疑云 第3集</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ===== DESIGN TOKENS ===== */
+:root {
+  /* Seed tokens */
+  --seed-bg: #f8fafc;
+  --seed-fg: #0f172a;
+  --seed-primary: #0891b2;
+  --seed-accent: #0d9488;
+  --seed-surface: #ffffff;
+  --seed-radius: 10px;
+
+  /* Backgrounds */
+  --bg: var(--seed-bg);
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
+
+  /* Surfaces */
+  --surface: var(--seed-surface);
+  --surface-hover: #fafbfc;
+  --surface-raised: #ffffff;
+
+  /* Text */
+  --fg: var(--seed-fg);
+  --fg-muted: #64748b;
+  --fg-subtle: #94a3b8;
+
+  /* Borders */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: rgba(8, 145, 178, 0.3);
+
+  /* Accent */
+  --accent: var(--seed-primary);
+  --accent-light: #06b6d4;
+  --accent-teal: var(--seed-accent);
+
+  /* Status */
+  --success: #10b981;
+  --success-bg: #ecfdf5;
+  --success-border: #a7f3d0;
+  --success-text: #065f46;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+  --warning-text: #92400e;
+  --error: #ef4444;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --error-text: #991b1b;
+  --info: #0891b2;
+  --info-bg: #ecfeff;
+  --info-border: #a5f3fc;
+  --info-text: #155e75;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+  --shadow-lg: 0 4px 12px -2px rgba(0,0,0,0.08), 0 2px 6px -1px rgba(0,0,0,0.04);
+  --shadow-xl: 0 10px 25px -5px rgba(0,0,0,0.08), 0 4px 10px -2px rgba(0,0,0,0.04);
+
+  /* Typography */
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Space Grotesk', var(--font-body);
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Radius */
+  --radius-sm: calc(var(--seed-radius) * 0.6);
+  --radius-md: var(--seed-radius);
+  --radius-lg: calc(var(--seed-radius) * 1.4);
+  --radius-xl: calc(var(--seed-radius) * 1.8);
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Layout */
+  --toolbar-h: 52px;
+  --sidebar-w: 280px;
+  --inspector-w: 340px;
+  --drawer-h-collapsed: 44px;
+  --drawer-h-expanded: 280px;
+
+  /* Component tokens */
+  --clip-shot-from: #64748b;
+  --clip-shot-to: #94a3b8;
+  --clip-bridge-from: #0891b2;
+  --clip-bridge-to: #06b6d4;
+  --clip-seq-from: #0d9488;
+  --clip-seq-to: #14b8a6;
+  --clip-audio-from: #0e7490;
+  --clip-audio-to: #06b6d4;
+  --clip-lipsync-from: #be185d;
+  --clip-lipsync-to: #f472b6;
+
+  --risk-blocker-bg: #fef2f2;
+  --risk-blocker-text: #991b1b;
+  --risk-high-bg: #fffbeb;
+  --risk-high-text: #92400e;
+  --risk-warn-bg: #f0fdf4;
+  --risk-warn-text: #166534;
+  --risk-ok-bg: var(--bg-secondary);
+  --risk-ok-text: var(--fg-subtle);
+
+  --badge-shot-bg: var(--bg-secondary);
+  --badge-shot-text: var(--fg-muted);
+  --badge-seq-bg: #f0fdfa;
+  --badge-seq-text: #115e59;
+  --badge-audio-bg: #ecfeff;
+  --badge-audio-text: #155e75;
+
+  --task-regen-bg: #fef2f2;
+  --task-regen-text: #991b1b;
+  --task-replace-bg: #eff6ff;
+  --task-replace-text: #1e40af;
+  --task-adjust-bg: #ecfeff;
+  --task-adjust-text: #155e75;
+  --task-approve-bg: #ecfdf5;
+  --task-approve-text: #065f46;
+
+  --timeline-ok: #f0fdf4;
+  --timeline-warn: #fffbeb;
+  --timeline-error: #fef2f2;
+  --segment-ok: #d1fae5;
+  --segment-warn: #fde68a;
+  --segment-error: #fecaca;
+
+  --player-bg: #0f172a;
+  --overlay-text: rgba(255,255,255,0.8);
+  --overlay-muted: rgba(255,255,255,0.4);
+  --overlay-dim: rgba(255,255,255,0.6);
+
+  /* Extended tokens */
+  --accent-dark: #0e7490;
+  --success-dark: #059669;
+  --brand-gradient: linear-gradient(135deg, #0891b2, #0d9488, #10b981);
+  --risk-zone-text: #fca5a5;
+  --task-selected-bg: #f0fdfa;
+}
+
+/* ===== RESET ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input { font-family: inherit; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.14); }
+
+/* ===== LAYOUT SHELL ===== */
+[data-component="App Shell"] {
+  display: grid;
+  grid-template-rows: var(--toolbar-h) 1fr auto;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ===== TOP TOOLBAR ===== */
+[data-component="Top Toolbar"] {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: var(--sp-3);
+  z-index: 20;
+}
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+.toolbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+.toolbar-brand-icon {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-gradient);
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 11px; font-weight: 800;
+}
+.toolbar-divider {
+  width: 1px; height: 24px; background: var(--border);
+}
+.toolbar-context {
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.ctx-project {
+  font-weight: 600; font-size: 13px; color: var(--fg);
+}
+.ctx-sep { color: var(--fg-subtle); font-size: 11px; }
+.ctx-episode {
+  font-weight: 500; font-size: 13px; color: var(--fg-muted);
+}
+.ctx-run {
+  font-family: var(--font-mono); font-size: 11px; color: var(--fg-subtle);
+  background: var(--bg-secondary); padding: 2px 6px; border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+.toolbar-center {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: var(--sp-3);
+}
+
+.toolbar-right {
+  display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0;
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 999px; font-size: 11px;
+  font-weight: 600; letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.status-badge.needs-review {
+  background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border);
+}
+.status-badge.approved {
+  background: var(--success-bg); color: var(--success-text); border-color: var(--success-border);
+}
+.status-badge.blocked {
+  background: var(--error-bg); color: var(--error-text); border-color: var(--error-border);
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+
+/* Cost chip */
+.cost-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--fg-muted); padding: 3px 8px;
+  background: var(--bg-secondary); border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+.cost-chip .cost-val {
+  font-family: var(--font-mono); font-weight: 600; color: var(--fg);
+}
+
+/* Toolbar buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: var(--radius-md);
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+.btn:active { transform: scale(0.97); }
+.btn-ghost {
+  color: var(--fg-muted); background: transparent;
+}
+.btn-ghost:hover { background: var(--bg-secondary); color: var(--fg); }
+.btn-secondary {
+  color: var(--fg); background: var(--surface); border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.btn-primary {
+  color: white; background: var(--accent);
+  box-shadow: 0 1px 2px rgba(8,145,178,0.2);
+}
+.btn-primary:hover { background: var(--accent-dark); }
+.btn-success {
+  color: white; background: var(--success);
+}
+.btn-success:hover { background: var(--success-dark); }
+.btn-danger-outline {
+  color: var(--error); border: 1px solid var(--error-border); background: var(--surface);
+}
+.btn-danger-outline:hover { background: var(--error-bg); }
+.btn-warning-outline {
+  color: var(--warning-text); border: 1px solid var(--warning-border); background: var(--surface);
+}
+.btn-warning-outline:hover { background: var(--warning-bg); }
+
+.btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.btn-sm { padding: 4px 8px; font-size: 11px; }
+.btn-sm svg { width: 12px; height: 12px; }
+
+/* ===== MAIN BODY ===== */
+[data-component="Main Body"] {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr var(--inspector-w);
+  overflow: hidden;
+}
+
+/* ===== LEFT SIDEBAR ===== */
+[data-component="Timeline Navigator"] {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-header {
+  padding: var(--sp-3) var(--sp-3) 0;
+}
+.sidebar-title {
+  font-family: var(--font-heading);
+  font-size: 13px; font-weight: 700; color: var(--fg);
+  margin-bottom: var(--sp-2);
+  letter-spacing: -0.01em;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sidebar-title .clip-count {
+  font-family: var(--font-mono); font-size: 11px; color: var(--fg-subtle);
+  font-weight: 500; background: var(--bg-secondary); padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* Search */
+.search-input {
+  position: relative; margin-bottom: var(--sp-2);
+}
+.search-input input {
+  width: 100%; padding: 6px 10px 6px 30px;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  font-size: 12px; background: var(--bg); color: var(--fg);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+.search-input input::placeholder { color: var(--fg-subtle); }
+.search-input input:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--border-focus);
+}
+.search-input svg {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  width: 13px; height: 13px; color: var(--fg-subtle);
+}
+
+/* Filter pills */
+.filter-pills {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2);
+}
+.filter-pill {
+  padding: 3px 8px; border-radius: 999px; font-size: 10px;
+  font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  border: 1px solid var(--border); color: var(--fg-muted);
+  background: var(--surface); transition: all 0.2s;
+  cursor: pointer;
+}
+.filter-pill:hover { border-color: var(--border-strong); color: var(--fg); }
+.filter-pill.active {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+.filter-pill .pill-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 14px; height: 14px; padding: 0 3px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; margin-left: 3px;
+  background: rgba(0,0,0,0.06);
+}
+.filter-pill.active .pill-count {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Timeline overview bar */
+.timeline-bar {
+  margin: 0 var(--sp-3) var(--sp-2);
+  height: 20px; background: var(--bg-secondary); border-radius: var(--radius-sm);
+  position: relative; overflow: hidden; border: 1px solid var(--border);
+}
+.timeline-bar-fill {
+  position: absolute; top: 0; left: 0; height: 100%;
+  border-radius: var(--radius-sm);
+}
+.timeline-bar .segment {
+  position: absolute; top: 2px; bottom: 2px; border-radius: 2px;
+}
+.timeline-bar .segment.ok { background: var(--segment-ok); }
+.timeline-bar .segment.warn { background: var(--segment-warn); }
+.timeline-bar .segment.error { background: var(--segment-error); }
+.timeline-bar .playhead {
+  position: absolute; top: -1px; bottom: -1px; width: 2px;
+  background: var(--accent); border-radius: 1px; z-index: 2;
+  transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.timeline-labels {
+  display: flex; justify-content: space-between;
+  margin: 0 var(--sp-3); font-size: 9px; color: var(--fg-subtle);
+  font-family: var(--font-mono); letter-spacing: 0.02em;
+  margin-bottom: var(--sp-2);
+}
+
+/* Clip list */
+.clip-list {
+  flex: 1; overflow-y: auto; padding: 0 var(--sp-3) var(--sp-3);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.clip-card {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  align-items: center;
+}
+.clip-card:hover {
+  background: var(--bg-secondary);
+}
+.clip-card.selected {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+}
+.clip-card.has-error {
+  border-left: 2px solid var(--error);
+}
+.clip-card.has-warning {
+  border-left: 2px solid var(--warning);
+}
+.clip-thumb {
+  width: 40px; height: 28px; border-radius: var(--radius-sm);
+  overflow: hidden; position: relative;
+}
+.clip-thumb-inner {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: white;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.clip-thumb-inner.shot { background: linear-gradient(135deg, var(--clip-shot-from), var(--clip-shot-to)); }
+.clip-thumb-inner.bridge { background: linear-gradient(135deg, var(--clip-bridge-from), var(--clip-bridge-to)); }
+.clip-thumb-inner.sequence { background: linear-gradient(135deg, var(--clip-seq-from), var(--clip-seq-to)); }
+.clip-thumb-inner.audio { background: linear-gradient(135deg, var(--clip-audio-from), var(--clip-audio-to)); }
+.clip-thumb-inner.lipsync { background: linear-gradient(135deg, var(--clip-lipsync-from), var(--clip-lipsync-to)); }
+.clip-info {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
+.clip-id {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--fg); letter-spacing: 0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.clip-meta {
+  font-size: 10px; color: var(--fg-subtle); display: flex; gap: 6px;
+}
+.clip-meta span { display: inline-flex; align-items: center; gap: 2px; }
+.clip-status {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+}
+.risk-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border-radius: 999px; font-size: 9px;
+  font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.risk-tag.blocker { background: var(--risk-blocker-bg); color: var(--risk-blocker-text); }
+.risk-tag.high { background: var(--risk-high-bg); color: var(--risk-high-text); }
+.risk-tag.warn { background: var(--risk-warn-bg); color: var(--risk-warn-text); }
+.risk-tag.ok { background: var(--risk-ok-bg); color: var(--risk-ok-text); }
+.task-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); display: inline-block;
+}
+
+/* ===== CENTER PANEL ===== */
+[data-component="Preview Player"] {
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* Player area */
+.player-area {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: var(--sp-4);
+  position: relative;
+}
+.player-frame {
+  width: 100%; max-width: 720px;
+  aspect-ratio: 16/9;
+  background: var(--player-bg);
+  border-radius: var(--radius-lg);
+  position: relative; overflow: hidden;
+  box-shadow: var(--shadow-xl);
+}
+.player-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  justify-content: flex-end;
+}
+.player-scene {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.player-scene-content {
+  text-align: center; color: rgba(255,255,255,0.6);
+}
+.player-scene-content .scene-label {
+  font-family: var(--font-heading);
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+  color: rgba(255,255,255,0.8);
+  margin-bottom: 4px;
+}
+.player-scene-content .scene-time {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.02em; color: rgba(255,255,255,0.4);
+}
+/* Risk zone indicator on player */
+.player-risk-zone {
+  position: absolute; top: var(--sp-2); right: var(--sp-2);
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--radius-md);
+  background: rgba(239,68,68,0.15); backdrop-filter: blur(8px);
+  border: 1px solid rgba(239,68,68,0.25);
+}
+.player-risk-zone .risk-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--error); animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.player-risk-zone span {
+  font-size: 10px; font-weight: 600; color: var(--risk-zone-text);
+  letter-spacing: 0.03em; text-transform: uppercase;
+}
+
+/* Player controls */
+.player-controls {
+  padding: var(--sp-2) var(--sp-4) 0;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+
+/* Timeline ruler */
+.timeline-ruler {
+  position: relative; height: 32px;
+  background: var(--surface); border-radius: var(--radius-md);
+  border: 1px solid var(--border); overflow: hidden;
+  cursor: pointer;
+}
+.ruler-track {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+}
+.ruler-segment {
+  height: 100%; position: relative;
+  border-right: 1px solid rgba(0,0,0,0.04);
+}
+.ruler-segment.ok { background: var(--timeline-ok); }
+.ruler-segment.warn { background: var(--timeline-warn); }
+.ruler-segment.error { background: var(--timeline-error); }
+.ruler-markers {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between;
+  padding: 2px 6px; font-size: 8px; color: var(--fg-subtle);
+  font-family: var(--font-mono); letter-spacing: 0.02em;
+  pointer-events: none;
+}
+.ruler-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--accent);
+  z-index: 3;
+  transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ruler-playhead::after {
+  content: '';
+  position: absolute; top: -2px; left: -4px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent); border: 2px solid white;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Playback controls row */
+.playback-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.play-btn-group {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 2px;
+}
+.play-btn {
+  width: 30px; height: 28px; display: flex;
+  align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); color: var(--fg-muted);
+  transition: all 0.15s;
+}
+.play-btn:hover { background: var(--bg-secondary); color: var(--fg); }
+.play-btn.active { background: var(--accent); color: white; }
+.play-btn svg { width: 14px; height: 14px; }
+.time-display {
+  font-family: var(--font-mono); font-size: 12px; color: var(--fg);
+  font-weight: 500; letter-spacing: 0.02em;
+  min-width: 100px;
+}
+.time-display .time-current { color: var(--fg); }
+.time-display .time-sep { color: var(--fg-subtle); margin: 0 2px; }
+.time-display .time-total { color: var(--fg-muted); }
+.speed-btn {
+  padding: 3px 8px; border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 700; color: var(--fg-muted);
+  border: 1px solid var(--border); background: var(--surface);
+  font-family: var(--font-mono); letter-spacing: 0.02em;
+}
+.speed-btn:hover { border-color: var(--border-strong); }
+.speed-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* Current clip info */
+.current-clip-bar {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface); border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.clip-type-badge {
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.clip-type-badge.bridge { background: var(--info-bg); color: var(--info-text); }
+.clip-type-badge.shot { background: var(--badge-shot-bg); color: var(--badge-shot-text); }
+.clip-type-badge.sequence { background: var(--badge-seq-bg); color: var(--badge-seq-text); }
+.clip-type-badge.audio { background: var(--badge-audio-bg); color: var(--badge-audio-text); }
+.current-clip-detail {
+  flex: 1; display: flex; flex-direction: column; gap: 1px;
+}
+.current-clip-name {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--fg); letter-spacing: 0.01em;
+}
+.current-clip-time {
+  font-size: 10px; color: var(--fg-subtle);
+}
+.current-clip-actions {
+  display: flex; gap: var(--sp-1);
+}
+
+/* ===== RIGHT INSPECTOR ===== */
+[data-component="Finding Inspector"] {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.inspector-header {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.inspector-title {
+  font-family: var(--font-heading);
+  font-size: 13px; font-weight: 700; color: var(--fg);
+  letter-spacing: -0.01em;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* Summary cards row */
+.summary-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2); padding: var(--sp-3);
+}
+.summary-card {
+  padding: var(--sp-2);
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.summary-card .sc-value {
+  font-family: var(--font-heading);
+  font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.summary-card .sc-value.error-color { color: var(--error); }
+.summary-card .sc-value.warning-color { color: var(--warning); }
+.summary-card .sc-value.info-color { color: var(--accent); }
+.summary-card .sc-label {
+  font-size: 9px; color: var(--fg-subtle); font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* Review verdict */
+.review-verdict {
+  margin: 0 var(--sp-3) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: 11px; font-weight: 600;
+}
+.review-verdict.needs-review {
+  background: var(--warning-bg); border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+}
+.review-verdict.approved {
+  background: var(--success-bg); border: 1px solid var(--success-border);
+  color: var(--success-text);
+}
+.review-verdict svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Findings list */
+.findings-section {
+  flex: 1; overflow-y: auto; padding: 0 var(--sp-3) var(--sp-3);
+}
+.findings-section-title {
+  font-size: 10px; font-weight: 700; color: var(--fg-subtle);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.findings-section-title::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+.finding-card {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  margin-bottom: var(--sp-2);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.finding-card:hover { border-color: var(--border-strong); }
+.finding-card.expanded { border-color: var(--accent); }
+.finding-header {
+  padding: var(--sp-2) var(--sp-3);
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  cursor: pointer;
+}
+.finding-severity {
+  width: 4px; border-radius: 2px; align-self: stretch; flex-shrink: 0;
+}
+.finding-severity.blocker { background: var(--error); }
+.finding-severity.high { background: var(--warning); }
+.finding-severity.warn { background: var(--success); }
+.finding-severity.info { background: var(--accent); }
+.finding-body { flex: 1; min-width: 0; }
+.finding-title-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.finding-category {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--fg-subtle);
+  padding: 1px 5px; background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+.finding-desc {
+  font-size: 12px; color: var(--fg); line-height: 1.4;
+  margin-top: 2px;
+}
+.finding-expand-icon {
+  color: var(--fg-subtle); flex-shrink: 0;
+  transition: transform 0.2s;
+}
+.finding-card.expanded .finding-expand-icon {
+  transform: rotate(180deg);
+}
+
+/* Finding details (expanded) */
+.finding-details {
+  display: none;
+  padding: 0 var(--sp-3) var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.finding-card.expanded .finding-details {
+  display: block;
+}
+.detail-row {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  font-size: 11px;
+}
+.detail-label {
+  color: var(--fg-subtle); font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: 9px; min-width: 52px; flex-shrink: 0;
+}
+.detail-value {
+  color: var(--fg); font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: 0.01em;
+}
+.confidence-bar {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.confidence-track {
+  width: 40px; height: 4px; background: var(--bg-tertiary);
+  border-radius: 2px; overflow: hidden;
+}
+.confidence-fill {
+  height: 100%; border-radius: 2px;
+}
+.confidence-fill.high { background: var(--success); }
+.confidence-fill.medium { background: var(--warning); }
+.confidence-fill.low { background: var(--error); }
+
+/* Evidence links */
+.evidence-list {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;
+}
+.evidence-link {
+  font-size: 10px; color: var(--accent);
+  font-family: var(--font-mono); letter-spacing: 0.01em;
+  padding: 1px 5px; background: var(--info-bg);
+  border-radius: var(--radius-sm);
+  text-decoration: none; cursor: pointer;
+}
+.evidence-link:hover { text-decoration: underline; }
+
+/* Recommended actions */
+.action-panel {
+  margin-top: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+  background: var(--bg); border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.action-panel-title {
+  font-size: 9px; font-weight: 700; color: var(--fg-subtle);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin-bottom: var(--sp-2);
+}
+.action-chips {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.action-chip {
+  padding: 4px 10px; border-radius: var(--radius-md);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
+  border: 1px solid var(--border); color: var(--fg-muted);
+  background: var(--surface); cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.action-chip:hover {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--info-bg);
+}
+.action-chip.primary {
+  background: var(--accent); color: white;
+  border-color: var(--accent);
+}
+.action-chip svg { width: 12px; height: 12px; }
+
+/* Cost hint */
+.cost-hint {
+  margin: var(--sp-3) var(--sp-3) 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.cost-hint-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px;
+}
+.cost-hint-label { color: var(--fg-muted); }
+.cost-hint-value {
+  font-family: var(--font-mono); font-weight: 600; color: var(--fg);
+}
+.cost-hint-note {
+  font-size: 10px; color: var(--fg-subtle);
+  margin-top: var(--sp-1);
+  line-height: 1.4;
+}
+.cost-hint-note .limit-tag {
+  display: inline; padding: 0 4px;
+  background: var(--warning-bg); color: var(--warning-text);
+  border-radius: 3px; font-weight: 600; font-size: 9px;
+  letter-spacing: 0.03em;
+}
+
+/* ===== BOTTOM DRAWER ===== */
+[data-component="Edit Task Drawer"] {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.drawer-collapsed {
+  height: var(--drawer-h-collapsed);
+}
+.drawer-expanded {
+  height: var(--drawer-h-expanded);
+}
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  min-height: var(--drawer-h-collapsed);
+}
+.drawer-header:hover { background: var(--bg-secondary); }
+.drawer-title-group {
+  display: flex; align-items: center; gap: var(--sp-3);
+}
+.drawer-title {
+  font-family: var(--font-heading);
+  font-size: 12px; font-weight: 700; color: var(--fg);
+  letter-spacing: -0.01em;
+}
+.drawer-stats {
+  display: flex; gap: var(--sp-2);
+}
+.drawer-stat {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--fg-muted);
+}
+.drawer-stat .ds-num {
+  font-family: var(--font-mono); font-weight: 700;
+  color: var(--fg); font-size: 12px;
+}
+.drawer-stat .ds-num.error { color: var(--error); }
+.drawer-stat .ds-num.warning { color: var(--warning); }
+.drawer-toggle {
+  color: var(--fg-subtle); transition: transform 0.3s;
+}
+.drawer-expanded .drawer-toggle { transform: rotate(180deg); }
+
+/* Drawer body */
+.drawer-body {
+  display: flex; overflow: hidden;
+  height: calc(var(--drawer-h-expanded) - var(--drawer-h-collapsed));
+}
+.task-list {
+  flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.task-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.task-card:hover { border-color: var(--border-strong); }
+.task-card.selected { border-color: var(--accent); background: var(--task-selected-bg); }
+.task-main { display: flex; flex-direction: column; gap: 2px; }
+.task-action-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.task-action-badge {
+  padding: 2px 7px; border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+  font-family: var(--font-mono);
+}
+.task-action-badge.regenerate { background: var(--task-regen-bg); color: var(--task-regen-text); }
+.task-action-badge.replace { background: var(--task-replace-bg); color: var(--task-replace-text); }
+.task-action-badge.adjust { background: var(--task-adjust-bg); color: var(--task-adjust-text); }
+.task-action-badge.approve { background: var(--task-approve-bg); color: var(--task-approve-text); }
+.task-action-badge.skip { background: var(--bg-secondary); color: var(--fg-muted); }
+.task-action-badge.manual { background: var(--warning-bg); color: var(--warning-text); }
+.task-target {
+  font-size: 11px; color: var(--fg); font-weight: 500;
+}
+.task-reason {
+  font-size: 10px; color: var(--fg-muted); line-height: 1.4;
+}
+.task-right {
+  display: flex; flex-direction: column; align-items: flex-end;
+  justify-content: space-between;
+}
+.task-priority {
+  padding: 1px 6px; border-radius: var(--radius-sm);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.task-priority.high { background: var(--error-bg); color: var(--error-text); }
+.task-priority.medium { background: var(--warning-bg); color: var(--warning-text); }
+.task-priority.low { background: var(--bg-secondary); color: var(--fg-subtle); }
+.task-status-tag {
+  font-size: 9px; font-weight: 600; color: var(--fg-subtle);
+  letter-spacing: 0.03em;
+}
+.task-status-tag.pending { color: var(--warning-text); }
+.task-status-tag.approved { color: var(--success-text); }
+.task-status-tag.skipped { color: var(--fg-subtle); }
+
+/* Task detail side panel */
+.task-detail-panel {
+  width: 320px; border-left: 1px solid var(--border);
+  padding: var(--sp-3); overflow-y: auto;
+  background: var(--bg);
+  display: none;
+}
+.task-detail-panel.visible { display: block; }
+.tdp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+.tdp-title {
+  font-family: var(--font-heading); font-size: 12px;
+  font-weight: 700; color: var(--fg); letter-spacing: -0.01em;
+}
+.tdp-close { color: var(--fg-subtle); }
+.tdp-close:hover { color: var(--fg); }
+.tdp-section {
+  margin-bottom: var(--sp-3);
+}
+.tdp-section-title {
+  font-size: 9px; font-weight: 700; color: var(--fg-subtle);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: var(--sp-1);
+}
+.tdp-desc {
+  font-size: 12px; color: var(--fg); line-height: 1.5;
+}
+.tdp-target-box {
+  padding: var(--sp-2); background: var(--surface);
+  border-radius: var(--radius-md); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px;
+}
+.tdp-target-box .tbr { display: flex; gap: var(--sp-2); padding: 2px 0; }
+.tdp-target-box .tbr-label { color: var(--fg-subtle); min-width: 44px; }
+.tdp-target-box .tbr-val { color: var(--fg); font-weight: 500; }
+.tdp-evidence-list {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.tdp-evidence-item {
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface); border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--accent); cursor: pointer;
+}
+.tdp-evidence-item:hover { border-color: var(--accent); }
+
+/* Approval buttons */
+.tdp-approval {
+  display: flex; gap: var(--sp-2); margin-top: var(--sp-3);
+  padding-top: var(--sp-3); border-top: 1px solid var(--border);
+}
+
+/* ===== UTILITY ===== */
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.gap-1 { gap: var(--sp-1); }
+.gap-2 { gap: var(--sp-2); }
+.mt-1 { margin-top: var(--sp-1); }
+.mt-2 { margin-top: var(--sp-2); }
+
+/* ===== DATA-COMPONENT HOOKS ===== */
+[data-od-id] { position: relative; }
+
+</style>
+</head>
+<body>
+
+<div data-component="App Shell" data-od-id="app-shell">
+
+  <!-- ===== TOP TOOLBAR ===== -->
+  <header data-component="Top Toolbar" data-od-id="top-toolbar">
+    <div class="toolbar-left">
+      <div class="toolbar-brand">
+        <div class="toolbar-brand-icon">AI</div>
+        <span>审片工作台</span>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-context">
+        <button class="btn btn-ghost btn-sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          返回
+        </button>
+        <span class="ctx-project">宫墙疑云</span>
+        <span class="ctx-sep">/</span>
+        <span class="ctx-episode">第3集</span>
+        <span class="ctx-run">run_2026_06_12_001</span>
+      </div>
+    </div>
+
+    <div class="toolbar-center">
+      <span class="status-badge needs-review">
+        <span class="status-dot"></span>
+        待复核
+      </span>
+      <div class="cost-chip">
+        返工预估
+        <span class="cost-val">$0.50 – $3.20</span>
+      </div>
+      <div class="cost-chip">
+        已用预算
+        <span class="cost-val">$12.80</span>
+      </div>
+    </div>
+
+    <div class="toolbar-right">
+      <button class="btn btn-ghost btn-sm" title="查看 Artifact">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Artifact
+      </button>
+      <button class="btn btn-secondary btn-sm" title="查看 QA 摘要">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+        QA 摘要
+      </button>
+      <button class="btn btn-primary" id="btn-review" title="发起复查">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+        发起复查
+      </button>
+      <button class="btn btn-success" title="导出成片">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        导出成片
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== MAIN BODY ===== -->
+  <div data-component="Main Body" data-od-id="main-body">
+
+    <!-- ===== LEFT SIDEBAR ===== -->
+    <aside data-component="Timeline Navigator" data-od-id="timeline-nav">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          时间线
+          <span class="clip-count">12 片段</span>
+        </div>
+
+        <div class="search-input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" placeholder="搜索 shotId / sequenceId / 问题词..." aria-label="搜索片段" />
+        </div>
+
+        <div class="filter-pills">
+          <span class="filter-pill active" data-filter="all">全部<span class="pill-count">12</span></span>
+          <span class="filter-pill" data-filter="shot">Shot<span class="pill-count">7</span></span>
+          <span class="filter-pill" data-filter="sequence">Seq<span class="pill-count">2</span></span>
+          <span class="filter-pill" data-filter="bridge">Bridge<span class="pill-count">2</span></span>
+          <span class="filter-pill" data-filter="lipsync">Lipsync<span class="pill-count">1</span></span>
+          <span class="filter-pill" data-filter="audio">包装<span class="pill-count">0</span></span>
+        </div>
+      </div>
+
+      <!-- Timeline overview bar -->
+      <div class="timeline-bar">
+        <div class="segment ok" style="left:0%;width:18%"></div>
+        <div class="segment ok" style="left:18%;width:14%"></div>
+        <div class="segment ok" style="left:32%;width:10%"></div>
+        <div class="segment error" style="left:42%;width:8%"></div>
+        <div class="segment ok" style="left:50%;width:12%"></div>
+        <div class="segment warn" style="left:62%;width:9%"></div>
+        <div class="segment ok" style="left:71%;width:10%"></div>
+        <div class="segment warn" style="left:81%;width:7%"></div>
+        <div class="segment ok" style="left:88%;width:12%"></div>
+        <div class="playhead" style="left:44%" id="sidebar-playhead"></div>
+      </div>
+      <div class="timeline-labels">
+        <span>00:00</span>
+        <span>00:30</span>
+        <span>01:00</span>
+        <span>01:30</span>
+        <span>02:00</span>
+      </div>
+
+      <!-- Clip list -->
+      <div class="clip-list" id="clip-list">
+        <!-- Shot 001 -->
+        <div class="clip-card" data-clip="shot_001" data-time="0">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S01</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_001</div>
+            <div class="clip-meta"><span>00:00–00:12</span><span>12s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Shot 002 -->
+        <div class="clip-card" data-clip="shot_002" data-time="12">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S02</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_002</div>
+            <div class="clip-meta"><span>00:12–00:22</span><span>10s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Sequence 001 -->
+        <div class="clip-card" data-clip="seq_001" data-time="22">
+          <div class="clip-thumb"><div class="clip-thumb-inner sequence">SQ1</div></div>
+          <div class="clip-info">
+            <div class="clip-id">seq_001</div>
+            <div class="clip-meta"><span>00:22–00:38</span><span>16s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Shot 003 -->
+        <div class="clip-card" data-clip="shot_003" data-time="38">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S03</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_003</div>
+            <div class="clip-meta"><span>00:38–00:42</span><span>4s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Bridge 003 — ERROR -->
+        <div class="clip-card selected has-error" data-clip="bridge_003" data-time="42" id="clip-bridge-003">
+          <div class="clip-thumb"><div class="clip-thumb-inner bridge">BR3</div></div>
+          <div class="clip-info">
+            <div class="clip-id">bridge_003</div>
+            <div class="clip-meta"><span>00:42–00:47</span><span>5s</span></div>
+          </div>
+          <div class="clip-status">
+            <span class="risk-tag blocker">阻断</span>
+            <span class="task-dot" title="已有编辑任务"></span>
+          </div>
+        </div>
+        <!-- Shot 004 -->
+        <div class="clip-card" data-clip="shot_004" data-time="47">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S04</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_004</div>
+            <div class="clip-meta"><span>00:47–00:58</span><span>11s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Shot 005 — WARN -->
+        <div class="clip-card has-warning" data-clip="shot_005" data-time="58">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S05</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_005</div>
+            <div class="clip-meta"><span>00:58–01:09</span><span>11s</span></div>
+          </div>
+          <div class="clip-status">
+            <span class="risk-tag high">警告</span>
+          </div>
+        </div>
+        <!-- Sequence 002 -->
+        <div class="clip-card" data-clip="seq_002" data-time="69">
+          <div class="clip-thumb"><div class="clip-thumb-inner sequence">SQ2</div></div>
+          <div class="clip-info">
+            <div class="clip-id">seq_002</div>
+            <div class="clip-meta"><span>01:09–01:24</span><span>15s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Lipsync 002 — WARN -->
+        <div class="clip-card has-warning" data-clip="lipsync_002" data-time="84">
+          <div class="clip-thumb"><div class="clip-thumb-inner lipsync">LS2</div></div>
+          <div class="clip-info">
+            <div class="clip-id">lipsync_002</div>
+            <div class="clip-meta"><span>01:24–01:31</span><span>7s</span></div>
+          </div>
+          <div class="clip-status">
+            <span class="risk-tag high">警告</span>
+            <span class="task-dot" title="已有编辑任务"></span>
+          </div>
+        </div>
+        <!-- Shot 006 -->
+        <div class="clip-card" data-clip="shot_006" data-time="91">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S06</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_006</div>
+            <div class="clip-meta"><span>01:31–01:42</span><span>11s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Bridge 007 -->
+        <div class="clip-card" data-clip="bridge_007" data-time="102">
+          <div class="clip-thumb"><div class="clip-thumb-inner bridge">BR7</div></div>
+          <div class="clip-info">
+            <div class="clip-id">bridge_007</div>
+            <div class="clip-meta"><span>01:42–01:48</span><span>6s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+        <!-- Shot 008 -->
+        <div class="clip-card" data-clip="shot_008" data-time="108">
+          <div class="clip-thumb"><div class="clip-thumb-inner shot">S08</div></div>
+          <div class="clip-info">
+            <div class="clip-id">shot_008</div>
+            <div class="clip-meta"><span>01:48–02:00</span><span>12s</span></div>
+          </div>
+          <div class="clip-status"><span class="risk-tag ok">通过</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== CENTER PLAYER ===== -->
+    <main data-component="Preview Player" data-od-id="preview-player">
+      <div class="player-area">
+        <div class="player-frame">
+          <!-- Simulated video frame with SVG scene -->
+          <svg viewBox="0 0 720 405" xmlns="http://www.w3.org/2000/svg" style="position:absolute;inset:0;width:100%;height:100%;">
+            <defs>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1e293b"/>
+                <stop offset="100%" stop-color="#334155"/>
+              </linearGradient>
+              <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#78716c"/>
+                <stop offset="100%" stop-color="#57534e"/>
+              </linearGradient>
+            </defs>
+            <rect width="720" height="405" fill="url(#sky)"/>
+            <!-- Ground -->
+            <rect y="280" width="720" height="125" fill="#44403c" opacity="0.6"/>
+            <!-- Palace wall -->
+            <rect x="80" y="120" width="560" height="200" rx="2" fill="url(#wall)" opacity="0.7"/>
+            <rect x="100" y="100" width="120" height="220" rx="1" fill="#a8a29e" opacity="0.4"/>
+            <rect x="500" y="100" width="120" height="220" rx="1" fill="#a8a29e" opacity="0.4"/>
+            <!-- Roof -->
+            <polygon points="60,120 360,40 660,120" fill="#292524" opacity="0.8"/>
+            <!-- Door -->
+            <rect x="300" y="200" width="120" height="120" rx="4" fill="#1c1917" opacity="0.7"/>
+            <!-- Lantern glow -->
+            <circle cx="240" cy="160" r="16" fill="#fbbf24" opacity="0.3"/>
+            <circle cx="480" cy="160" r="16" fill="#fbbf24" opacity="0.3"/>
+            <!-- Character silhouette -->
+            <ellipse cx="360" cy="310" rx="22" ry="55" fill="#1c1917" opacity="0.8"/>
+            <circle cx="360" cy="248" r="14" fill="#1c1917" opacity="0.8"/>
+            <!-- Subtle moonlight -->
+            <circle cx="600" cy="60" r="30" fill="#e2e8f0" opacity="0.15"/>
+          </svg>
+
+          <div class="player-overlay">
+            <div class="player-scene">
+              <div class="player-scene-content">
+                <div class="scene-label">bridge_003 · 宫墙转场</div>
+                <div class="scene-time">00:42 — 00:47</div>
+              </div>
+            </div>
+            <div class="player-risk-zone">
+              <span class="risk-dot"></span>
+              <span>风险区间</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player controls -->
+      <div class="player-controls">
+        <!-- Timeline ruler -->
+        <div class="timeline-ruler" id="timeline-ruler">
+          <div class="ruler-track">
+            <div class="ruler-segment ok" style="width:18%"></div>
+            <div class="ruler-segment ok" style="width:14%"></div>
+            <div class="ruler-segment ok" style="width:10%"></div>
+            <div class="ruler-segment error" style="width:8%"></div>
+            <div class="ruler-segment ok" style="width:12%"></div>
+            <div class="ruler-segment warn" style="width:9%"></div>
+            <div class="ruler-segment ok" style="width:10%"></div>
+            <div class="ruler-segment warn" style="width:7%"></div>
+            <div class="ruler-segment ok" style="width:12%"></div>
+          </div>
+          <div class="ruler-markers">
+            <span>00:00</span><span>00:24</span><span>00:48</span><span>01:12</span><span>01:36</span><span>02:00</span>
+          </div>
+          <div class="ruler-playhead" style="left:35%" id="ruler-playhead"></div>
+        </div>
+
+        <!-- Playback controls -->
+        <div class="playback-row">
+          <div class="play-btn-group">
+            <button class="play-btn" title="上一片段">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+            </button>
+            <button class="play-btn active" title="播放" id="play-toggle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <button class="play-btn" title="暂停">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button class="play-btn" title="下一片段">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            </button>
+          </div>
+
+          <div class="time-display">
+            <span class="time-current">00:42</span>
+            <span class="time-sep">/</span>
+            <span class="time-total">02:00</span>
+          </div>
+
+          <div style="display:flex;gap:4px;">
+            <button class="speed-btn">0.5x</button>
+            <button class="speed-btn active">1x</button>
+            <button class="speed-btn">1.5x</button>
+            <button class="speed-btn">2x</button>
+          </div>
+
+          <div style="flex:1"></div>
+
+          <button class="btn btn-ghost btn-sm" title="全屏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+
+        <!-- Current clip info -->
+        <div class="current-clip-bar" id="current-clip-bar">
+          <span class="clip-type-badge bridge">Bridge</span>
+          <div class="current-clip-detail">
+            <div class="current-clip-name">bridge_003</div>
+            <div class="current-clip-time">00:42 – 00:47 · 来源 bridgeClipResults · QA failed</div>
+          </div>
+          <div class="current-clip-actions">
+            <button class="btn btn-sm btn-secondary" title="加入任务">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              加入任务
+            </button>
+            <button class="btn btn-sm btn-ghost" title="对比前后帧">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              前后帧
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ===== RIGHT INSPECTOR ===== -->
+    <aside data-component="Finding Inspector" data-od-id="finding-inspector">
+      <div class="inspector-header">
+        <div class="inspector-title">
+          问题分析
+          <button class="btn btn-ghost btn-sm" title="收起面板">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="summary-cards">
+        <div class="summary-card">
+          <div class="sc-value error-color">3</div>
+          <div class="sc-label">问题数</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-value warning-color">1</div>
+          <div class="sc-label">阻断数</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-value info-color">2</div>
+          <div class="sc-label">待审批</div>
+        </div>
+      </div>
+
+      <!-- Verdict -->
+      <div class="review-verdict needs-review">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        复查结论：needs_review — 存在 1 个阻断级问题需处理
+      </div>
+
+      <!-- Findings list -->
+      <div class="findings-section">
+        <div class="findings-section-title">当前片段 Findings</div>
+
+        <!-- Finding 1: Bridge blocker (expanded) -->
+        <div class="finding-card expanded" data-finding="finding_001" id="finding-001">
+          <div class="finding-header" onclick="toggleFinding(this)">
+            <div class="finding-severity blocker"></div>
+            <div class="finding-body">
+              <div class="finding-title-row">
+                <span class="finding-category">bridge_continuity</span>
+                <span class="finding-category" style="background:var(--error-bg);color:var(--error-text)">blocker</span>
+              </div>
+              <div class="finding-desc">桥接片段未自然覆盖前后镜头动作，转场突兀，影响叙事连贯性。</div>
+            </div>
+            <svg class="finding-expand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="finding-details">
+            <div class="detail-row">
+              <span class="detail-label">目标</span>
+              <span class="detail-value">bridge_003 (00:42–00:47)</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">置信度</span>
+              <div class="confidence-bar">
+                <div class="confidence-track"><div class="confidence-fill high" style="width:82%"></div></div>
+                <span class="detail-value">0.82</span>
+              </div>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">风险</span>
+              <span class="detail-value" style="color:var(--error)">需审批 · approvalRequired: true</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">证据</span>
+              <div class="evidence-list">
+                <span class="evidence-link">bridge-qa-report.json#bridge_003</span>
+                <span class="evidence-link">compose-plan.json#timeline.bridge_003</span>
+              </div>
+            </div>
+
+            <div class="action-panel">
+              <div class="action-panel-title">推荐动作</div>
+              <div class="action-chips">
+                <button class="action-chip primary" onclick="addTask('regenerate_bridge')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  重生成 Bridge
+                </button>
+                <button class="action-chip" onclick="addTask('replace_clip')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                  替换 Clip
+                </button>
+                <button class="action-chip" onclick="addTask('manual_review')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  人工复核
+                </button>
+                <button class="action-chip" onclick="addTask('skip')">跳过</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Finding 2: Shot warn -->
+        <div class="finding-card" data-finding="finding_002" id="finding-002">
+          <div class="finding-header" onclick="toggleFinding(this)">
+            <div class="finding-severity high"></div>
+            <div class="finding-body">
+              <div class="finding-title-row">
+                <span class="finding-category">shot_qa</span>
+                <span class="finding-category" style="background:var(--warning-bg);color:var(--warning-text)">high</span>
+              </div>
+              <div class="finding-desc">shot_005 画面轻微模糊，可能是运动幅度过大导致。</div>
+            </div>
+            <svg class="finding-expand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="finding-details">
+            <div class="detail-row">
+              <span class="detail-label">目标</span>
+              <span class="detail-value">shot_005 (00:58–01:09)</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">置信度</span>
+              <div class="confidence-bar">
+                <div class="confidence-track"><div class="confidence-fill medium" style="width:64%"></div></div>
+                <span class="detail-value">0.64</span>
+              </div>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">风险</span>
+              <span class="detail-value">非阻断 · approvalRequired: false</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">证据</span>
+              <div class="evidence-list">
+                <span class="evidence-link">shot-qa-report.json#shot_005</span>
+              </div>
+            </div>
+            <div class="action-panel">
+              <div class="action-panel-title">推荐动作</div>
+              <div class="action-chips">
+                <button class="action-chip" onclick="addTask('regenerate_shot')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  重生成 Shot
+                </button>
+                <button class="action-chip" onclick="addTask('manual_review')">人工复核</button>
+                <button class="action-chip" onclick="addTask('skip')">跳过</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Finding 3: Lipsync -->
+        <div class="finding-card" data-finding="finding_003" id="finding-003">
+          <div class="finding-header" onclick="toggleFinding(this)">
+            <div class="finding-severity high"></div>
+            <div class="finding-body">
+              <div class="finding-title-row">
+                <span class="finding-category">lipsync</span>
+                <span class="finding-category" style="background:var(--warning-bg);color:var(--warning-text)">high</span>
+              </div>
+              <div class="finding-desc">lipsync_002 声画偏移约 180ms，角色台词口型不完全匹配。</div>
+            </div>
+            <svg class="finding-expand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="finding-details">
+            <div class="detail-row">
+              <span class="detail-label">目标</span>
+              <span class="detail-value">lipsync_002 (01:24–01:31)</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">置信度</span>
+              <div class="confidence-bar">
+                <div class="confidence-track"><div class="confidence-fill medium" style="width:71%"></div></div>
+                <span class="detail-value">0.71</span>
+              </div>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">风险</span>
+              <span class="detail-value" style="color:var(--warning)">需审批 · approvalRequired: true</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">证据</span>
+              <div class="evidence-list">
+                <span class="evidence-link">lipsync-report.json#lipsync_002</span>
+                <span class="evidence-link">tts-results.json#scene_04</span>
+              </div>
+            </div>
+            <div class="action-panel">
+              <div class="action-panel-title">推荐动作</div>
+              <div class="action-chips">
+                <button class="action-chip" onclick="addTask('adjust_audio_packaging')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                  调整音频包装
+                </button>
+                <button class="action-chip" onclick="addTask('manual_review')">人工复核</button>
+                <button class="action-chip" onclick="addTask('skip')">跳过</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cost hint -->
+      <div class="cost-hint">
+        <div class="cost-hint-row">
+          <span class="cost-hint-label">预计返工成本</span>
+          <span class="cost-hint-value">$0.50 – $3.20</span>
+        </div>
+        <div class="cost-hint-row mt-1">
+          <span class="cost-hint-label">预算余量</span>
+          <span class="cost-hint-value" style="color:var(--success)">$7.20</span>
+        </div>
+        <div class="cost-hint-note">
+          <span class="limit-tag">第一版限制</span>
+          不自动修片，不修改 compose-plan.json。所有编辑建议需人工审批后执行。
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ===== BOTTOM DRAWER ===== -->
+  <section data-component="Edit Task Drawer" data-od-id="edit-task-drawer" id="task-drawer" class="drawer-expanded">
+    <div class="drawer-header" onclick="toggleDrawer()">
+      <div class="drawer-title-group">
+        <span class="drawer-title">编辑任务 Edit Task Pack</span>
+        <div class="drawer-stats">
+          <span class="drawer-stat"><span class="ds-num">2</span> 任务</span>
+          <span class="drawer-stat"><span class="ds-num error">1</span> 高优先级</span>
+          <span class="drawer-stat"><span class="ds-num warning">2</span> 待审批</span>
+        </div>
+      </div>
+      <svg class="drawer-toggle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </div>
+
+    <div class="drawer-body">
+      <div class="task-list" id="task-list">
+        <!-- Task 1: regenerate_bridge -->
+        <div class="task-card selected" data-task="edit_task_001" onclick="selectTask(this, 'edit_task_001')">
+          <div class="task-main">
+            <div class="task-action-row">
+              <span class="task-action-badge regenerate">regenerate_bridge</span>
+              <span class="task-target">bridge_003</span>
+            </div>
+            <div class="task-reason">bridge QA failed and final timeline uses this bridge clip. 桥接片段未覆盖前后镜头动作。</div>
+          </div>
+          <div class="task-right">
+            <span class="task-priority high">High</span>
+            <span class="task-status-tag pending">pending_approval</span>
+          </div>
+        </div>
+
+        <!-- Task 2: adjust_audio_packaging -->
+        <div class="task-card" data-task="edit_task_002" onclick="selectTask(this, 'edit_task_002')">
+          <div class="task-main">
+            <div class="task-action-row">
+              <span class="task-action-badge adjust">adjust_audio_packaging</span>
+              <span class="task-target">lipsync_002</span>
+            </div>
+            <div class="task-reason">lipsync_002 声画偏移约 180ms，角色台词口型不完全匹配，建议调整音频对齐。</div>
+          </div>
+          <div class="task-right">
+            <span class="task-priority medium">Medium</span>
+            <span class="task-status-tag pending">pending_approval</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task detail side panel -->
+      <div class="task-detail-panel visible" id="task-detail-panel">
+        <div class="tdp-header">
+          <span class="tdp-title" id="tdp-title">edit_task_001</span>
+          <button class="tdp-close" onclick="closeTaskDetail()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="tdp-section">
+          <div class="tdp-section-title">任务描述</div>
+          <div class="tdp-desc" id="tdp-desc">重生成桥接片段 bridge_003。当前 bridge QA 失败，桥接片段未能自然覆盖前后镜头动作，转场突兀。建议重新生成以提升叙事连贯性。</div>
+        </div>
+
+        <div class="tdp-section">
+          <div class="tdp-section-title">目标片段</div>
+          <div class="tdp-target-box" id="tdp-target">
+            <div class="tbr"><span class="tbr-label">类型</span><span class="tbr-val">bridge</span></div>
+            <div class="tbr"><span class="tbr-label">ID</span><span class="tbr-val">bridge_003</span></div>
+            <div class="tbr"><span class="tbr-label">时间</span><span class="tbr-val">00:42 – 00:47</span></div>
+            <div class="tbr"><span class="tbr-label">来源</span><span class="tbr-val">bridgeClipResults</span></div>
+          </div>
+        </div>
+
+        <div class="tdp-section">
+          <div class="tdp-section-title">证据引用</div>
+          <div class="tdp-evidence-list" id="tdp-evidence">
+            <div class="tdp-evidence-item">bridge-qa-report.json#bridge_003</div>
+            <div class="tdp-evidence-item">compose-plan.json#timeline.bridge_003</div>
+            <div class="tdp-evidence-item">finding_001</div>
+          </div>
+        </div>
+
+        <div class="tdp-section">
+          <div class="tdp-section-title">幂等键</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);word-break:break-all;line-height:1.4" id="tdp-idempotency">
+            run_2026_06_12_001:regenerate_bridge:bridge_003
+          </div>
+        </div>
+
+        <div class="tdp-section">
+          <div class="tdp-section-title">依赖关系</div>
+          <div style="font-size:11px;color:var(--fg-subtle);">无前置依赖</div>
+        </div>
+
+        <div class="tdp-approval">
+          <button class="btn btn-success" onclick="approveTask()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Approve
+          </button>
+          <button class="btn btn-warning-outline" onclick="skipTask()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            Skip
+          </button>
+          <button class="btn btn-danger-outline" onclick="manualReviewTask()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            转人工复核
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ===== INTERACTION LOGIC ===== */
+
+// Toggle Finding expand/collapse
+function toggleFinding(headerEl) {
+  const card = headerEl.closest('.finding-card');
+  card.classList.toggle('expanded');
+}
+
+// Toggle Drawer expand/collapse
+function toggleDrawer() {
+  const drawer = document.getElementById('task-drawer');
+  drawer.classList.toggle('drawer-expanded');
+  drawer.classList.toggle('drawer-collapsed');
+}
+
+// Select clip card
+document.querySelectorAll('.clip-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.clip-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+
+    const clipId = card.dataset.clip;
+    const time = card.dataset.time;
+
+    // Update current clip bar
+    updateCurrentClipBar(clipId, time);
+
+    // Update playhead position
+    const pct = (parseInt(time) / 120) * 100;
+    document.getElementById('ruler-playhead').style.left = pct + '%';
+    document.getElementById('sidebar-playhead').style.left = pct + '%';
+
+    // Update time display
+    const mins = Math.floor(parseInt(time) / 60);
+    const secs = parseInt(time) % 60;
+    document.querySelector('.time-current').textContent =
+      String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+  });
+});
+
+// Clip data for the current clip bar
+const clipData = {
+  shot_001: { type: 'shot', typeName: 'Shot', time: '00:00 – 00:12', source: 'videoResults', status: 'QA passed' },
+  shot_002: { type: 'shot', typeName: 'Shot', time: '00:12 – 00:22', source: 'videoResults', status: 'QA passed' },
+  seq_001: { type: 'sequence', typeName: 'Sequence', time: '00:22 – 00:38', source: 'sequenceClipResults', status: 'QA passed' },
+  shot_003: { type: 'shot', typeName: 'Shot', time: '00:38 – 00:42', source: 'videoResults', status: 'QA passed' },
+  bridge_003: { type: 'bridge', typeName: 'Bridge', time: '00:42 – 00:47', source: 'bridgeClipResults', status: 'QA failed' },
+  shot_004: { type: 'shot', typeName: 'Shot', time: '00:47 – 00:58', source: 'videoResults', status: 'QA passed' },
+  shot_005: { type: 'shot', typeName: 'Shot', time: '00:58 – 01:09', source: 'videoResults', status: 'QA warn: blurry' },
+  seq_002: { type: 'sequence', typeName: 'Sequence', time: '01:09 – 01:24', source: 'sequenceClipResults', status: 'QA passed' },
+  lipsync_002: { type: 'lipsync', typeName: 'Lipsync', time: '01:24 – 01:31', source: 'lipsyncResults', status: 'lipsync offset 180ms' },
+  shot_006: { type: 'shot', typeName: 'Shot', time: '01:31 – 01:42', source: 'videoResults', status: 'QA passed' },
+  bridge_007: { type: 'bridge', typeName: 'Bridge', time: '01:42 – 01:48', source: 'bridgeClipResults', status: 'QA passed' },
+  shot_008: { type: 'shot', typeName: 'Shot', time: '01:48 – 02:00', source: 'videoResults', status: 'QA passed' },
+};
+
+function updateCurrentClipBar(clipId) {
+  const data = clipData[clipId];
+  if (!data) return;
+  const bar = document.getElementById('current-clip-bar');
+  const badge = bar.querySelector('.clip-type-badge');
+  badge.className = 'clip-type-badge ' + data.type;
+  badge.textContent = data.typeName;
+  bar.querySelector('.current-clip-name').textContent = clipId;
+  bar.querySelector('.current-clip-time').textContent =
+    data.time + ' · 来源 ' + data.source + ' · ' + data.status;
+}
+
+// Filter pills
+document.querySelectorAll('.filter-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+  });
+});
+
+// Speed buttons
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// Timeline ruler click
+document.getElementById('timeline-ruler').addEventListener('click', (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const pct = ((e.clientX - rect.left) / rect.width) * 100;
+  document.getElementById('ruler-playhead').style.left = pct + '%';
+
+  // Calculate time
+  const totalSecs = 120;
+  const secs = Math.round((pct / 100) * totalSecs);
+  const mins = Math.floor(secs / 60);
+  const remainSecs = secs % 60;
+  document.querySelector('.time-current').textContent =
+    String(mins).padStart(2, '0') + ':' + String(remainSecs).padStart(2, '0');
+});
+
+// Task selection
+const taskDetails = {
+  edit_task_001: {
+    title: 'edit_task_001',
+    desc: '重生成桥接片段 bridge_003。当前 bridge QA 失败，桥接片段未能自然覆盖前后镜头动作，转场突兀。建议重新生成以提升叙事连贯性。',
+    target: { type: 'bridge', id: 'bridge_003', time: '00:42 – 00:47', source: 'bridgeClipResults' },
+    evidence: ['bridge-qa-report.json#bridge_003', 'compose-plan.json#timeline.bridge_003', 'finding_001'],
+    idempotency: 'run_2026_06_12_001:regenerate_bridge:bridge_003'
+  },
+  edit_task_002: {
+    title: 'edit_task_002',
+    desc: '调整 lipsync_002 音频包装。当前声画偏移约 180ms，角色台词口型不完全匹配。建议重新对齐音频轨道。',
+    target: { type: 'lipsync', id: 'lipsync_002', time: '01:24 – 01:31', source: 'lipsyncResults' },
+    evidence: ['lipsync-report.json#lipsync_002', 'tts-results.json#scene_04', 'finding_003'],
+    idempotency: 'run_2026_06_12_001:adjust_audio_packaging:lipsync_002'
+  }
+};
+
+function selectTask(cardEl, taskId) {
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('selected'));
+  cardEl.classList.add('selected');
+
+  const detail = taskDetails[taskId];
+  if (!detail) return;
+
+  const panel = document.getElementById('task-detail-panel');
+  panel.classList.add('visible');
+
+  document.getElementById('tdp-title').textContent = detail.title;
+  document.getElementById('tdp-desc').textContent = detail.desc;
+  document.getElementById('tdp-idempotency').textContent = detail.idempotency;
+
+  const targetBox = document.getElementById('tdp-target');
+  targetBox.innerHTML = `
+    <div class="tbr"><span class="tbr-label">类型</span><span class="tbr-val">${detail.target.type}</span></div>
+    <div class="tbr"><span class="tbr-label">ID</span><span class="tbr-val">${detail.target.id}</span></div>
+    <div class="tbr"><span class="tbr-label">时间</span><span class="tbr-val">${detail.target.time}</span></div>
+    <div class="tbr"><span class="tbr-label">来源</span><span class="tbr-val">${detail.target.source}</span></div>
+  `;
+
+  const evidenceList = document.getElementById('tdp-evidence');
+  evidenceList.innerHTML = detail.evidence.map(e => `<div class="tdp-evidence-item">${e}</div>`).join('');
+}
+
+function closeTaskDetail() {
+  document.getElementById('task-detail-panel').classList.remove('visible');
+}
+
+// Action chip -> add task
+function addTask(action) {
+  const taskList = document.getElementById('task-list');
+  const taskCount = taskList.children.length + 1;
+  const taskId = 'edit_task_' + String(taskCount).padStart(3, '0');
+
+  const actionClass = action.includes('regenerate') ? 'regenerate'
+    : action.includes('replace') ? 'replace'
+    : action.includes('adjust') ? 'adjust'
+    : action.includes('manual') ? 'manual'
+    : action.includes('skip') ? 'skip' : 'approve';
+
+  const card = document.createElement('div');
+  card.className = 'task-card';
+  card.dataset.task = taskId;
+  card.innerHTML = `
+    <div class="task-main">
+      <div class="task-action-row">
+        <span class="task-action-badge ${actionClass}">${action}</span>
+        <span class="task-target">（新任务）</span>
+      </div>
+      <div class="task-reason">由推荐动作生成 · 等待审批</div>
+    </div>
+    <div class="task-right">
+      <span class="task-priority medium">Medium</span>
+      <span class="task-status-tag pending">pending_approval</span>
+    </div>
+  `;
+  card.addEventListener('click', () => selectTask(card, taskId));
+  taskList.appendChild(card);
+
+  // Update drawer stats
+  updateDrawerStats();
+}
+
+// Approval actions
+function approveTask() {
+  const selected = document.querySelector('.task-card.selected');
+  if (!selected) return;
+  selected.querySelector('.task-status-tag').textContent = 'approved';
+  selected.querySelector('.task-status-tag').className = 'task-status-tag approved';
+  updateDrawerStats();
+}
+
+function skipTask() {
+  const selected = document.querySelector('.task-card.selected');
+  if (!selected) return;
+  selected.querySelector('.task-status-tag').textContent = 'skipped';
+  selected.querySelector('.task-status-tag').className = 'task-status-tag skipped';
+  updateDrawerStats();
+}
+
+function manualReviewTask() {
+  const selected = document.querySelector('.task-card.selected');
+  if (!selected) return;
+  selected.querySelector('.task-status-tag').textContent = 'manual_review';
+  selected.querySelector('.task-status-tag').className = 'task-status-tag pending';
+  updateDrawerStats();
+}
+
+function updateDrawerStats() {
+  const cards = document.querySelectorAll('.task-card');
+  const total = cards.length;
+  const highCount = document.querySelectorAll('.task-priority.high').length;
+  const pendingCount = document.querySelectorAll('.task-status-tag.pending').length;
+
+  const stats = document.querySelector('.drawer-stats');
+  stats.innerHTML = `
+    <span class="drawer-stat"><span class="ds-num">${total}</span> 任务</span>
+    <span class="drawer-stat"><span class="ds-num error">${highCount}</span> 高优先级</span>
+    <span class="drawer-stat"><span class="ds-num warning">${pendingCount}</span> 待审批</span>
+  `;
+}
+
+// Review button animation
+document.getElementById('btn-review').addEventListener('click', function() {
+  this.style.opacity = '0.7';
+  setTimeout(() => { this.style.opacity = '1'; }, 200);
+});
+
+</script>
+</body>
+</html>

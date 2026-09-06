@@ -169,19 +169,21 @@ test('buildPromptText turns structured blocks into Seedance-style subject enviro
     ],
   });
 
-  const subjectIndex = promptText.indexOf('subject and action');
-  const environmentIndex = promptText.indexOf('scene and style');
-  const cameraIndex = promptText.indexOf('camera and timing');
-  const referenceIndex = promptText.indexOf('reference binding');
+  // v2 渲染为叙事流自然语言，段落顺序固定：场景氛围 → 人物动作 → 镜头行为 → 连续性约束(含 Reference binding)
+  const sceneIndex = promptText.indexOf('warehouse main aisle');
+  const subjectIndex = promptText.indexOf('Two rivals confront');
+  const cameraIndex = promptText.indexOf('slow push camera motion');
+  const referenceIndex = promptText.indexOf('Reference binding:');
 
+  assert.notEqual(sceneIndex, -1);
   assert.notEqual(subjectIndex, -1);
-  assert.notEqual(environmentIndex, -1);
   assert.notEqual(cameraIndex, -1);
   assert.notEqual(referenceIndex, -1);
-  assert.equal(subjectIndex < environmentIndex, true);
-  assert.equal(environmentIndex < cameraIndex, true);
+  assert.equal(sceneIndex < subjectIndex, true);
+  assert.equal(subjectIndex < cameraIndex, true);
   assert.equal(cameraIndex < referenceIndex, true);
   assert.match(promptText, /image1 is the first frame keyframe/i);
+  assert.match(promptText, /Entry and exit states: entry:/i);
 });
 
 test('buildSeedanceVideoRequest prioritizes structured prompt blocks over legacy provider hints in final request text', async () => {
@@ -777,4 +779,160 @@ test('relay openai transport normalization preserves auth and rate-limit categor
     ).category,
     'provider_invalid_request'
   );
+});
+
+// ============================================================
+// formatStructuredPromptBlocks — 结构化 blocks → 叙事流段落
+// ============================================================
+
+test('formatStructuredPromptBlocks returns empty string for empty input', () => {
+  assert.equal(__testables.formatStructuredPromptBlocks([]), '');
+  assert.equal(__testables.formatStructuredPromptBlocks(), '');
+  assert.equal(__testables.formatStructuredPromptBlocks(null), '');
+});
+
+test('formatStructuredPromptBlocks renders scene atmosphere paragraph with cinematic intent and shot goal', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'scene_environment', text: 'a rain-streaked alley at dusk, wet cobblestones' },
+    { key: 'cinematic_intent', text: 'loneliness and determination' },
+    { key: 'shot_goal', text: 'establish the emotional weight of departure' },
+  ]);
+
+  // 段落 1：场景 + 电影意图 + 叙事目标
+  assert.ok(result.includes('rain-streaked alley'));
+  assert.ok(result.includes('cinematic intent is loneliness'));
+  assert.ok(result.includes('This shot aims to'));
+  // 不应混入其他段落标题
+  assert.ok(!result.includes('Character blocking'));
+  assert.ok(!result.includes('Camera plan'));
+});
+
+test('formatStructuredPromptBlocks renders subject action and blocking as paragraph 2', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'subject_action', text: 'a woman in red cloak turns sharply, right hand reaching for the door' },
+    { key: 'blocking', text: 'subject starts frame left, moves right to exit' },
+  ]);
+
+  assert.ok(result.includes('woman in red cloak'));
+  assert.ok(result.includes('Character blocking'));
+  assert.ok(!result.includes('Camera plan'));
+});
+
+test('formatStructuredPromptBlocks renders cinematography camera plan and action beats as paragraph 3', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'cinematography', text: 'medium shot, 35mm lens, shallow depth of field' },
+    { key: 'camera_plan', text: 'slow dolly push-in following the hand movement' },
+    { key: 'timecoded_beats', text: '0-1s: turn, 1-2s: reach, 2-3s: door opens' },
+  ]);
+
+  assert.ok(result.includes('medium shot'));
+  assert.ok(result.includes('Camera plan'));
+  assert.ok(result.includes('Action beats timeline'));
+});
+
+test('formatStructuredPromptBlocks renders continuity constraints and entry-exit as paragraph 4', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'continuity_locks', text: 'red cloak stays consistent, same hairstyle as shot_001' },
+    { key: 'entry_exit', text: 'enters frame from left, exits right' },
+    { key: 'reference_binding', text: 'use ref_hero_front as identity anchor' },
+  ]);
+
+  assert.ok(result.includes('Continuity locks'));
+  assert.ok(result.includes('Entry and exit states'));
+  assert.ok(result.includes('Reference binding'));
+});
+
+test('formatStructuredPromptBlocks renders negative rules and quality target as paragraph 5', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'negative_rules', text: 'no extra people, no bright sunlight' },
+    { key: 'quality_target', text: 'cinematic live-action, coherent temporal consistency' },
+  ]);
+
+  assert.ok(result.includes('Avoid:'));
+  assert.ok(result.includes('Quality target:'));
+  // 作为最后一段，不应在后面出现其他英文标题
+  assert.ok(!result.includes('Camera plan'));
+  assert.ok(!result.includes('Character blocking'));
+});
+
+test('formatStructuredPromptBlocks preserves unknown blocks at the end', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'custom_style_notes', text: 'use Van Gogh color palette' },
+    { key: 'client_notes', text: 'client prefers warm tones' },
+  ]);
+
+  assert.ok(result.includes('custom style notes'));
+  assert.ok(result.includes('client notes'));
+  assert.ok(result.includes('Van Gogh'));
+});
+
+test('formatStructuredPromptBlocks mixes known and unknown blocks correctly', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'subject_action', text: 'hero jumps across rooftop' },
+    { key: 'custom_tag', text: 'dramatic slow motion effect' },
+    { key: 'cinematography', text: 'wide shot, deep focus' },
+    { key: 'extra_note', text: 'add lens flare in post' },
+  ]);
+
+  // 已知 block 在对应段落中
+  assert.ok(result.includes('hero jumps'));
+  assert.ok(result.includes('wide shot'));
+  // 未知 block 在最后兜底段
+  const paragraphs = result.split('\n\n');
+  const lastParagraph = paragraphs[paragraphs.length - 1];
+  assert.ok(lastParagraph.includes('custom tag'));
+  assert.ok(lastParagraph.includes('extra note'));
+  // 兜底段不应包含已知 block
+  assert.ok(!lastParagraph.includes('hero jumps'));
+});
+
+test('formatStructuredPromptBlocks skips blocks with empty text', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'scene_environment', text: '  ' },
+    { key: 'subject_action', text: '' },
+    { key: 'cinematography', text: 'close-up shot' },
+  ]);
+
+  // 只有 cinematography 有有效文本
+  assert.ok(result.includes('close-up shot'));
+  // 空文本的 block 不应出现
+  assert.ok(!result.includes('scene and style'));
+  assert.ok(!result.includes('subject and action'));
+});
+
+test('formatStructuredPromptBlocks handles blocks without key gracefully', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { text: 'just a raw instruction without a key' },
+  ]);
+
+  assert.ok(result.length > 0);
+  assert.ok(result.includes('raw instruction'));
+});
+
+test('formatStructuredPromptBlocks full pipeline renders all 5 paragraphs in order', () => {
+  const result = __testables.formatStructuredPromptBlocks([
+    { key: 'scene_environment', text: 'sunset on a mountain pass' },
+    { key: 'cinematic_intent', text: 'epic scale' },
+    { key: 'subject_action', text: 'two warriors face each other' },
+    { key: 'cinematography', text: 'extreme wide shot' },
+    { key: 'continuity_locks', text: 'same armor as shot_005' },
+    { key: 'negative_rules', text: 'no birds in sky' },
+    { key: 'quality_target', text: 'sharp focus on both characters' },
+  ]);
+
+  const paragraphs = result.split('\n\n');
+  assert.equal(paragraphs.length, 5);
+
+  // 段落 1：场景氛围（scene + intent）
+  assert.ok(paragraphs[0].includes('sunset'));
+  assert.ok(paragraphs[0].includes('epic scale'));
+  // 段落 2：人物动作
+  assert.ok(paragraphs[1].includes('warriors'));
+  // 段落 3：镜头行为
+  assert.ok(paragraphs[2].includes('extreme wide shot'));
+  // 段落 4：连续性约束
+  assert.ok(paragraphs[3].includes('Continuity locks'));
+  // 段落 5：负面约束 + 质量目标
+  assert.ok(paragraphs[4].includes('Avoid'));
+  assert.ok(paragraphs[4].includes('Quality target'));
 });

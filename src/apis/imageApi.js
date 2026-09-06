@@ -108,8 +108,16 @@ export async function generateImage(prompt, negativePrompt, outputPath, options 
     route,
     env,
     size: options.size || null,
+    timeoutMs: options.timeoutMs || null,
     transportProvider,
     references: options.references || [],
+    referenceGroups: options.referenceGroups || null,
+    referencesByType: {
+      character: options.referenceGroups?.character || [],
+      scene: options.referenceGroups?.scene || [],
+      props: options.referenceGroups?.props || [],
+    },
+    characterPriority: options.characterPriority || null,
   });
   return result.outputPath;
 }
@@ -119,14 +127,6 @@ export async function generateImage(prompt, negativePrompt, outputPath, options 
  * @param {Array<{prompt, negativePrompt, outputPath, options}>} tasks
  * @returns {Promise<Array<string>>}
  */
-export async function batchGenerateImages(tasks) {
-  return Promise.all(
-    tasks.map(({ prompt, negativePrompt, outputPath, options }) =>
-      generateImage(prompt, negativePrompt, outputPath, options)
-    )
-  );
-}
-
 export const __testables = {
   buildLaozhangPrompt: providerTestables.buildLaozhangPrompt,
   buildImagePrompt: providerTestables.buildImagePrompt,

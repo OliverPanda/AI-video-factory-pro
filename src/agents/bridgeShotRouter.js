@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
+import { chooseBridgeContinuityStrategy } from '../domain/videoProviderCapabilities.js';
 
 function findAssetByShotId(items = [], shotId) {
   return (Array.isArray(items) ? items : []).find((entry) => entry?.shotId === shotId) || null;
@@ -31,7 +32,7 @@ function buildPromptDirectives(planEntry) {
   ].filter(Boolean);
 }
 
-function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
+function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage, env = process.env) {
   const preferredProvider = planEntry.preferredProvider || 'seedance';
   if (!fromReferenceImage || !toReferenceImage) {
     return {
@@ -42,12 +43,40 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
     };
   }
 
-  if (planEntry.bridgeGenerationMode === 'first_last_keyframe') {
+  const continuityDecision = chooseBridgeContinuityStrategy(
+    {
+      bridgeType: planEntry.bridgeType,
+      continuityRisk: planEntry.continuityRisk,
+      provider: preferredProvider,
+    },
+    env
+  );
+  const effectiveGenerationMode =
+    planEntry.bridgeGenerationMode === 'manual_review_required'
+      ? 'manual_review_required'
+      : continuityDecision.bridgeGenerationMode;
+
+  if (effectiveGenerationMode === 'manual_review_required') {
+    return {
+      preferredProvider: 'manual_review_required',
+      fallbackProviders: [],
+      providerCapabilityRequirement: 'manual_review',
+      firstLastFrameMode: 'disabled',
+      continuityStrategy: continuityDecision.strategy,
+      strategyReason: continuityDecision.reason,
+      providerCapabilities: continuityDecision.capabilities,
+    };
+  }
+
+  if (effectiveGenerationMode === 'first_last_keyframe') {
     return {
       preferredProvider,
       fallbackProviders: [],
       providerCapabilityRequirement: 'first_last_keyframe',
       firstLastFrameMode: 'required',
+      continuityStrategy: continuityDecision.strategy,
+      strategyReason: continuityDecision.reason,
+      providerCapabilities: continuityDecision.capabilities,
     };
   }
 
@@ -56,6 +85,9 @@ function resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage) {
     fallbackProviders: [],
     providerCapabilityRequirement: 'image_to_video',
     firstLastFrameMode: 'disabled',
+    continuityStrategy: continuityDecision.strategy,
+    strategyReason: continuityDecision.reason,
+    providerCapabilities: continuityDecision.capabilities,
   };
 }
 
@@ -66,7 +98,7 @@ function buildBridgeShotPackage(planEntry, options = {}) {
   const toVideoResult = findAssetByShotId(options.videoResults, planEntry.toShotId);
   const fromReferenceImage = fromImageResult?.imagePath || null;
   const toReferenceImage = toImageResult?.imagePath || null;
-  const routingMode = resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage);
+  const routingMode = resolveRoutingMode(planEntry, fromReferenceImage, toReferenceImage, options.env);
 
   return {
     bridgeId: planEntry.bridgeId,
@@ -81,6 +113,9 @@ function buildBridgeShotPackage(planEntry, options = {}) {
     durationTargetSec: planEntry.durationTargetSec,
     providerCapabilityRequirement: routingMode.providerCapabilityRequirement,
     firstLastFrameMode: routingMode.firstLastFrameMode,
+    continuityStrategy: planEntry.continuityStrategy || routingMode.continuityStrategy || null,
+    strategyReason: planEntry.strategyReason || routingMode.strategyReason || null,
+    providerCapabilities: planEntry.providerCapabilities || routingMode.providerCapabilities || null,
     preferredProvider: routingMode.preferredProvider,
     fallbackProviders: routingMode.fallbackProviders,
     qaRules: {

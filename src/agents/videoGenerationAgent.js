@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { createUnifiedVideoProviderClient } from '../apis/unifiedVideoProviderClient.js';
@@ -8,16 +7,11 @@ import {
   resolveVideoPackageType,
   summarizeReferenceBindings,
 } from '../apis/videoGenerationContract.js';
-import { ensureDir, loadJSON, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, loadJSON, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { videoQueue, queueWithRetry } from '../utils/queue.js';
 
 const NON_GENERATING_PROVIDERS = new Set(['static_image', 'skip', 'fallback_direct_cut', 'direct_cut']);
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function normalizeProviderError(error) {
   return {

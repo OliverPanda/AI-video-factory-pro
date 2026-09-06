@@ -1,3 +1,5 @@
+import { normalizeText, normalizeStringArray, normalizePlainObject } from '../utils/normalization.js';
+
 const REQUIRED_DIRECTOR_PACK_FIELDS = [
   'scene_id',
   'cinematic_intent',
@@ -17,23 +19,6 @@ const REQUIRED_DIRECTOR_PACK_FIELDS = [
   'failure_rewrite_policy',
 ];
 
-function normalizeText(value, fallback = '') {
-  if (value == null) {
-    return fallback;
-  }
-  return String(value).trim() || fallback;
-}
-
-function normalizeStringArray(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => normalizeText(item))
-    .filter(Boolean);
-}
-
 function normalizePlanArray(value, entryFactory) {
   if (!Array.isArray(value)) {
     return [];
@@ -44,12 +29,6 @@ function normalizePlanArray(value, entryFactory) {
     .filter(Boolean);
 }
 
-function normalizePlainObject(value, fallback = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { ...fallback };
-  }
-  return { ...fallback, ...value };
-}
 
 export function normalizeDirectorPack(input = {}) {
   return {

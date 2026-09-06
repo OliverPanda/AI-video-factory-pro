@@ -4,7 +4,6 @@ import {
   decomposeScriptToEpisodes,
   parseEpisodeToShots,
   parseScript,
-  parseScriptToEpisodes,
 } from '../src/agents/scriptParser.js';
 import {
   EPISODE_STORYBOARD_SYSTEM,
@@ -201,20 +200,6 @@ test('new parser APIs accept injected chatJSON without network access', async ()
   assert.equal(episodesResult.episodes.length, 1);
   assert.equal(shotsResult.shots.length, 1);
   assert.equal(calls.length, 2);
-});
-
-test('parseScriptToEpisodes remains an alias of decomposeScriptToEpisodes', async () => {
-  const fakeChatJSON = async () => ({
-    title: '别枝惊鹊',
-    totalDuration: 6,
-    characters: [],
-    episodes: [{ episodeNo: 1, title: '第一集', summary: '夜行追查' }],
-  });
-
-  const aliasResult = await parseScriptToEpisodes('测试剧本', { chatJSON: fakeChatJSON });
-  const plannedResult = await decomposeScriptToEpisodes('测试剧本', { chatJSON: fakeChatJSON });
-
-  assert.deepEqual(aliasResult, plannedResult);
 });
 
 test('decomposeScriptToEpisodes falls back from legacy top-level shots payload', async () => {

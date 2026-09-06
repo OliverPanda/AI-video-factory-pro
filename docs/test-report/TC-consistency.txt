@@ -1,0 +1,31 @@
+﻿[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：0 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：0 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：1 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：0 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：1 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 检查 沈清 在 7 张图中的一致性...
+[32m16:48:22 INFO [ConsistencyChecker][0m 沈清 一致性评分：8.35/10
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：0 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：1 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：0 个镜头
+[32m16:48:22 INFO [ConsistencyChecker][0m 检查 沈清 在 2 张图中的一致性...
+[32m16:48:22 INFO [ConsistencyChecker][0m 沈清 一致性评分：6.2/10
+[32m16:48:22 INFO [ConsistencyChecker][0m 一致性检查完成。需要重生成：1 个镜头
+✔ runConsistencyCheck marks lead+anchor score 8.2 as pass_with_review and avoids auto regen (15.8334ms)
+✔ runConsistencyCheck allows support+complex score 7.1 as low-confidence pass with soft risks only (0.6236ms)
+✔ runConsistencyCheck blocks immediately when hardFailureReasons exist (0.3441ms)
+✔ runConsistencyCheck matches character images by stable id before display name (0.3501ms)
+✔ runConsistencyCheck falls back to legacy name matching when image results do not carry structured ids (0.3933ms)
+✔ checkCharacterConsistency aggregates hard/soft tags across real batches and keeps decimal average (11.5125ms)
+✔ runConsistencyCheck preserves skipped/error and normalizes numeric strings (0.9018ms)
+✔ runConsistencyCheck treats invalid overallScore as risky instead of defaulting to pass (0.4493ms)
+✔ runConsistencyCheck keeps consistency_check_unavailable as blocking report without inventing a fake shot-level fallback (0.3666ms)
+✔ runConsistencyCheck maps problematicImageIndices against valid image list when some imagePath are missing (2.6516ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 38.0034

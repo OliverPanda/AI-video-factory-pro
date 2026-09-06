@@ -4,6 +4,8 @@ import { resolveCharacterIdentity } from './characterRegistry.js';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { shapeBridgeShotPlanEntry } from '../utils/bridgeShotProtocol.js';
+import { chooseBridgeContinuityStrategy } from '../domain/videoProviderCapabilities.js';
+import { normalizeText } from '../utils/normalization.js';
 
 function resolvePreferredBridgeProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
@@ -11,10 +13,6 @@ function resolvePreferredBridgeProvider(options = {}) {
     return 'sora2';
   }
   return rawProvider;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
 }
 
 function normalizeShotType(value) {
@@ -168,11 +166,12 @@ function buildMustPreserveElements(previousShot, currentShot) {
   ];
 }
 
-function buildBridgeGenerationMode(bridgeType, continuityRisk) {
-  if (continuityRisk === 'high' && (bridgeType === 'motion_carry' || bridgeType === 'spatial_transition')) {
-    return 'first_last_keyframe';
-  }
-  return 'image_to_video_bridge';
+function buildBridgeGenerationDecision(bridgeType, continuityRisk, provider, env = process.env) {
+  return chooseBridgeContinuityStrategy({ bridgeType, continuityRisk, provider }, env);
+}
+
+function buildBridgeGenerationMode(bridgeType, continuityRisk, provider, env = process.env) {
+  return buildBridgeGenerationDecision(bridgeType, continuityRisk, provider, env).bridgeGenerationMode;
 }
 
 function buildContinuityRisk(flaggedTransition, bridgeType) {
@@ -224,6 +223,7 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
     }
 
     const continuityRisk = buildContinuityRisk(flaggedTransition, bridgeType);
+    const generationDecision = buildBridgeGenerationDecision(bridgeType, continuityRisk, preferredProvider, options.env);
     bridgePlan.push(
       shapeBridgeShotPlanEntry({
         bridgeId: `bridge_${previousShot.id}_${currentShot.id}`,
@@ -237,7 +237,10 @@ export function buildBridgeShotPlan(shots = [], options = {}) {
         subjectContinuityTargets: buildSubjectContinuityTargets(previousShot, currentShot),
         environmentContinuityTargets: buildEnvironmentTargets(bridgeType, previousShot, currentShot),
         mustPreserveElements: buildMustPreserveElements(previousShot, currentShot),
-        bridgeGenerationMode: buildBridgeGenerationMode(bridgeType, continuityRisk),
+        bridgeGenerationMode: generationDecision.bridgeGenerationMode,
+        continuityStrategy: generationDecision.strategy,
+        strategyReason: generationDecision.reason,
+        providerCapabilities: generationDecision.capabilities,
         preferredProvider,
         fallbackStrategy: 'none',
       })
@@ -299,6 +302,8 @@ export const __testables = {
   buildBridgeGoal,
   buildCameraTransitionIntent,
   buildContinuityRisk,
+  buildBridgeGenerationDecision,
+  buildBridgeGenerationMode,
   resolvePreferredBridgeProvider,
   inferBridgeType,
 };

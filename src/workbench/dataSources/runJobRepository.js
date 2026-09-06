@@ -1,5 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { attachRunKey } from '../../utils/runKey.js';
+
+const CACHE_TTL_MS = Number(process.env.WORKBENCH_CACHE_TTL_MS || 5000);
+
+let _cachedRunJobs = null;
+let _cachedProjectsDir = null;
+let _cacheTimestamp = 0;
 
 function safeExists(filePath) {
   try {
@@ -62,13 +69,36 @@ export function findRunJobFiles({ tempProjectsDir }) {
 }
 
 export function listRunJobs({ tempProjectsDir }) {
-  return findRunJobFiles({ tempProjectsDir })
+  const now = Date.now();
+  if (
+    _cachedRunJobs &&
+    _cachedProjectsDir === tempProjectsDir &&
+    now - _cacheTimestamp < CACHE_TTL_MS
+  ) {
+    return _cachedRunJobs;
+  }
+
+  const jobs = findRunJobFiles({ tempProjectsDir })
     .map((filePath) => readJsonSafe(filePath))
     .filter(Boolean)
+    .map((runJob) => attachRunKey(runJob))
     .sort((a, b) => parseDate(b.startedAt) - parseDate(a.startedAt));
+
+  _cachedRunJobs = jobs;
+  _cachedProjectsDir = tempProjectsDir;
+  _cacheTimestamp = now;
+
+  return jobs;
+}
+
+export function invalidateRunJobCache() {
+  _cachedRunJobs = null;
+  _cachedProjectsDir = null;
+  _cacheTimestamp = 0;
 }
 
 export default {
   findRunJobFiles,
   listRunJobs,
+  invalidateRunJobCache,
 };

@@ -40,18 +40,23 @@
     "test:agents:prod": "npm run test:script-parser:prod && npm run test:character-registry:prod && npm run test:prompt-engineer:prod && npm run test:image-generator:prod && npm run test:consistency-checker:prod && npm run test:continuity-checker:prod && npm run test:tts-agent:prod && npm run test:tts-qa:prod && npm run test:lipsync-agent:prod && npm run test:video-composer:prod && npm run test:director:prod && npm run test:pipeline:prod"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@ai-sdk/anthropic": "^4.0.49",
+    "@ai-sdk/fal": "^3.0.37",
+    "@ai-sdk/google": "^4.0.64",
+    "@ai-sdk/openai": "^4.0.59",
+    "@ai-sdk/openai-compatible": "^3.0.43",
+    "@mastra/core": "^1.64.0",
+    "ai": "^7.0.91",
     "axios": "^1.7.0",
     "dotenv": "^16.4.0",
+    "fastify": "^5.12.3",
     "fluent-ffmpeg": "^2.1.3",
     "p-queue": "^8.0.1",
+    "portfinder": "^1.0.38",
     "sharp": "^0.33.0",
     "ws": "^8.20.0"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "@ffmpeg-installer/ffmpeg": "^1.1.0"
   }
 }

@@ -1,14 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function normalizeStringArray(value) {
-  return Array.isArray(value)
-    ? value.map((item) => String(item || '').trim()).filter(Boolean)
-    : [];
-}
+import { normalizeStringArray } from '../utils/normalization.js';
 
 const HARD_VISUAL_BLOCK_ISSUES = new Set([
   'anatomy_structure_invalid',
@@ -113,11 +107,6 @@ function buildReasonDetails(reasons = []) {
     label: ISSUE_GUIDANCE[reason]?.label || reason,
     suggestion: ISSUE_GUIDANCE[reason]?.suggestion || '补足这个镜头的关键叙事与镜头约束后再生成。',
   }));
-}
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
 }
 
 function buildFixBriefEntries(entries = []) {

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { visionChat, parseJSONResponse } from '../llm/client.js';
 import { CONSISTENCY_CHECK_SYSTEM, CONSISTENCY_CHECK_USER } from '../llm/prompts/consistencyCheck.js';
-import { imageToBase64, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, imageToBase64, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import {
   classifyShotConsistencyClass,
@@ -28,18 +28,13 @@ const KNOWN_HARD_DRIFT_TAGS = new Set([
 ]);
 const CONSISTENCY_CHECK_UNAVAILABLE_REASON = 'consistency_check_unavailable';
 
-function writeTextFile(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
-
 function buildConsistencyMarkdown(reports, needsRegeneration, qaDecisionCounts, regenStrategyCounts) {
   const lines = [
     '# Consistency Report',
     '',
     `- Checked Characters: ${reports.length}`,
     `- Flagged Shots: ${needsRegeneration.length}`,
-    `- Decision Counts: pass=${qaDecisionCounts.pass || 0}, warn=${qaDecisionCounts.warn || 0}, block=${qaDecisionCounts.block || 0}`,
+    `- Decision Counts: pass=${qaDecisionCounts.pass || 0}, pass_with_review=${qaDecisionCounts.pass_with_review || 0}, warn=${qaDecisionCounts.warn || 0}, block=${qaDecisionCounts.block || 0}`,
     `- Regen Strategy Counts: none=${regenStrategyCounts.none || 0}, prompt_tighten=${regenStrategyCounts.prompt_tighten || 0}, reanchor_regenerate=${regenStrategyCounts.reanchor_regenerate || 0}`,
     '',
   ];
@@ -182,10 +177,10 @@ function pickMostStrictShotClass(shotClasses = []) {
 }
 
 function summarizeQaDecisionCounts(reports = []) {
-  const counts = { pass: 0, warn: 0, block: 0 };
+  const counts = { pass: 0, pass_with_review: 0, warn: 0, block: 0 };
   for (const report of reports) {
     const status = report?.qaDecision?.status;
-    if (status === 'pass' || status === 'warn' || status === 'block') {
+    if (status === 'pass' || status === 'pass_with_review' || status === 'warn' || status === 'block') {
       counts[status] += 1;
     }
   }
@@ -322,7 +317,8 @@ export async function checkCharacterConsistency(characterName, characterCard, im
     const prompt = `${CONSISTENCY_CHECK_SYSTEM}\n\n${CONSISTENCY_CHECK_USER(characterName, characterCard, batch.length)}`;
 
     try {
-      const raw = await visionChat(prompt, imageBase64List, {
+      const visionFn = options.visionChat || visionChat;
+      const raw = await visionFn(prompt, imageBase64List, {
         maxTokens: 1024,
         temperature: 0.2,
       });
@@ -414,6 +410,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
     const report = normalizeConsistencyReport(
       await runCheckCharacterConsistency(charCard.name, charCard, charImages, {
         artifactContext: deps.artifactContext,
+        visionChat: deps.visionChat,
       }),
       charCard.name,
       charImages
@@ -487,7 +484,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
         softRiskTags: normalizedReport.softRiskTags,
       });
 
-      if (shotDecision.status === 'pass') {
+      if (shotDecision.status === 'pass' || shotDecision.status === 'pass_with_review') {
         return;
       }
 
@@ -577,7 +574,9 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
       ],
     });
     const checkerStatus =
-      qaDecisionCounts.block > 0 ? 'block' : (qaDecisionCounts.warn > 0 ? 'warn' : 'pass');
+      qaDecisionCounts.block > 0
+        ? 'block'
+        : (qaDecisionCounts.warn > 0 || qaDecisionCounts.pass_with_review > 0 ? 'warn' : 'pass');
     writeAgentQaSummary(
       {
         agentKey: 'consistencyChecker',
@@ -600,10 +599,12 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
           needsRegeneration.length > 0
             ? [
               `待重生成镜头数：${needsRegeneration.length}`,
-              `判定分布：pass=${qaDecisionCounts.pass}, warn=${qaDecisionCounts.warn}, block=${qaDecisionCounts.block}`,
+              `判定分布：pass=${qaDecisionCounts.pass}, pass_with_review=${qaDecisionCounts.pass_with_review}, warn=${qaDecisionCounts.warn}, block=${qaDecisionCounts.block}`,
               `策略分布：prompt_tighten=${regenStrategyCounts.prompt_tighten}, reanchor_regenerate=${regenStrategyCounts.reanchor_regenerate}`,
             ]
-            : [],
+            : (qaDecisionCounts.pass_with_review > 0
+              ? [`低置信放行角色数：${qaDecisionCounts.pass_with_review}`]
+              : []),
         blockItems:
           qaDecisionCounts.block > 0
             ? [`阻断角色数：${qaDecisionCounts.block}`]

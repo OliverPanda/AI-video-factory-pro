@@ -2,10 +2,9 @@
  * 角色设定Agent - 维护角色视觉档案，确保跨镜头一致性
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { chatJSON } from '../llm/client.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
 
@@ -16,11 +15,6 @@ const CHARACTER_SYSTEM = `你是专业的漫剧角色设计师，负责为角色
 - 描述要具体可视化，避免抽象词汇
 - 优先描述可见特征：发型、发色、面部、体型、服装
 - 生成图像提示词要与所选风格（写实/3D）匹配`;
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildRegistryMarkdown(cards) {
   return `${cards
@@ -38,6 +32,37 @@ function buildRegistryMarkdown(cards) {
         `- Personality: ${card.personality || ''}\n`
     )
     .join('\n')}\n`;
+}
+
+function buildCharacterRegistryPrompt(characters = [], scriptContext = '', style = 'realistic') {
+  return `
+根据以下剧本信息，为每个角色创建详细的视觉档案：
+
+<剧本背景>
+${scriptContext}
+</剧本背景>
+
+<角色列表>
+${characters.map((c) => `- ${c.name}（${c.gender === 'female' ? '女' : '男'}，${c.age || '成年'}）`).join('\n')}
+</角色列表>
+
+<视觉风格>
+${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（电影级人像）'}
+</视觉风格>
+
+请为每个角色输出JSON档案，格式：
+{
+  "characters": [
+    {
+      "name": "角色名",
+      "gender": "male/female",
+      "age": "年龄描述",
+      "visualDescription": "用于Prompt的英文外观描述（含发型、肤色、服装等，50词内）",
+      "basePromptTokens": "核心提示词（10-15个英文词，每次生成该角色时必须包含）",
+      "personality": "性格特点（中文，影响表情/姿态生成）"
+    }
+  ]
+}`;
 }
 
 function hasUsefulProfile(character = {}) {
@@ -316,11 +341,42 @@ export async function buildCharacterRegistry(characters, scriptContext, style = 
   logger.info('CharacterRegistry', `构建 ${characters.length} 个角色的视觉档案...`);
 
   if (Array.isArray(deps.episodeCharacters) && deps.episodeCharacters.length > 0) {
-    const cards = buildEpisodeCharacterRegistry(
+    let cards = buildEpisodeCharacterRegistry(
       deps.mainCharacterTemplates || [],
       deps.episodeCharacters,
       deps.characterBibles || []
     );
+    const missingProfileCards = cards.filter((card) => !hasUsefulProfile(card));
+    if (missingProfileCards.length > 0) {
+      logger.info('CharacterRegistry', `补齐 ${missingProfileCards.length} 个缺少视觉档案的分集角色...`);
+      const prompt = buildCharacterRegistryPrompt(missingProfileCards, scriptContext, style);
+      const result = await runChatJSON(
+        [
+          { role: 'system', content: CHARACTER_SYSTEM },
+          { role: 'user', content: prompt },
+        ],
+        { temperature: 0.4 }
+      );
+      const supplemented = mergeCharacterSources(result.characters || [], missingProfileCards).map((card) => {
+        const generated = (result.characters || []).find(
+          (entry) => normalizeNameKey(entry?.name) === normalizeNameKey(card?.generatedName || card?.name)
+        );
+        if (!generated) {
+          return card;
+        }
+        return {
+          ...card,
+          visualDescription: card?.visualDescription || generated?.visualDescription || null,
+          basePromptTokens: card?.basePromptTokens || sanitizeCharacterIdentityTokens(generated?.basePromptTokens || ''),
+          personality: card?.personality || generated?.personality || null,
+          identityAnchor: card?.identityAnchor || getCharacterIdentityAnchor(generated),
+        };
+      });
+      const supplementedById = new Map(
+        supplemented.map((card) => [card?.episodeCharacterId || card?.id || card?.name, card])
+      );
+      cards = cards.map((card) => supplementedById.get(card?.episodeCharacterId || card?.id || card?.name) || card);
+    }
     writeCharacterRegistryArtifacts(
       cards,
       deps.episodeCharacters,
@@ -335,34 +391,7 @@ export async function buildCharacterRegistry(characters, scriptContext, style = 
     return cards;
   }
 
-  const prompt = `
-根据以下剧本信息，为每个角色创建详细的视觉档案：
-
-<剧本背景>
-${scriptContext}
-</剧本背景>
-
-<角色列表>
-${characters.map((c) => `- ${c.name}（${c.gender === 'female' ? '女' : '男'}，${c.age || '成年'}）`).join('\n')}
-</角色列表>
-
-<视觉风格>
-${style === '3d' ? '3D渲染风格（Pixar/Cinema4D）' : '写实摄影风格（电影级人像）'}
-</视觉风格>
-
-请为每个角色输出JSON档案，格式：
-{
-  "characters": [
-    {
-      "name": "角色名",
-      "gender": "male/female",
-      "age": "年龄描述",
-      "visualDescription": "用于Prompt的英文外观描述（含发型、肤色、服装等，50词内）",
-      "basePromptTokens": "核心提示词（10-15个英文词，每次生成该角色时必须包含）",
-      "personality": "性格特点（中文，影响表情/姿态生成）"
-    }
-  ]
-}`;
+  const prompt = buildCharacterRegistryPrompt(characters, scriptContext, style);
 
   const result = await runChatJSON(
     [
@@ -486,6 +515,8 @@ function mergeCharacterSources(generatedCharacters = [], sourceCharacters = []) 
 }
 
 function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, characterBible = null) {
+  const safeMainTemplate = mainTemplate || {};
+  const safeEpisodeCharacter = episodeCharacter || {};
   const bibleCoreTraits = characterBible?.coreTraits ?? {};
   const bibleHair = bibleCoreTraits.hairStyle ?? null;
   const bibleSkin = bibleCoreTraits.skinTone ?? null;
@@ -494,60 +525,60 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
 
   return {
     ...characterBible,
-    ...mainTemplate,
-    ...episodeCharacter,
-    id: episodeCharacter.id,
-    episodeCharacterId: episodeCharacter.id,
-    characterBibleId: episodeCharacter.characterBibleId ?? characterBible?.id ?? null,
-    mainCharacterTemplateId: episodeCharacter.mainCharacterTemplateId ?? mainTemplate.id ?? null,
+    ...safeMainTemplate,
+    ...safeEpisodeCharacter,
+    id: safeEpisodeCharacter.id,
+    episodeCharacterId: safeEpisodeCharacter.id,
+    characterBibleId: safeEpisodeCharacter.characterBibleId ?? characterBible?.id ?? null,
+    mainCharacterTemplateId: safeEpisodeCharacter.mainCharacterTemplateId ?? safeMainTemplate.id ?? null,
     priority:
-      episodeCharacter.priority ??
-      episodeCharacter.characterPriority ??
+      safeEpisodeCharacter.priority ??
+      safeEpisodeCharacter.characterPriority ??
       characterBible?.priority ??
       characterBible?.characterPriority ??
       'support',
-    name: episodeCharacter.name ?? mainTemplate.name ?? '',
-    gender: episodeCharacter.gender ?? mainTemplate.gender ?? null,
-    age: episodeCharacter.age ?? mainTemplate.age ?? null,
+    name: safeEpisodeCharacter.name ?? safeMainTemplate.name ?? '',
+    gender: safeEpisodeCharacter.gender ?? safeMainTemplate.gender ?? null,
+    age: safeEpisodeCharacter.age ?? safeMainTemplate.age ?? null,
     visualDescription:
-      episodeCharacter.visualOverride ??
-      episodeCharacter.visualDescription ??
+      safeEpisodeCharacter.visualOverride ??
+      safeEpisodeCharacter.visualDescription ??
       characterBible?.basePromptTokens ??
       (visualAnchorParts.join(', ') || null) ??
-      mainTemplate.visualDescription ??
+      safeMainTemplate.visualDescription ??
       null,
     identityAnchor: sanitizeCharacterIdentityTokens(
-      episodeCharacter.identityAnchor ??
+      safeEpisodeCharacter.identityAnchor ??
         characterBible?.identityAnchor ??
-        mainTemplate.identityAnchor ??
-        episodeCharacter.basePromptTokens ??
+        safeMainTemplate.identityAnchor ??
+        safeEpisodeCharacter.basePromptTokens ??
         characterBible?.basePromptTokens ??
-        mainTemplate.basePromptTokens ??
+        safeMainTemplate.basePromptTokens ??
         null
     ),
-    styleFamily: episodeCharacter.styleFamily ?? characterBible?.styleFamily ?? mainTemplate.styleFamily ?? null,
+    styleFamily: safeEpisodeCharacter.styleFamily ?? characterBible?.styleFamily ?? safeMainTemplate.styleFamily ?? null,
     basePromptTokens: sanitizeCharacterIdentityTokens(
-      episodeCharacter.basePromptTokens ??
+      safeEpisodeCharacter.basePromptTokens ??
         characterBible?.basePromptTokens ??
-        mainTemplate.basePromptTokens ??
+        safeMainTemplate.basePromptTokens ??
         null
     ),
     personality:
-      episodeCharacter.personalityOverride ??
-      episodeCharacter.personality ??
-      mainTemplate.personality ??
+      safeEpisodeCharacter.personalityOverride ??
+      safeEpisodeCharacter.personality ??
+      safeMainTemplate.personality ??
       null,
     defaultVoiceProfile:
-      episodeCharacter.voiceOverrideProfile ??
-      episodeCharacter.defaultVoiceProfile ??
-      mainTemplate.defaultVoiceProfile ??
+      safeEpisodeCharacter.voiceOverrideProfile ??
+      safeEpisodeCharacter.defaultVoiceProfile ??
+      safeMainTemplate.defaultVoiceProfile ??
       null,
     negativeDriftTokens: characterBible?.negativeDriftTokens ?? null,
     forbiddenIdentityTokens: sanitizeCharacterIdentityTokens(
-      episodeCharacter.forbiddenIdentityTokens ??
+      safeEpisodeCharacter.forbiddenIdentityTokens ??
         characterBible?.forbiddenIdentityTokens ??
         characterBible?.negativeDriftTokens ??
-        mainTemplate.forbiddenIdentityTokens ??
+        safeMainTemplate.forbiddenIdentityTokens ??
         null
     ),
     lightingAnchor: characterBible?.lightingAnchor ?? {},
@@ -556,7 +587,25 @@ function buildMergedEpisodeCharacter(mainTemplate = {}, episodeCharacter = {}, c
     coreTraits: characterBible?.coreTraits ?? {},
     characterBible: characterBible ?? null,
     mainCharacterTemplate: mainTemplate || null,
-    episodeCharacter,
+    episodeCharacter: safeEpisodeCharacter,
+  };
+}
+
+function buildFallbackEpisodeCharacterId(character, index) {
+  const name = String(character?.name || character?.characterName || '').trim();
+  return name ? `episode_character_${name}` : `episode_character_${index + 1}`;
+}
+
+function normalizeEpisodeCharacter(character, index) {
+  if (!character || typeof character !== 'object') return null;
+  const name = String(character.name || character.characterName || '').trim();
+  const id = String(character.id || character.episodeCharacterId || '').trim();
+  if (!id && !name) return null;
+
+  return {
+    ...character,
+    id: id || buildFallbackEpisodeCharacterId(character, index),
+    name,
   };
 }
 
@@ -565,7 +614,7 @@ export function buildEpisodeCharacterRegistry(
   episodeCharacters = [],
   characterBibles = []
 ) {
-  return episodeCharacters.map((episodeCharacter) => {
+  return episodeCharacters.map(normalizeEpisodeCharacter).filter(Boolean).map((episodeCharacter) => {
     const mainTemplate =
       mainCharacterTemplates.find(
         (template) => template?.id === (episodeCharacter?.mainCharacterTemplateId ?? null)

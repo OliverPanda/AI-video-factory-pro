@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "projectKey": "HappyHorse",
+  "scope": {
+    "projectOnly": true,
+    "videoIds": [
+      "video_001",
+      "video_002"
+    ]
+  },
+  "status": "warn",
+  "entries": [
+    {
+      "dimension": "bridge_coverage_gap",
+      "severity": "warn",
+      "status": "warn",
+      "subjectId": "video_001->video_002",
+      "videoId": "video_002",
+      "message": "Cross-video boundary video_001->video_002 has no sequence or bridge coverage evidence.",
+      "recommendedAction": "regenerate_sequence"
+    }
+  ],
+  "summary": {
+    "totalEntries": 1,
+    "byDimension": {
+      "bridge_coverage_gap": 1
+    },
+    "bySeverity": {
+      "pass": 0,
+      "warn": 1,
+      "block": 0
+    },
+    "mainClipCount": 2,
+    "shotCount": 2,
+    "sequenceCount": 0,
+    "bridgeCount": 0,
+    "lipsyncCount": 0,
+    "sequenceCoveredShotCount": 0
+  },
+  "reviewItems": [
+    {
+      "dimension": "bridge_coverage_gap",
+      "severity": "warn",
+      "subjectId": "video_001->video_002",
+      "recommendedAction": "regenerate_sequence",
+      "message": "Cross-video boundary video_001->video_002 has no sequence or bridge coverage evidence."
+    }
+  ],
+  "checks": {
+    "sequenceBridges": [
+      {
+        "dimension": "bridge_coverage_gap",
+        "severity": "warn"
+      }
+    ]
+  },
+  "clipIndex": {
+    "clips": [
+      {
+        "kind": "shot",
+        "id": "shot_001",
+        "shotId": "shot_001",
+        "videoId": "video_001",
+        "isMainTimeline": true,
+        "coveredBySequenceId": null,
+        "references": [
+          "ref_hero"
+        ]
+      },
+      {
+        "kind": "shot",
+        "id": "shot_002",
+        "shotId": "shot_002",
+        "videoId": "video_002",
+        "isMainTimeline": true,
+        "coveredBySequenceId": null,
+        "references": [
+          "ref_hero"
+        ]
+      }
+    ]
+  },
+  "flaggedLinks": [
+    {
+      "dimension": "bridge_coverage_gap",
+      "subjectId": "video_001->video_002",
+      "recommendedAction": "regenerate_sequence"
+    }
+  ],
+  "contextMemoryPatch": {
+    "projectKey": "HappyHorse",
+    "writeAllowed": true,
+    "latestVideoId": "video_002",
+    "requiredReferences": [
+      "ref_hero"
+    ],
+    "unresolvedCrossVideoIssues": [
+      {
+        "dimension": "bridge_coverage_gap",
+        "subjectId": "video_001->video_002",
+        "recommendedAction": "regenerate_sequence"
+      }
+    ]
+  },
+  "evidence": {
+    "sourceReports": [],
+    "sourceArtifacts": []
+  }
+}

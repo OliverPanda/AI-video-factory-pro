@@ -19,12 +19,16 @@
 - 运行目录、成果物、断点续跑：[docs/runtime/README.md](docs/runtime/README.md)
 - 排障、验收、接手流程：[docs/sop/README.md](docs/sop/README.md)
 - 测试与 QA 验收：[docs/sop/qa-acceptance.md](docs/sop/qa-acceptance.md)
+- 用户使用指南：[docs/user-guide.md](docs/user-guide.md)
+- 部署说明：[docs/deployment.md](docs/deployment.md)
+- 已知限制：[docs/limitations-v1.md](docs/limitations-v1.md)
+- 版本变更记录：[CHANGELOG.md](CHANGELOG.md)
 - 角色身份统一规范：[docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md](docs/superpowers/specs/2026-04-17-identity-resolution-regression-spec.md)
+- 角色资产生产级闭环：[docs/agents/production-loop-governance.md](docs/agents/production-loop-governance.md)
 
 ## 运行模式
 
-- 兼容模式：直接传入单个 `.txt` 剧本，CLI 会自动桥接成临时 `project / script / episode`
-- 项目模式：显式指定 `projectId + scriptId + episodeId`，适合多项目、多剧集并行管理
+v1.2（D1）起只保留**项目模式**：显式指定 `projectId + scriptId + episodeId`，适合多项目、多剧集并行管理。兼容单文件模式（位置参数 `.txt` 直跑并自动桥接临时 project/script/episode）已整体移除。
 
 当前核心层级：
 
@@ -172,6 +176,81 @@ Phase 4 的最小增量位置固定为：
 - `VIDEO_PROVIDER=sora2` 会按兼容别名归一到 `sora`
 - `VIDEO_PROVIDER=fallback_video` 会按兼容别名归一到 `sora`
 也就是说，站点和模型的变化应尽量收敛在 transport / model 配置，不要把用户侧 provider 继续做散。
+
+## AI SDK 统一视频模型（推荐）
+
+v1.3+ 支持通过 Vercel AI SDK 的 `experimental_generateVideo` 接口统一视频生成，实现**零代码切换 provider**。
+
+### 优势
+
+| 对比项 | 旧配置（adapter + transport） | AI SDK（推荐） |
+|--------|-------------------------------|----------------|
+| 新增 provider | ~200 行代码 | 改 1 行 `.env` |
+| 代码行数 | ~850 行 | ~100 行 |
+| 支持 provider | 4 个（手动适配） | 8+ 个（开箱即用） |
+| 维护成本 | 高（每个 API 变化需改 adapter） | 低（AI SDK 维护） |
+
+### 快速开始
+
+```bash
+# 1. 安装 AI SDK provider 包
+pnpm add @ai-sdk/fal @ai-sdk/google @ai-sdk/openai
+
+# 2. 配置 .env
+VIDEO_MODEL=fal/minimax-video
+```
+
+### 支持的模型
+
+| VIDEO_MODEL 值 | Provider | 模型 | 能力 |
+|----------------|----------|------|------|
+| `fal/minimax-video` | FAL | MiniMax | 文生视频 |
+| `fal/luma-ray-2` | FAL | Luma Ray 2 | 文生视频、图生视频 |
+| `google/veo-2` | Google | Veo 2 | 文生视频，最多4个 |
+| `google/veo-3` | Google | Veo 3 | 文生视频 + 音频 |
+| `google/veo-3.1` | Google | Veo 3.1 | 文生视频 + 音频 |
+| `openai/sora-2` | OpenAI | Sora 2 | 文生视频 |
+| `klingai/kling-v2.6-t2v` | Kling AI | Kling v2.6 | 文生视频（需安装 `@ai-sdk/klingai`） |
+| `klingai/kling-v2.6-i2v` | Kling AI | Kling v2.6 | 图生视频（需安装 `@ai-sdk/klingai`） |
+
+### 切换示例
+
+```bash
+# 切换到 FAL MiniMax
+VIDEO_MODEL=fal/minimax-video
+
+# 切换到 Google Veo
+VIDEO_MODEL=google/veo-3.1
+
+# 切换到 OpenAI Sora
+VIDEO_MODEL=openai/sora-2
+
+# 留空则使用旧的 adapter + transport 路径
+VIDEO_MODEL=
+```
+
+### 向后兼容
+
+- `VIDEO_MODEL` 留空时，自动使用原有 `VIDEO_PROVIDER` + `VIDEO_TRANSPORT_PROVIDER` 路径
+- 旧的 adapter + transport 代码完整保留，无破坏性变更
+- AI SDK 不支持的 provider（如 `dashscope_async`）仍走旧路径
+
+### 功能映射
+
+| 当前功能 | AI SDK 对应 | 备注 |
+|----------|-------------|------|
+| 文生视频 | `prompt: '...'` | ✅ 直接对应 |
+| 图生视频 | `prompt: { image, text }` | ✅ 直接对应 |
+| 首末帧 | `frameImages: [{ image, frameType }]` | ✅ 直接对应 |
+| 参考图 | `inputReferences: [...]` | ✅ 直接对应 |
+| 时长控制 | `duration: 5` | ⚠️ 部分模型支持 |
+| 宽高比 | `aspectRatio: '16:9'` | ✅ 直接对应 |
+| Seed | `seed: 1234567890` | ⚠️ 部分模型支持 |
+| 多视频 | `n: 3` | ✅ SDK 自动批处理 |
+| Provider 特有参数 | `providerOptions: { fal: {...} }` | ✅ 直接对应 |
+| 轮询控制 | `poll: { intervalMs, timeoutMs }` | ✅ 内置 |
+
+详细迁移计划见 [docs/migration/ai-sdk-video-migration-plan.md](docs/migration/ai-sdk-video-migration-plan.md)。
 
 ## Sora / 通用 Relay 接入说明
 
@@ -382,60 +461,38 @@ ffprobe -version
 
 ### 4. 运行
 
+> v1.2（D1）起只保留**项目模式**入口：位置参数 `.txt` 直跑、`--project-id` / `--script-file` 透传、`temp/legacy_*` 平铺产物已整体移除（见 [CHANGELOG.md](CHANGELOG.md)）。`samples/*.txt` 剧本仍保留，只作为项目数据导入的素材来源，不再直接作为运行入口。
+
 先初始化项目模式样例：
 
 ```bash
 node scripts/init-sample-project.js
 ```
 
-这个命令会把 `samples/project-example/` 复制到 `temp/projects/project-example/`，方便直接跑项目模式。
-
-兼容模式：
-
-```bash
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
-```
-
-CLI 默认把输入当作 `professional-script`：适合已经写成分集、场景、`【画面N】`、台词、SFX、字幕的专业短剧 / 漫剧剧本。上面的命令等价于：
-
-```bash
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic --input-format=professional-script
-```
-
-如果输入是野生小说文本、散文章节或故事大纲，需要显式启用改编模式：
-
-```bash
-node scripts/run.js samples/source.txt --style=realistic --input-format=raw-novel
-```
-
-不确定输入结构时可以用自动检测；只有包含 `【画面N】` 的文本会走专业剧本解析，否则按原始小说改编：
-
-```bash
-node scripts/run.js samples/source.txt --style=realistic --input-format=auto
-```
-
-项目模式：
+该命令把 `samples/project-example/` 复制到 `temp/projects/project-example/`（project / script / episode 分层数据），随后以 `--project=… --script=… --episode=…` 三参数运行：
 
 ```bash
 node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
-抽样跑前 N 个分镜，适合先验证 prompt、出图和视频链路是否通：
+`--input-format=professional-script|raw-novel|auto` 只影响剧本文本落为项目数据时的解析口径（默认 `professional-script`，适合含分集、场景、`【画面N】`、台词、SFX、字幕的专业短剧 / 漫剧剧本；野生小说文本按 `raw-novel` 改编）。
+
+抽样跑前 N 个分镜并停在付费生成前，适合低成本冒烟：
 
 ```bash
-node scripts/run.js samples/双生囚笼.txt --style=realistic --max-shots=2 --stop-before-video
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --max-shots=2 --stop-at=after_images
 ```
 
 说明：
 
 - `--max-shots=<number>` 只处理前 N 个分镜，适合真实样本小流量验证
-- `--stop-before-video` 会停在视频生成前，保留一致性 / 连贯性 / prompt / 图片结果给人复核
-- 两个参数一起用，适合先做低成本冒烟
+- `--stop-at=after_images|before_video` 提前停在付费生成前（`after_ref_sheets` 为 experimental runtime 语义）
+- 两个参数一起用，适合先验证 prompt、出图和视频链路是否通
 
 跳过一致性检查：
 
 ```bash
-node scripts/run.js samples/寒烬宫变-pro.txt --skip-consistency
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --skip-consistency
 ```
 
 ## 运行与恢复命令
@@ -443,14 +500,26 @@ node scripts/run.js samples/寒烬宫变-pro.txt --skip-consistency
 完整 production pipeline：
 
 ```bash
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
+```
+
+使用 AI SDK 视频生成（推荐）：
+
+```bash
+# FAL MiniMax
+$env:VIDEO_MODEL="fal/minimax-video"
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
+
+# Google Veo
+$env:VIDEO_MODEL="google/veo-3.1"
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 默认 Seedance 主视频 provider：
 
 ```bash
 $env:ARK_API_KEY="你的火山方舟Key"
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 默认 MiniMax TTS 主链：
@@ -460,10 +529,10 @@ $env:TTS_PROVIDER="minimax"
 $env:TTS_TRANSPORT_PROVIDER="minimax"
 $env:MINIMAX_API_KEY="你的MiniMaxKey"
 $env:MINIMAX_GROUP_ID="你的GroupId"
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
-试听样本批量生成：
+试听样本批量生成（独立工具，读取的是台词列表文件）：
 
 ```bash
 npm run tts:preview -- samples/tts-eval-lines.txt temp/tts-eval-samples
@@ -479,7 +548,7 @@ $env:VERCEL_AI_GATEWAY_API_KEY="你的GatewayKey"
 $env:VIDEO_MODEL_SHOT="bytedance/seedance-v1.5-pro"
 $env:VIDEO_MODEL_SEQUENCE="bytedance/seedance-v1.5-pro"
 $env:VIDEO_MODEL_BRIDGE="bytedance/seedance-v1.5-pro"
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 走通用 `sora` relay，例如 `zdai88` 这一类 `media_task` 站点：
@@ -494,14 +563,14 @@ $env:VIDEO_TRANSPORT_POLL_PATH="/v1/media/status"
 $env:VIDEO_MODEL_SHOT="sora-2"
 $env:VIDEO_MODEL_SEQUENCE="sora-2"
 $env:VIDEO_MODEL_BRIDGE="sora-2"
-node scripts/run.js samples/双生囚笼.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 如果 `sora` prompt 主要是中文，建议同时显式打开翻译层：
 
 ```bash
 $env:PROMPT_TRANSLATION_PROVIDER="llm"
-node scripts/run.js samples/双生囚笼.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 如果你有独立的翻译中转站，也可以这样配：
@@ -509,7 +578,7 @@ node scripts/run.js samples/双生囚笼.txt --style=realistic
 ```bash
 $env:PROMPT_TRANSLATION_BASE_URL="https://your-translate-relay.example.com"
 $env:PROMPT_TRANSLATION_API_KEY="你的TranslateKey"
-node scripts/run.js samples/双生囚笼.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 仍要复用旧变量名 / 旧 relay 时：
@@ -519,7 +588,7 @@ $env:VIDEO_PROVIDER="seedance"
 $env:VIDEO_FALLBACK_API_KEY="你的视频Key"
 $env:VIDEO_FALLBACK_BASE_URL="https://api.laozhang.ai/v1"
 $env:VIDEO_FALLBACK_MODEL="veo-3.0-fast-generate-001"
-node scripts/run.js samples/寒烬宫变-pro.txt --style=realistic
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
 如果你只是沿用旧环境变量名，不需要把 `VIDEO_PROVIDER` 改成 `fallback_video`；保留 `seedance` 更符合当前主链口径。
@@ -542,12 +611,12 @@ $env:VIDEO_FALLBACK_SEQUENCE_RETRY_ATTEMPTS="2"
 - `VIDEO_FALLBACK_SEQUENCE_SECONDS`
   可选；只在你想强制 sequence 固定请求秒数时填写。不填时，sequence 默认按自身 `durationTargetSec` 申请，不继承 `VIDEO_FALLBACK_SECONDS=4`
 
-统一断点续跑：
+统一断点续跑（项目模式）：
 
 ```bash
-node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --dry-run --style=realistic
-node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --style=realistic
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic --confirm-paid-video
+node scripts/resume-from-step.js --step=lipsync --project=project-example --script-id=pilot --episode=episode-1 --dry-run --style=realistic
+node scripts/resume-from-step.js --step=lipsync --project=project-example --script-id=pilot --episode=episode-1 --style=realistic
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --style=realistic --confirm-paid-video
 ```
 
 `video` 续跑现在有显式付费保护：
@@ -556,18 +625,11 @@ node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --sty
 - 必须显式加 `--confirm-paid-video` 才会执行
 - 建议先跑一次 `--dry-run` 看恢复计划，再正式提交
 
-例如：
-
-```bash
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --dry-run --style=realistic
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --style=realistic --confirm-paid-video
-```
-
 按指定历史 run 严格绑定续跑：
 
 ```bash
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --dry-run --style=realistic
-node scripts/resume-from-step.js --step=video samples/寒烬宫变-pro.txt --run-id=run_xxx --style=realistic --confirm-paid-video
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --run-id=run_xxx --dry-run --style=realistic
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --run-id=run_xxx --style=realistic --confirm-paid-video
 ```
 
 `--run-id` 当前不是“尽量参考这次 run”，而是“严格绑定这次 run”：
@@ -606,6 +668,58 @@ npm run workbench
 - 可查看项目、分集、run、QA 概览、artifact 摘要
 - 不直接触发生成、不直接改写状态、不替代 `run.js` / `resume-from-step.js`
 
+当前已落地的工作台页面：
+
+- `/projects`
+- `/project/:id`
+- `/drama/:id`
+- `/review/:runId`
+- `/editor`
+- `/drama/:id/characters`
+- `/drama/:id/scenes`
+- `/drama/:id/voices`
+
+更完整的操作说明见 [docs/user-guide.md](docs/user-guide.md)。
+
+## 后处理闭环
+
+当前后处理链路已经进入主流程：
+
+1. `storyboardContextAgent`
+2. `crossVideoConsistencyAgent`
+3. `avPackagingAgent`
+4. `postComposeReviewAgent`
+
+关键产物：
+
+- `storyboard-context-memory.json`
+- `cross-video-consistency-report.*`
+- `av-packaging-plan.*`
+- `post-compose-review.json`
+- `edit-task-pack.json`
+- `human-review-queue.json`
+
+当前后处理 fixtures 位于：
+
+- `tests/fixtures/post-processing/`
+
+相关自动化回归见：
+
+- `tests/pipeline.acceptance.test.js`
+- `tests/postProcessingLoop.e2e.test.js`
+- `tests/resumeFromStep.test.js`
+- `tests/workbench/workbenchServer.test.js`
+
+## 部署与交付
+
+如果你要在新机器上拉起当前系统，优先看：
+
+- [docs/deployment.md](docs/deployment.md)
+
+如果你要了解当前仍未纳入发布承诺的边界，优先看：
+
+- [docs/limitations-v1.md](docs/limitations-v1.md)
+
 Seedance 替换旧兼容视频路径的后续实现计划：
 
 - [docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md](docs/superpowers/plans/2026-04-05-seedance-primary-video-engine-replacement-implementation.md)
@@ -624,6 +738,12 @@ README 里只保留最常用入口；完整验收标准、排障步骤和交接�
 npm run test:lipsync-agent:prod
 npm run test:video-composer:prod
 npm run test:director:prod
+```
+
+### AI SDK 视频客户端测试
+
+```bash
+node --test tests/aiSdkVideoClient.test.js
 ```
 
 ### 保留测试成果物

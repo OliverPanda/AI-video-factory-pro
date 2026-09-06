@@ -4,30 +4,33 @@ import assert from 'node:assert/strict';
 import { __testables, routeVideoShots } from '../src/agents/videoRouter.js';
 
 test('buildShotPackages assembles complete shotPackage and prefers configured video provider when reference image exists', () => {
-  const shotPackages = __testables.buildShotPackages(
-    [{ id: 'shot_001', scene: '大殿', action: '对峙' }],
-    [
-      {
-        shotId: 'shot_001',
-        shotType: 'dialogue_medium',
-        durationTargetSec: 4,
-        visualGoal: '大殿对峙',
-        cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
-        storyBeat: '双方对峙',
-        screenDirection: 'forward',
-        spaceAnchor: '大殿',
-        continuityContext: {
+  const previousVideoModel = process.env.VIDEO_MODEL;
+  delete process.env.VIDEO_MODEL;
+  try {
+    const shotPackages = __testables.buildShotPackages(
+      [{ id: 'shot_001', scene: '大殿', action: '对峙' }],
+      [
+        {
+          shotId: 'shot_001',
+          shotType: 'dialogue_medium',
+          durationTargetSec: 4,
+          visualGoal: '大殿对峙',
+          cameraSpec: { moveType: 'slow_dolly', framing: 'medium', ratio: '9:16' },
           storyBeat: '双方对峙',
           screenDirection: 'forward',
           spaceAnchor: '大殿',
-          previousShotId: null,
-          nextShotId: null,
+          continuityContext: {
+            storyBeat: '双方对峙',
+            screenDirection: 'forward',
+            spaceAnchor: '大殿',
+            previousShotId: null,
+            nextShotId: null,
+          },
         },
-      },
-    ],
-    [{ shotId: 'shot_001', imagePath: '/tmp/shot_001.png', success: true }],
-    {
-      videoProvider: 'seedance',
+      ],
+      [{ shotId: 'shot_001', imagePath: '/tmp/shot_001.png', success: true }],
+      {
+        videoProvider: 'seedance',
       performancePlan: [
         {
           shotId: 'shot_001',
@@ -102,6 +105,13 @@ test('buildShotPackages assembles complete shotPackage and prefers configured vi
       canFallbackToStaticImage: false,
     },
   });
+  } finally {
+    if (previousVideoModel == null) {
+      delete process.env.VIDEO_MODEL;
+    } else {
+      process.env.VIDEO_MODEL = previousVideoModel;
+    }
+  }
 });
 
 test('routeVideoShots prefers image_prompt_en for provider-facing visual goal and ignores display_prompt_zh', async () => {
@@ -399,7 +409,9 @@ test('buildShotPackages preserves public reference URLs for relay-based video pr
 
 test('resolvePreferredVideoProvider defaults to seedance and allows explicit override', () => {
   const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  const previousVideoModel = process.env.VIDEO_MODEL;
   delete process.env.VIDEO_PROVIDER;
+  delete process.env.VIDEO_MODEL;
   try {
     assert.equal(__testables.resolvePreferredVideoProvider({}), 'seedance');
     assert.equal(__testables.resolvePreferredVideoProvider({ videoProvider: 'seedance' }), 'seedance');
@@ -411,12 +423,19 @@ test('resolvePreferredVideoProvider defaults to seedance and allows explicit ove
     } else {
       process.env.VIDEO_PROVIDER = previousVideoProvider;
     }
+    if (previousVideoModel == null) {
+      delete process.env.VIDEO_MODEL;
+    } else {
+      process.env.VIDEO_MODEL = previousVideoModel;
+    }
   }
 });
 
 test('buildShotPackages routes to seedance when VIDEO_PROVIDER is seedance and a reference image is present', () => {
   const previousVideoProvider = process.env.VIDEO_PROVIDER;
+  const previousVideoModel = process.env.VIDEO_MODEL;
   process.env.VIDEO_PROVIDER = 'seedance';
+  delete process.env.VIDEO_MODEL;
 
   try {
     const shotPackages = __testables.buildShotPackages(
@@ -441,6 +460,11 @@ test('buildShotPackages routes to seedance when VIDEO_PROVIDER is seedance and a
       delete process.env.VIDEO_PROVIDER;
     } else {
       process.env.VIDEO_PROVIDER = previousVideoProvider;
+    }
+    if (previousVideoModel == null) {
+      delete process.env.VIDEO_MODEL;
+    } else {
+      process.env.VIDEO_MODEL = previousVideoModel;
     }
   }
 });

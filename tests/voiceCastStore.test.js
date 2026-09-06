@@ -161,7 +161,7 @@ test('ensureProjectVoiceCast reuses stored project voice cast and preserves manu
   assert.equal(voiceCast[0].voiceProfile.voice, 'Custom_Girl');
   assert.equal(voiceCast[0].voiceProfile.rate, 0.92);
   assert.equal(voiceCast[1].voiceProfile.provider, 'minimax');
-  assert.equal(voiceCast[1].voiceProfile.voice, 'Reliable_Executive');
+  assert.equal(voiceCast[1].voiceProfile.voice, 'Chinese (Mandarin)_Reliable_Executive');
 });
 
 test('ensureProjectVoiceCast does not reuse legacy entries that only match by display name', (t) => {

@@ -1,14 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
-import { saveJSON, ensureDir } from '../utils/fileHelper.js';
+import { writeTextFile, saveJSON, ensureDir } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { classifyArtifactReadiness } from '../utils/rootCauseClassifier.js';
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function deriveStatus(blockers, warnings) {
   if (blockers.length > 0) return 'block';

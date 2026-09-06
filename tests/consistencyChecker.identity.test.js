@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import axios from 'axios';
 
 import { checkCharacterConsistency, runConsistencyCheck } from '../src/agents/consistencyChecker.js';
 
-test('runConsistencyCheck marks lead+anchor score 8.2 as warn and emits dual-axis fields', async () => {
+test('runConsistencyCheck marks lead+anchor score 8.2 as pass_with_review and avoids auto regen', async () => {
   const result = await runConsistencyCheck(
     [
       {
@@ -55,21 +54,12 @@ test('runConsistencyCheck marks lead+anchor score 8.2 as warn and emits dual-axi
   assert.equal(result.reports[0].shotConsistencyClass, 'anchor');
   assert.deepEqual(result.reports[0].hardFailureReasons, []);
   assert.deepEqual(result.reports[0].softRiskTags, ['hair_drift']);
-  assert.equal(result.reports[0].qaDecision.status, 'warn');
-  assert.equal(result.reports[0].regenStrategy, 'prompt_tighten');
-  assert.deepEqual(result.needsRegeneration, [
-    {
-      shotId: 'shot_001',
-      reason: '沈清 一致性评分 8.2/10（lead/anchor）',
-      regenStrategy: 'prompt_tighten',
-      hardFailureReasons: [],
-      softRiskTags: ['hair_drift'],
-      suggestion: 'lock hairstyle and robe palette',
-    },
-  ]);
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
+  assert.equal(result.reports[0].regenStrategy, 'none');
+  assert.deepEqual(result.needsRegeneration, []);
 });
 
-test('runConsistencyCheck allows support+complex score 7.1 to pass with soft risks only', async () => {
+test('runConsistencyCheck allows support+complex score 7.1 as low-confidence pass with soft risks only', async () => {
   const result = await runConsistencyCheck(
     [
       {
@@ -107,7 +97,7 @@ test('runConsistencyCheck allows support+complex score 7.1 to pass with soft ris
   );
 
   assert.equal(result.reports[0].shotConsistencyClass, 'complex');
-  assert.equal(result.reports[0].qaDecision.status, 'pass');
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
   assert.equal(result.reports[0].regenStrategy, 'none');
   assert.deepEqual(result.needsRegeneration, []);
 });
@@ -201,7 +191,8 @@ test('runConsistencyCheck matches character images by stable id before display n
   );
 
   assert.equal(result.reports.length, 1);
-  assert.deepEqual(result.needsRegeneration.map((entry) => entry.shotId), ['shot_target']);
+  assert.equal(result.reports[0].qaDecision.status, 'pass_with_review');
+  assert.deepEqual(result.needsRegeneration, []);
 });
 
 test('runConsistencyCheck falls back to legacy name matching when image results do not carry structured ids', async () => {
@@ -238,7 +229,7 @@ test('runConsistencyCheck falls back to legacy name matching when image results 
   assert.deepEqual(result.needsRegeneration.map((entry) => entry.shotId), ['shot_legacy_2']);
 });
 
-test('checkCharacterConsistency aggregates hard/soft tags across real batches and keeps decimal average', async (t) => {
+test('checkCharacterConsistency aggregates hard/soft tags across real batches and keeps decimal average', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-consistency-real-batch-'));
   try {
     const images = Array.from({ length: 7 }, (_, index) => {
@@ -248,38 +239,33 @@ test('checkCharacterConsistency aggregates hard/soft tags across real batches an
     });
 
     let callCount = 0;
-    t.mock.method(axios, 'post', async () => {
-      callCount += 1;
-      const responsePayloads = [
-        {
-          overallScore: 8.2,
-          identityDriftTags: ['hair_drift'],
-          hardFailureReasons: ['identity_swap'],
-          softRiskTags: ['hair_drift'],
-          problematicImageIndices: [0, '2'],
-        },
-        {
-          overallScore: 8.5,
-          identityDriftTags: ['palette_drift'],
-          hardFailureReasons: ['face_swap'],
-          softRiskTags: ['palette_drift'],
-          problematicImageIndices: ['0'],
-        },
-      ];
-      return {
-        data: {
-          choices: [
+    const report = await checkCharacterConsistency(
+      '沈清',
+      { name: '沈清' },
+      images,
+      {
+        visionChat: async () => {
+          callCount += 1;
+          const responsePayloads = [
             {
-              message: {
-                content: JSON.stringify(responsePayloads[callCount - 1]),
-              },
+              overallScore: 8.2,
+              identityDriftTags: ['hair_drift'],
+              hardFailureReasons: ['identity_swap'],
+              softRiskTags: ['hair_drift'],
+              problematicImageIndices: [0, '2'],
             },
-          ],
+            {
+              overallScore: 8.5,
+              identityDriftTags: ['palette_drift'],
+              hardFailureReasons: ['face_swap'],
+              softRiskTags: ['palette_drift'],
+              problematicImageIndices: ['0'],
+            },
+          ];
+          return JSON.stringify(responsePayloads[callCount - 1]);
         },
-      };
-    });
-
-    const report = await checkCharacterConsistency('沈清', { name: '沈清' }, images);
+      }
+    );
 
     assert.equal(callCount, 2);
     assert.equal(report.overallScore, 8.35);
@@ -399,30 +385,13 @@ test('runConsistencyCheck keeps consistency_check_unavailable as blocking report
   assert.deepEqual(result.needsRegeneration, []);
 });
 
-test('runConsistencyCheck maps problematicImageIndices against valid image list when some imagePath are missing', async (t) => {
+test('runConsistencyCheck maps problematicImageIndices against valid image list when some imagePath are missing', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-consistency-index-map-'));
   try {
     const validImageA = path.join(tempRoot, 'shot-valid-a.png');
     const validImageB = path.join(tempRoot, 'shot-valid-b.png');
     fs.writeFileSync(validImageA, 'a');
     fs.writeFileSync(validImageB, 'b');
-
-    t.mock.method(axios, 'post', async () => ({
-      data: {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                overallScore: 6.2,
-                problematicImageIndices: [0],
-                identityDriftTags: ['hair_drift'],
-                softRiskTags: ['hair_drift'],
-              }),
-            },
-          },
-        ],
-      },
-    }));
 
     const result = await runConsistencyCheck(
       [
@@ -451,7 +420,16 @@ test('runConsistencyCheck maps problematicImageIndices against valid image list 
           success: true,
           characters: ['沈清'],
         },
-      ]
+      ],
+      {
+        visionChat: async () =>
+          JSON.stringify({
+            overallScore: 6.2,
+            problematicImageIndices: [0],
+            identityDriftTags: ['hair_drift'],
+            softRiskTags: ['hair_drift'],
+          }),
+      }
     );
 
     assert.equal(result.reports.length, 1);

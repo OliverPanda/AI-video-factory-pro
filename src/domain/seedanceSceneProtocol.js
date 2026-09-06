@@ -1,3 +1,5 @@
+import { normalizeText, normalizeStringArray, normalizePlainObject } from '../utils/normalization.js';
+
 const REQUIRED_SCENE_PACK_FIELDS = [
   'scene_id',
   'scene_title',
@@ -18,23 +20,6 @@ const REQUIRED_SCENE_PACK_FIELDS = [
   'forbidden_choices',
   'delivery_priority',
 ];
-
-function normalizeText(value, fallback = '') {
-  if (value == null) {
-    return fallback;
-  }
-  return String(value).trim() || fallback;
-}
-
-function normalizeStringArray(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => normalizeText(item))
-    .filter(Boolean);
-}
 
 function normalizeActionBeats(value) {
   if (!Array.isArray(value)) {
@@ -75,12 +60,6 @@ function normalizeActionBeats(value) {
     .filter(Boolean);
 }
 
-function normalizePlainObject(value, fallback = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { ...fallback };
-  }
-  return { ...fallback, ...value };
-}
 
 function hasAllRequiredFields(value) {
   return REQUIRED_SCENE_PACK_FIELDS.every((field) => Object.prototype.hasOwnProperty.call(value, field));

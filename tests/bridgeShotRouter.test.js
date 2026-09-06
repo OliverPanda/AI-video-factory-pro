@@ -58,6 +58,18 @@ test('buildBridgeShotPackages assembles the minimum bridgeShotPackage fields', (
     durationTargetSec: 1.8,
     providerCapabilityRequirement: 'first_last_keyframe',
     firstLastFrameMode: 'required',
+    continuityStrategy: 'first_last_frame_bridge',
+    strategyReason: 'provider_supports_strict_first_last_frame_bridge',
+    providerCapabilities: {
+      provider: 'seedance',
+      supportsReferenceImages: true,
+      supportsReferenceVideos: true,
+      supportsFirstLastFrame: true,
+      maxReferenceImages: null,
+      minDurationSec: null,
+      maxDurationSec: null,
+      preferredContinuityModes: ['video_continuation', 'first_last_keyframe', 'image_reference_bridge'],
+    },
     preferredProvider: 'seedance',
     fallbackProviders: [],
     qaRules: {
@@ -158,6 +170,78 @@ test('buildBridgeShotPackages routes standard and constrained bridge tiers corre
   assert.equal(bridgePackages[0].firstLastFrameMode, 'disabled');
   assert.equal(bridgePackages[1].providerCapabilityRequirement, 'first_last_keyframe');
   assert.equal(bridgePackages[1].firstLastFrameMode, 'required');
+});
+
+test('buildBridgeShotPackages downgrades explicit HappyHorse first-last requests unless capability is enabled', () => {
+  const [bridgePackage] = __testables.buildBridgeShotPackages(
+    [
+      {
+        bridgeId: 'bridge_happyhorse_constrained',
+        fromShotId: 'shot_201',
+        toShotId: 'shot_202',
+        bridgeType: 'motion_carry',
+        bridgeGoal: 'carry_action_across_cut',
+        durationTargetSec: 1.8,
+        continuityRisk: 'high',
+        cameraTransitionIntent: 'follow_through_motion',
+        subjectContinuityTargets: ['char_a'],
+        environmentContinuityTargets: ['lighting', 'motion_direction'],
+        mustPreserveElements: ['character:char_a', 'subject_identity'],
+        bridgeGenerationMode: 'first_last_keyframe',
+        preferredProvider: 'happyhorse',
+        fallbackStrategy: 'direct_cut',
+      },
+    ],
+    {
+      env: { HAPPYHORSE_SUPPORTS_FIRST_LAST_FRAME: 'false' },
+      imageResults: [
+        { shotId: 'shot_201', imagePath: '/tmp/shot_201.png', success: true },
+        { shotId: 'shot_202', imagePath: '/tmp/shot_202.png', success: true },
+      ],
+      videoResults: [],
+    }
+  );
+
+  assert.equal(bridgePackage.preferredProvider, 'happyhorse');
+  assert.equal(bridgePackage.providerCapabilityRequirement, 'image_to_video');
+  assert.equal(bridgePackage.firstLastFrameMode, 'disabled');
+  assert.equal(bridgePackage.continuityStrategy, 'image_reference_bridge');
+  assert.equal(bridgePackage.strategyReason, 'provider_lacks_first_last_frame_support_using_image_reference_bridge');
+});
+
+test('buildBridgeShotPackages preserves HappyHorse first-last route when capability is enabled', () => {
+  const [bridgePackage] = __testables.buildBridgeShotPackages(
+    [
+      {
+        bridgeId: 'bridge_happyhorse_first_last',
+        fromShotId: 'shot_211',
+        toShotId: 'shot_212',
+        bridgeType: 'motion_carry',
+        bridgeGoal: 'carry_action_across_cut',
+        durationTargetSec: 1.8,
+        continuityRisk: 'high',
+        cameraTransitionIntent: 'follow_through_motion',
+        subjectContinuityTargets: ['char_a'],
+        environmentContinuityTargets: ['lighting', 'motion_direction'],
+        mustPreserveElements: ['character:char_a', 'subject_identity'],
+        bridgeGenerationMode: 'first_last_keyframe',
+        preferredProvider: 'happyhorse',
+        fallbackStrategy: 'direct_cut',
+      },
+    ],
+    {
+      env: { HAPPYHORSE_SUPPORTS_FIRST_LAST_FRAME: 'true' },
+      imageResults: [
+        { shotId: 'shot_211', imagePath: '/tmp/shot_211.png', success: true },
+        { shotId: 'shot_212', imagePath: '/tmp/shot_212.png', success: true },
+      ],
+      videoResults: [],
+    }
+  );
+
+  assert.equal(bridgePackage.providerCapabilityRequirement, 'first_last_keyframe');
+  assert.equal(bridgePackage.firstLastFrameMode, 'required');
+  assert.equal(bridgePackage.continuityStrategy, 'first_last_frame_bridge');
 });
 
 test('buildBridgeShotPackages falls back conservatively when reference images are missing', () => {

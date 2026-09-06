@@ -1,0 +1,13 @@
+﻿✔ evaluateShotPackage blocks generation when critical cinematic anchors are missing (0.8119ms)
+✔ evaluateShotPackage rewrites warn packages instead of sending weak prompts through untouched (1.4535ms)
+✔ evaluateShotPackage marks anatomy/reference hard issues as preflight hard block (0.2925ms)
+✔ evaluateShotPackage adds repair guidance for prop anchor drift (0.3547ms)
+✔ runPreflightQa writes report and reviewed packages artifacts (15.4785ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 24.3058

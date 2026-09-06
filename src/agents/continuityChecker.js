@@ -1,13 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import logger from '../utils/logger.js';
-
-function writeTextFile(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function buildContinuityPairs(shots = [], imageResults = []) {
   const shotMap = new Map(shots.map((shot) => [shot.id, shot]));

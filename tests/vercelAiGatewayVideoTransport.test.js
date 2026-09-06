@@ -62,6 +62,8 @@ test('createVercelAiGatewayVideoTransport submits polls downloads and normalizes
     const outputPath = path.join(tempRoot, 'shot.mp4');
     const calls = [];
     const transport = createVercelAiGatewayVideoTransport({
+      // 显式注入 env，避免 .env 的 VIDEO_MODEL_SHOT=happyhorse-1.0-r2v 污染默认模型映射
+      env: { VIDEO_MODEL_SHOT: 'bytedance/seedance-v1.5-pro' },
       httpClient: {
         async post(url, body) {
           calls.push(['post', url, body.model, body.packageType]);

@@ -1,0 +1,12 @@
+﻿✔ normalizeStopAt 解析三档字符串协议 (0.9265ms)
+✔ normalizeStopAt 兼容旧布尔开关 (0.1333ms)
+✔ normalizeStopAt 对 full/空值/未知值返回全 false (0.0953ms)
+✔ normalizeStopAt 归一化大小写与空白 (0.0682ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6.2125

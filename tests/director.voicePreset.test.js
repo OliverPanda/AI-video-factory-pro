@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRunPipeline } from '../src/agents/director.js';
+import { createDirector } from '../src/agents/director.js';
 import { makeManagedTempDir } from './helpers/testArtifacts.js';
 
 function makeTempDir(t) {
   return makeManagedTempDir(t, 'director-voice-preset', 'tts-agent');
 }
 
+// 项目模式 harness：预置 project/script/episode 数据，直接驱动 runEpisodePipeline。
 function createDirectorHarness(t, overrides = {}) {
   const tempRoot = makeTempDir(t);
   const dirs = {
@@ -21,6 +22,10 @@ function createDirectorHarness(t, overrides = {}) {
   for (const dir of Object.values(dirs)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+
+  const projectId = 'project-123';
+  const scriptId = 'script-1';
+  const episodeId = 'episode-1';
 
   const shots = [
     {
@@ -46,6 +51,29 @@ function createDirectorHarness(t, overrides = {}) {
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
+
+  const project = { id: projectId, name: 'Voice Preset Demo', status: 'draft' };
+  const script = {
+    id: scriptId,
+    projectId,
+    title: 'Voice Preset Demo',
+    sourceText: 'script content',
+    characters: [{ name: 'Alice' }],
+    status: 'draft',
+  };
+  const episode = {
+    id: episodeId,
+    projectId,
+    scriptId,
+    episodeNo: 1,
+    title: 'Voice Preset Demo',
+    summary: 'script content',
+    shots,
+    status: 'draft',
+  };
+  projectStore.set(project.id, clone(project));
+  scriptStore.set(`${projectId}/${script.id}`, clone(script));
+  episodeStore.set(`${projectId}/${scriptId}/${episode.id}`, clone(episode));
 
   const deps = {
     parseScript: async () => ({ title: 'Voice Preset Demo', shots, characters: [{ name: 'Alice' }] }),
@@ -78,36 +106,35 @@ function createDirectorHarness(t, overrides = {}) {
       persistedState = JSON.parse(JSON.stringify(state));
     },
     loadJSON: () => persistedState,
-    loadProject: (projectId) => projectStore.get(projectId) || null,
-    loadScript: (projectId, scriptId) => scriptStore.get(`${projectId}/${scriptId}`) || null,
-    loadEpisode: (projectId, scriptId, episodeId) => episodeStore.get(`${projectId}/${scriptId}/${episodeId}`) || null,
-    saveProject: (project) => {
-      const value = clone(project);
-      projectStore.set(value.id, value);
-      return value;
+    loadProject: (id) => projectStore.get(id) || null,
+    loadScript: (id, scriptId2) => scriptStore.get(`${id}/${scriptId2}`) || null,
+    loadEpisode: (id, scriptId2, episodeId2) => episodeStore.get(`${id}/${scriptId2}/${episodeId2}`) || null,
+    saveProject: (value) => {
+      const saved = clone(value);
+      projectStore.set(saved.id, saved);
+      return saved;
     },
-    saveScript: (projectId, script) => {
-      const value = clone(script);
-      scriptStore.set(`${projectId}/${value.id}`, value);
-      return value;
+    saveScript: (id, value) => {
+      const saved = clone(value);
+      scriptStore.set(`${id}/${saved.id}`, saved);
+      return saved;
     },
-    saveEpisode: (projectId, scriptId, episode) => {
-      const value = clone(episode);
-      episodeStore.set(`${projectId}/${scriptId}/${value.id}`, value);
-      return value;
+    saveEpisode: (id, scriptId2, value) => {
+      const saved = clone(value);
+      episodeStore.set(`${id}/${scriptId2}/${saved.id}`, saved);
+      return saved;
     },
     initDirs: () => dirs,
     generateJobId: () => 'job-123',
-    readTextFile: () => 'script content',
     createRunMetrics: () => ({ steps: {} }),
     finalizeRunMetrics: () => {},
     measureStep: async (_metrics, _key, _label, fn) => fn(),
-    loadVoicePreset: (projectId, voicePresetId, options = {}) => {
-      loadVoicePresetCalls.push({ projectId, voicePresetId, options });
+    loadVoicePreset: (projectIdArg, voicePresetId, options = {}) => {
+      loadVoicePresetCalls.push({ projectId: projectIdArg, voicePresetId, options });
       return { id: voicePresetId, voice: 'alice-voice' };
     },
-    ensureProjectVoiceCast: (projectId, registry, options = {}) => {
-      ensureVoiceCastCalls.push({ projectId, registry, options });
+    ensureProjectVoiceCast: (projectIdArg, registry, options = {}) => {
+      ensureVoiceCastCalls.push({ projectId: projectIdArg, registry, options });
       return [
         {
           characterId: 'ep-alice',
@@ -122,15 +149,27 @@ function createDirectorHarness(t, overrides = {}) {
         },
       ];
     },
-    loadPronunciationLexicon: (projectId) => {
-      loadPronunciationLexiconCalls.push(projectId);
+    loadPronunciationLexicon: (projectIdArg) => {
+      loadPronunciationLexiconCalls.push(projectIdArg);
       return [{ source: 'Alice', target: '艾丽丝' }];
     },
     ...overrides,
   };
 
+  const director = createDirector(deps);
+
   return {
-    runPipeline: createRunPipeline(deps),
+    runEpisode: () =>
+      director.runEpisodePipeline({
+        projectId,
+        scriptId,
+        episodeId,
+        options: {
+          style: 'realistic',
+          skipConsistencyCheck: true,
+          storeOptions: { baseTempDir: tempRoot },
+        },
+      }),
     dirs,
     shots,
     characterRegistry,
@@ -145,10 +184,7 @@ function createDirectorHarness(t, overrides = {}) {
 test('director passes projectId and a working voice preset loader into generateAllAudio', async (t) => {
   const harness = createDirectorHarness(t);
 
-  await harness.runPipeline('script.txt', {
-    projectId: 'project-123',
-    skipConsistencyCheck: true,
-  });
+  await harness.runEpisode();
 
   assert.equal(harness.audioCalls.length, 1);
   const audioCall = harness.audioCalls[0];
@@ -177,10 +213,7 @@ test('director passes projectId and a working voice preset loader into generateA
 test('director ensures and reuses project voice cast before TTS generation', async (t) => {
   const harness = createDirectorHarness(t);
 
-  await harness.runPipeline('script.txt', {
-    projectId: 'project-123',
-    skipConsistencyCheck: true,
-  });
+  await harness.runEpisode();
 
   assert.equal(harness.ensureVoiceCastCalls.length, 1);
   assert.equal(harness.ensureVoiceCastCalls[0].projectId, 'project-123');
@@ -189,7 +222,7 @@ test('director ensures and reuses project voice cast before TTS generation', asy
   assert.equal(harness.audioCalls[0].options.voiceCast[0].voiceProfile.voice, 'alice-minimax');
 });
 
-test('director backfills reference images from legacy sheets using characterName when no stable id is present', async (t) => {
+test('director backfills reference images using characterName when no stable id is present', async (t) => {
   const harness = createDirectorHarness(t, {
     generateCharacterRefSheets: async () => [
       {
@@ -202,10 +235,7 @@ test('director backfills reference images from legacy sheets using characterName
     ],
   });
 
-  await harness.runPipeline('script.txt', {
-    projectId: 'project-123',
-    skipConsistencyCheck: true,
-  });
+  await harness.runEpisode();
 
   assert.equal(harness.audioCalls.length, 1);
   assert.equal(harness.audioCalls[0].options.voiceCast[0].displayName, 'Alice');
@@ -224,48 +254,8 @@ test('director blocks the pipeline when character ref sheet generation fails', a
     ],
   });
 
-  await assert.rejects(
-    () =>
-      harness.runPipeline('script.txt', {
-        projectId: 'project-123',
-        skipConsistencyCheck: true,
-      }),
-    /角色三视图生成失败/
-  );
+  await assert.rejects(() => harness.runEpisode(), /角色三视图生成失败/);
 
   assert.equal(harness.audioCalls.length, 0);
   assert.equal(harness.qaCalls.length, 0);
-});
-
-test('director keeps audio generation backward-compatible when projectId is absent', async (t) => {
-  const harness = createDirectorHarness(t);
-
-  await harness.runPipeline('script.txt', {
-    skipConsistencyCheck: true,
-  });
-
-  assert.equal(harness.audioCalls.length, 1);
-  assert.equal(typeof harness.audioCalls[0].options, 'object');
-  assert.ok(harness.audioCalls[0].options.artifactContext);
-  assert.equal('projectId' in harness.audioCalls[0].options, false);
-  assert.equal('voicePresetLoader' in harness.audioCalls[0].options, false);
-  assert.deepEqual(harness.loadVoicePresetCalls, []);
-});
-
-test('director invalidates cached audio when projectId changes', async (t) => {
-  const harness = createDirectorHarness(t);
-
-  await harness.runPipeline('script.txt', {
-    projectId: 'project-123',
-    skipConsistencyCheck: true,
-  });
-
-  await harness.runPipeline('script.txt', {
-    projectId: 'project-456',
-    skipConsistencyCheck: true,
-  });
-
-  assert.equal(harness.audioCalls.length, 2);
-  assert.equal(harness.audioCalls[0].options.projectId, 'project-123');
-  assert.equal(harness.audioCalls[1].options.projectId, 'project-456');
 });

@@ -2,10 +2,7 @@ import path from 'node:path';
 
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
+import { normalizeText } from '../utils/normalization.js';
 
 function inferShotType(shot) {
   const camera = normalizeText(shot?.camera_type || shot?.cameraType || shot?.camera).toLowerCase();
@@ -78,13 +75,6 @@ function buildCameraSpec(shotType) {
   return presets[shotType] || presets.ambient_transition;
 }
 
-function buildVideoGenerationMode(shotType) {
-  if (shotType === 'insert_impact') {
-    return 'sora2_image_to_video';
-  }
-  return 'sora2_image_to_video';
-}
-
 function buildVisualGoal(shot) {
   return [shot?.scene, shot?.action, shot?.mood, shot?.dialogue ? `人物说台词：${shot.dialogue}` : '']
     .filter(Boolean)
@@ -154,7 +144,7 @@ export function buildMotionPlan(shots = []) {
       durationTargetSec: Number(shot.duration || shot.durationSec || 3),
       cameraIntent: buildCameraSpec(shotType).moveType,
       cameraSpec: buildCameraSpec(shotType),
-      videoGenerationMode: buildVideoGenerationMode(shotType),
+      videoGenerationMode: 'sora2_image_to_video',
       visualGoal: buildVisualGoal(shot),
       storyBeat: continuityContext.storyBeat,
       screenDirection: continuityContext.screenDirection,
@@ -208,7 +198,6 @@ export const __testables = {
   buildCameraSpec,
   buildContinuityContext,
   buildMotionPlan,
-  buildVideoGenerationMode,
   inferScreenDirection,
   inferSpaceAnchor,
   inferStoryBeat,

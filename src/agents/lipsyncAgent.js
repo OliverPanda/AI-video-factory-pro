@@ -4,18 +4,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { createLipsyncClip } from '../apis/lipsyncApi.js';
-import { ensureDir, saveJSON } from '../utils/fileHelper.js';
+import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { classifyArtifactReadiness } from '../utils/rootCauseClassifier.js';
 import logger from '../utils/logger.js';
 import { lipsyncQueue, queueWithRetry } from '../utils/queue.js';
 
 const execFileAsync = promisify(execFile);
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
 
 function normalizeCameraType(shot) {
   return String(shot?.camera_type || shot?.cameraType || shot?.camera || '').trim().toLowerCase();

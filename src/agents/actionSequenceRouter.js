@@ -3,6 +3,7 @@ import path from 'node:path';
 import { saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
 import { createActionSequencePackage } from '../utils/actionSequenceProtocol.js';
+import { asArray } from '../utils/normalization.js';
 
 function resolvePreferredSequenceProvider(options = {}) {
   const rawProvider = options.preferredProvider || options.videoProvider || process.env.VIDEO_PROVIDER || 'seedance';
@@ -12,17 +13,13 @@ function resolvePreferredSequenceProvider(options = {}) {
   return rawProvider;
 }
 
-function normalizeArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
 function uniqueStrings(values = []) {
-  return [...new Set(normalizeArray(values).map((value) => String(value || '').trim()).filter(Boolean))];
+  return [...new Set(asArray(values).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
 function buildShotCandidateBuckets(items = []) {
   const buckets = new Map();
-  normalizeArray(items).forEach((entry, index) => {
+  asArray(items).forEach((entry, index) => {
     if (!entry?.shotId) {
       return;
     }
@@ -118,7 +115,7 @@ function pickBestCandidate(candidates = [], scoreFn) {
   let bestScore = -Infinity;
   let bestIndex = Infinity;
 
-  for (const candidate of normalizeArray(candidates)) {
+  for (const candidate of asArray(candidates)) {
     const score = scoreFn(candidate.entry);
     if (
       score > bestScore ||
@@ -134,8 +131,8 @@ function pickBestCandidate(candidates = [], scoreFn) {
 }
 
 function hasFullSequenceCoverage(planEntry = {}, bridgeResult = {}) {
-  const sequenceShotIds = normalizeArray(planEntry.shotIds);
-  const coveredShotIds = new Set(normalizeArray(bridgeResult.coveredShotIds));
+  const sequenceShotIds = asArray(planEntry.shotIds);
+  const coveredShotIds = new Set(asArray(bridgeResult.coveredShotIds));
   return sequenceShotIds.length > 0 && sequenceShotIds.every((shotId) => coveredShotIds.has(shotId));
 }
 
@@ -185,14 +182,14 @@ function buildReferenceVideos(sequenceShotIds = [], videoResults = []) {
 }
 
 function buildBridgeReferences(planEntry = {}, bridgeClipResults = []) {
-  return normalizeArray(bridgeClipResults)
+  return asArray(bridgeClipResults)
     .filter((result) => isBridgeApprovedResult(result))
     .filter((result) => hasFullSequenceCoverage(planEntry, result))
     .map((result) => ({
       type: 'qa_passed_bridge_clip',
       sequenceId: result.sequenceId || planEntry.sequenceId,
       bridgeId: result.bridgeId || null,
-      shotIds: normalizeArray(result.coveredShotIds),
+      shotIds: asArray(result.coveredShotIds),
       path: result.videoPath,
       provider: result.provider || null,
       qaDecision: result.finalDecision || result.qaStatus || result.status || null,
@@ -204,12 +201,12 @@ function buildAudioBeatHints(sequenceShotIds = [], performancePlan = []) {
   const performanceIndex = buildShotCandidateBuckets(performancePlan);
   const hints = [];
 
-  for (const shotId of normalizeArray(sequenceShotIds)) {
+  for (const shotId of asArray(sequenceShotIds)) {
     const entry = pickBestCandidate(performanceIndex.get(shotId) || [], () => 0);
     if (!entry) {
       continue;
     }
-    for (const hint of normalizeArray(entry.audioBeatHints)) {
+    for (const hint of asArray(entry.audioBeatHints)) {
       if (hint) {
         hints.push(String(hint));
       }
@@ -230,10 +227,6 @@ function selectReferenceTier(referenceVideos, bridgeReferences, referenceImages)
     return 'image';
   }
   return 'skip';
-}
-
-function buildFallbackProviders(referenceTier) {
-  return [];
 }
 
 function buildQaRules(referenceTier) {
@@ -269,7 +262,7 @@ function countMatchingShotReferences(sequenceShotIds = [], results = [], pathFie
     return 0;
   }
   const buckets = buildShotCandidateBuckets(results);
-  return normalizeArray(sequenceShotIds).reduce((count, shotId) => {
+  return asArray(sequenceShotIds).reduce((count, shotId) => {
     const bestCandidate = pickBestCandidate(
       buckets.get(shotId) || [],
       pathField === 'videoPath' ? scoreVideoCandidate : scoreImageCandidate
@@ -297,7 +290,7 @@ function buildSkipReason({
     return null;
   }
 
-  const shotCount = normalizeArray(sequenceShotIds).length;
+  const shotCount = asArray(sequenceShotIds).length;
   if (referenceTier === 'image') {
     if (shotCount > 0 && referenceImages.length < shotCount) {
       return 'insufficient_reference_mix';
@@ -313,17 +306,17 @@ function buildSkipReason({
     return 'insufficient_reference_mix';
   }
 
-  const hasAnyImages = normalizeArray(imageResults).some((entry) => Boolean(entry?.imagePath));
+  const hasAnyImages = asArray(imageResults).some((entry) => Boolean(entry?.imagePath));
   if (hasAnyImages) {
     return 'missing_image_reference';
   }
 
-  const hasAnyVideos = normalizeArray(videoResults).some((entry) => Boolean(entry?.videoPath));
+  const hasAnyVideos = asArray(videoResults).some((entry) => Boolean(entry?.videoPath));
   if (hasAnyVideos) {
     return 'missing_video_reference';
   }
 
-  const hasAnyBridgeClips = normalizeArray(bridgeClipResults).some((entry) => Boolean(entry?.videoPath));
+  const hasAnyBridgeClips = asArray(bridgeClipResults).some((entry) => Boolean(entry?.videoPath));
   if (hasAnyBridgeClips) {
     return 'missing_bridge_reference';
   }
@@ -347,7 +340,7 @@ function buildSequenceTemplateHint(planEntry = {}) {
 function buildSequenceContextSummary(planEntry = {}, sequenceShotIds = [], referenceTier = 'skip', audioBeatHints = []) {
   const summaryParts = [
     `sequence type: ${planEntry.sequenceType || 'unknown_sequence'}`,
-    `shot coverage: ${normalizeArray(sequenceShotIds).join(' -> ') || 'none'}`,
+    `shot coverage: ${asArray(sequenceShotIds).join(' -> ') || 'none'}`,
     `camera flow: ${planEntry.cameraFlowIntent || 'unspecified'}`,
     `reference tier: ${referenceTier}`,
   ];
@@ -422,7 +415,7 @@ function buildProviderRequestHints(
 }
 
 function buildActionSequencePackage(planEntry = {}, options = {}) {
-  const sequenceShotIds = normalizeArray(planEntry.shotIds);
+  const sequenceShotIds = asArray(planEntry.shotIds);
   const durationTargetSec = Number(planEntry.durationTargetSec);
   const preferredProvider = planEntry.preferredProvider || resolvePreferredSequenceProvider(options);
   const referenceVideos = buildReferenceVideos(sequenceShotIds, options.videoResults);
@@ -467,7 +460,7 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
     exitFrameHint: planEntry.exitConstraint || '',
     audioBeatHints,
     preferredProvider: referenceTier === 'skip' ? 'skip' : preferredProvider,
-    fallbackProviders: buildFallbackProviders(referenceTier),
+    fallbackProviders: [],
     providerRequestHints: buildProviderRequestHints(
       planEntry,
       referenceTier,
@@ -480,7 +473,7 @@ function buildActionSequencePackage(planEntry = {}, options = {}) {
 }
 
 function buildActionSequencePackages(actionSequencePlan = [], options = {}) {
-  return normalizeArray(actionSequencePlan).map((planEntry) => buildActionSequencePackage(planEntry, options));
+  return asArray(actionSequencePlan).map((planEntry) => buildActionSequencePackage(planEntry, options));
 }
 
 function buildMetrics(actionSequencePackages = []) {
@@ -565,7 +558,6 @@ export const __testables = {
   countMatchingBridgeReferences,
   countMatchingShotReferences,
   buildContinuitySpec,
-  buildFallbackProviders,
   buildProviderRequestHints,
   buildReferenceImages,
   buildReferenceStrategy,

@@ -6,7 +6,7 @@ import {
   evaluateConsistencyDecision,
 } from '../src/domain/consistencyQaPolicy.js';
 
-test('lead + anchor warns below stricter threshold', () => {
+test('lead + anchor near threshold passes with async review', () => {
   const decision = evaluateConsistencyDecision({
     overallScore: 8.2,
     characterPriority: 'lead',
@@ -15,8 +15,23 @@ test('lead + anchor warns below stricter threshold', () => {
     softRiskTags: ['hair_drift'],
   });
 
+  assert.equal(decision.status, 'pass_with_review');
+  assert.equal(decision.threshold, 8.5);
+  assert.equal(decision.regenStrategy, 'none');
+});
+
+test('scores clearly below the low-confidence band warn and tighten prompts', () => {
+  const decision = evaluateConsistencyDecision({
+    overallScore: 7.9,
+    characterPriority: 'lead',
+    shotConsistencyClass: 'anchor',
+    hardFailureReasons: [],
+    softRiskTags: ['hair_drift'],
+  });
+
   assert.equal(decision.status, 'warn');
   assert.equal(decision.threshold, 8.5);
+  assert.equal(decision.lowConfidenceFloor, 8.1);
   assert.equal(decision.regenStrategy, 'prompt_tighten');
 });
 
@@ -33,7 +48,7 @@ test('hard identity failure blocks regardless of score', () => {
   assert.equal(decision.regenStrategy, 'reanchor_regenerate');
 });
 
-test('support + complex can pass with moderate score when only soft risks exist', () => {
+test('support + complex low-confidence soft risk passes with review', () => {
   const decision = evaluateConsistencyDecision({
     overallScore: 7.1,
     characterPriority: 'support',
@@ -42,12 +57,12 @@ test('support + complex can pass with moderate score when only soft risks exist'
     softRiskTags: ['palette_drift'],
   });
 
-  assert.equal(decision.status, 'pass');
+  assert.equal(decision.status, 'pass_with_review');
   assert.equal(decision.threshold, 7.0);
   assert.equal(decision.regenStrategy, 'none');
 });
 
-test('score equal to threshold should pass', () => {
+test('score equal to threshold passes with review as low confidence', () => {
   const decision = evaluateConsistencyDecision({
     overallScore: 8.0,
     characterPriority: 'support',
@@ -55,8 +70,21 @@ test('score equal to threshold should pass', () => {
     hardFailureReasons: [],
   });
 
-  assert.equal(decision.status, 'pass');
+  assert.equal(decision.status, 'pass_with_review');
   assert.equal(decision.threshold, 8.0);
+  assert.equal(decision.regenStrategy, 'none');
+});
+
+test('high score without soft risk passes cleanly', () => {
+  const decision = evaluateConsistencyDecision({
+    overallScore: 8.7,
+    characterPriority: 'support',
+    shotConsistencyClass: 'anchor',
+    hardFailureReasons: [],
+    softRiskTags: [],
+  });
+
+  assert.equal(decision.status, 'pass');
   assert.equal(decision.regenStrategy, 'none');
 });
 
@@ -76,7 +104,7 @@ test('non-array hardFailureReasons should not block', () => {
     hardFailureReasons: 'identity_swap',
   });
 
-  assert.equal(decision.status, 'pass');
+  assert.equal(decision.status, 'pass_with_review');
   assert.equal(decision.threshold, 7.0);
   assert.equal(decision.regenStrategy, 'none');
 });

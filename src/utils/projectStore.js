@@ -5,6 +5,7 @@ import {
   loadJSON,
   saveJSON,
 } from './fileHelper.js';
+import { ProjectStore } from './contracts/ProjectStore.js';
 
 function resolveBaseTempDir(options = {}) {
   return options.baseTempDir;
@@ -100,6 +101,34 @@ export function loadEpisode(projectId, scriptId, episodeId, options = {}) {
   return loadJSON(episodePath(projectId, scriptId, episodeId, options));
 }
 
+export class FsProjectStore extends ProjectStore {
+  saveProject(project, options = {}) {
+    return saveProject(project, options);
+  }
+
+  loadProject(projectId, options = {}) {
+    return loadProject(projectId, options);
+  }
+
+  saveScript(projectId, script, options = {}) {
+    return saveScript(projectId, script, options);
+  }
+
+  loadScript(projectId, scriptId, options = {}) {
+    return loadScript(projectId, scriptId, options);
+  }
+
+  saveEpisode(projectId, scriptId, episode, options = {}) {
+    return saveEpisode(projectId, scriptId, episode, options);
+  }
+
+  loadEpisode(projectId, scriptId, episodeId, options = {}) {
+    return loadEpisode(projectId, scriptId, episodeId, options);
+  }
+}
+
+export const fsProjectStore = new FsProjectStore();
+
 export default {
   saveProject,
   loadProject,
@@ -107,4 +136,6 @@ export default {
   loadScript,
   saveEpisode,
   loadEpisode,
+  fsProjectStore,
+  FsProjectStore,
 };

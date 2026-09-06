@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { normalizeVideoProviderError, normalizeVideoProviderRequest } from './videoProviderProtocol.js';
 import { ensureEnglishPrompt } from '../utils/translatePrompt.js';
 import { resolveSingleReferenceAsset, selectSoraReferenceImages } from '../utils/referenceImageAsset.js';
+import { normalizeMediaTaskDuration } from '../utils/normalization.js';
 
 function ensurePrompt(request) {
   return String(request?.prompt || '').trim();
@@ -39,13 +40,6 @@ function resolveReferenceUrl(referenceImage) {
 
 async function encodeReferenceImageToDataUrl(imagePath) {
   return `data:image/png;base64,${fs.readFileSync(imagePath).toString('base64')}`;
-}
-
-function normalizeMediaTaskDuration(durationSec) {
-  const target = Number(durationSec);
-  if (!Number.isFinite(target) || target <= 4) return '4';
-  if (target <= 8) return '8';
-  return '12';
 }
 
 function inferOrientation(request) {

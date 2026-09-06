@@ -4,15 +4,26 @@ import path from 'node:path';
 
 import { ensureDir, saveJSON } from './fileHelper.js';
 import { formatRunTimestamp, normalizeReadableSegment } from './naming.js';
+import { normalizeText } from './normalization.js';
+import { ArtifactStore } from './contracts/ArtifactStore.js';
+import {
+  buildRuntimeStageTimelineEntries,
+  normalizeRuntimeJournal,
+  normalizeStageRun,
+} from '../runtime/schemas/runtimeJournal.js';
+import { normalizeDecisionRecord } from '../runtime/schemas/decisionRecord.js';
+import { normalizeRunState } from '../runtime/schemas/runState.js';
 
 export const AGENT_ARTIFACT_LAYOUT = {
   scriptParser: '01-script-parser',
   characterRegistry: '02-character-registry',
   characterRefSheetGenerator: '02b-character-ref-sheets',
+  characterAssetGovernance: '02c-character-asset-governance',
   promptEngineer: '03-prompt-engineer',
   imageGenerator: '04-image-generator',
   consistencyChecker: '05-consistency-checker',
   continuityChecker: '06-continuity-checker',
+  sceneGrammarAgent: '06-scene-grammar',
   ttsAgent: '07-tts-agent',
   ttsQaAgent: '08-tts-qa',
   lipsyncAgent: '08b-lipsync-agent',
@@ -35,7 +46,14 @@ export const AGENT_ARTIFACT_LAYOUT = {
   actionSequenceRouter: '09l-action-sequence-router',
   sequenceClipGenerator: '09m-sequence-clip-generator',
   sequenceQaAgent: '09n-sequence-qa',
+  storyboardContextAgent: '09o-storyboard-context-memory',
+  avPackagingAgent: '09q-av-packaging',
+  crossVideoConsistencyChecker: '10-cross-video-consistency',
+  crossVideoConsistencyAgent: '10-cross-video-consistency',
   videoComposer: '10-video-composer',
+  postComposeReviewAgent: '10b-post-compose-review',
+  costGovernance: '11-cost-governance',
+  humanReviewQueue: '12-human-review-queue',
 };
 
 function createAgentContext(runDir, agentDirName) {
@@ -47,6 +65,7 @@ function createAgentContext(runDir, agentDirName) {
   const errorsDir = ensureDir(path.join(dir, '3-errors'));
 
   return {
+    runDir,
     dir,
     manifestPath,
     inputsDir,
@@ -87,10 +106,6 @@ function buildArtifactEpisodeDirName(input) {
 
 function buildArtifactRunDirName(input) {
   return `r_${formatRunTimestamp(input?.startedAt)}_${buildArtifactHash(input?.runJobId)}`;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
 }
 
 function normalizeList(items = []) {
@@ -241,10 +256,13 @@ export function createRunArtifactContext(input) {
     agents: {
       scriptParser: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.scriptParser),
       characterRegistry: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRegistry),
+      characterRefSheetGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterRefSheetGenerator),
+      characterAssetGovernance: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.characterAssetGovernance),
       promptEngineer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.promptEngineer),
       imageGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.imageGenerator),
       consistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.consistencyChecker),
       continuityChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.continuityChecker),
+      sceneGrammarAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sceneGrammarAgent),
       ttsAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsAgent),
       ttsQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.ttsQaAgent),
       lipsyncAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.lipsyncAgent),
@@ -267,7 +285,14 @@ export function createRunArtifactContext(input) {
       actionSequenceRouter: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.actionSequenceRouter),
       sequenceClipGenerator: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sequenceClipGenerator),
       sequenceQaAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.sequenceQaAgent),
+      storyboardContextAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.storyboardContextAgent),
+      avPackagingAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.avPackagingAgent),
+      crossVideoConsistencyChecker: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.crossVideoConsistencyChecker),
+      crossVideoConsistencyAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.crossVideoConsistencyAgent),
       videoComposer: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.videoComposer),
+      postComposeReviewAgent: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.postComposeReviewAgent),
+      costGovernance: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.costGovernance),
+      humanReviewQueue: createAgentContext(runDir, AGENT_ARTIFACT_LAYOUT.humanReviewQueue),
     },
   };
 }
@@ -300,6 +325,66 @@ export function initializeRunArtifacts(artifactContext, metadata, options = {}) 
   return timeline;
 }
 
+export function writeRuntimeJournal(artifactContext, payload = {}, options = {}) {
+  const writeJSON = options.saveJSON || saveJSON;
+  const existingTimeline = (() => {
+    try {
+      return JSON.parse(fs.readFileSync(artifactContext.timelinePath, 'utf-8'));
+    } catch {
+      return [];
+    }
+  })();
+
+  const executionRecords = (Array.isArray(payload.executionRecords) ? payload.executionRecords : [])
+    .map((item) => normalizeStageRun(item))
+    .filter((item) => item.stage);
+  const decisions = (Array.isArray(payload.decisions) ? payload.decisions : [])
+    .map((item) => normalizeDecisionRecord(item))
+    .filter((item) => item.decisionType !== 'unknown' || item.decisionKey);
+
+  const runtimeJournal = normalizeRuntimeJournal({
+    status: normalizeText(payload.status) || 'unknown',
+    updatedAt: normalizeText(payload.updatedAt) || new Date().toISOString(),
+    stages: executionRecords,
+    decisions,
+  });
+
+  const preservedTimeline = Array.isArray(existingTimeline)
+    ? existingTimeline.filter((entry) => entry?.event !== 'runtime_stage_execution')
+    : [];
+  const stageTimelineEntries = buildRuntimeStageTimelineEntries(runtimeJournal);
+
+  writeJSON(path.join(artifactContext.runDir, 'runtime-journal.json'), runtimeJournal);
+  writeJSON(artifactContext.timelinePath, [...preservedTimeline, ...stageTimelineEntries]);
+
+  const nextSnapshot = {
+    ...(payload.snapshot || {}),
+    runtimeJournal,
+    pipelineExecutionRecords: executionRecords,
+    decisionRecords: decisions,
+  };
+  const runState = normalizeRunState({
+    snapshot: nextSnapshot,
+    runtimeJournal,
+    stageRuns: executionRecords,
+    decisions,
+    runId: payload.runId || nextSnapshot.runId || nextSnapshot.id,
+    jobId: payload.jobId || nextSnapshot.jobId,
+    projectId: payload.projectId || nextSnapshot.projectId,
+    scriptId: payload.scriptId || nextSnapshot.scriptId,
+    episodeId: payload.episodeId || nextSnapshot.episodeId,
+    status: payload.status || nextSnapshot.status,
+    startedAt: payload.startedAt || nextSnapshot.startedAt,
+    updatedAt: payload.updatedAt || nextSnapshot.updatedAt,
+    completedAt: payload.completedAt || nextSnapshot.completedAt,
+    failedAt: payload.failedAt || nextSnapshot.failedAt,
+  });
+  nextSnapshot.runState = runState;
+  writeJSON(path.join(artifactContext.runDir, 'state.snapshot.json'), nextSnapshot);
+
+  return runtimeJournal;
+}
+
 export function adoptAgentArtifacts(sourceAgentContext, targetAgentContext) {
   if (!sourceAgentContext || !targetAgentContext) {
     return targetAgentContext;
@@ -319,13 +404,36 @@ export function adoptAgentArtifacts(sourceAgentContext, targetAgentContext) {
   return targetAgentContext;
 }
 
+export class FsArtifactStore extends ArtifactStore {
+  createRunArtifactContext(input) {
+    return createRunArtifactContext(input);
+  }
+
+  initializeRunArtifacts(artifactContext, metadata, options = {}) {
+    return initializeRunArtifacts(artifactContext, metadata, options);
+  }
+
+  writeRuntimeJournal(artifactContext, payload, options = {}) {
+    return writeRuntimeJournal(artifactContext, payload, options);
+  }
+
+  adoptAgentArtifacts(sourceAgentContext, targetAgentContext) {
+    return adoptAgentArtifacts(sourceAgentContext, targetAgentContext);
+  }
+}
+
+export const fsArtifactStore = new FsArtifactStore();
+
 export default {
   createRunArtifactContext,
   initializeRunArtifacts,
+  writeRuntimeJournal,
   adoptAgentArtifacts,
   AGENT_ARTIFACT_LAYOUT,
   normalizeHarnessAgentSummary,
   normalizeHarnessRunOverview,
   normalizeHarnessRunDebug,
   normalizeHarnessArtifacts,
+  fsArtifactStore,
+  FsArtifactStore,
 };
