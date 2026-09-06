@@ -21,3 +21,4 @@ logs/
 Thumbs.db
 截图/
 *.png
+!views/public/style-presets/*.png
