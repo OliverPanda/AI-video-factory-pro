@@ -7,6 +7,18 @@ import { resolveTtsProvider } from '../../apis/ttsApi.js';
 import { resolveVideoGenerationConfig } from '../../apis/videoGenerationConfig.js';
 import { readEnvFile } from '../../utils/envConfigStore.js';
 
+function extractImageProviderEnv(env = process.env) {
+  return {
+    PRIMARY_API_PROVIDER: env.PRIMARY_API_PROVIDER,
+    IMAGE_TRANSPORT_PROVIDER: env.IMAGE_TRANSPORT_PROVIDER,
+    IMAGE_API_BASE_URL: env.IMAGE_API_BASE_URL,
+    IMAGE_API_KEY: env.IMAGE_API_KEY,
+    REALISTIC_IMAGE_MODEL: env.REALISTIC_IMAGE_MODEL,
+    THREED_IMAGE_MODEL: env.THREED_IMAGE_MODEL,
+    IMAGE_EDIT_MODEL: env.IMAGE_EDIT_MODEL,
+  };
+}
+
 export const CONFIG_SECTIONS = [
   {
     id: 'llmText',
@@ -39,7 +51,7 @@ export const CONFIG_SECTIONS = [
     title: '出图与图像编辑',
     description: '负责角色图、场景图、图像编辑。你要生成角色设定图或改图时，需要配置这组。',
     fields: [
-      { key: 'PRIMARY_API_PROVIDER', label: '图像供应商类型', kind: 'select', options: ['openai_compat', 'laozhang'] },
+      { key: 'PRIMARY_API_PROVIDER', label: '图像供应商类型', kind: 'select', options: ['openai_compat'] },
       { key: 'IMAGE_TRANSPORT_PROVIDER', label: '图像传输协议', kind: 'text' },
       { key: 'IMAGE_API_BASE_URL', label: '图像接口地址', kind: 'text', required: true },
       { key: 'IMAGE_API_KEY', label: '图像 API Key', kind: 'secret', required: true },
@@ -83,6 +95,19 @@ export const CONFIG_SECTIONS = [
     ],
   },
   {
+    id: 'gatewaySync',
+    title: '中转站对账补录',
+    description: '用于从中转站日志接口同步真实计费与请求状态，回填本地账本。不会直接影响主流程，只用于对账补录。',
+    fields: [
+      { key: 'GATEWAY_SYNC_ENABLED', label: '启用对账补录', kind: 'select', options: ['true', 'false'] },
+      { key: 'GATEWAY_SYNC_SCHEDULE_ENABLED', label: '启用定时同步', kind: 'select', options: ['true', 'false'] },
+      { key: 'GATEWAY_SYNC_INTERVAL_MS', label: '定时间隔(ms)', kind: 'text' },
+      { key: 'GATEWAY_SYNC_BASE_URL', label: '中转站日志接口根地址', kind: 'text' },
+      { key: 'GATEWAY_SYNC_API_KEY', label: '中转站日志 API Key', kind: 'secret' },
+      { key: 'GATEWAY_SYNC_PATH', label: '中转站日志路径', kind: 'text' },
+    ],
+  },
+  {
     id: 'speechAndLipsync',
     title: '识别与口型',
     description: '负责语音识别和口型同步。现在大多是可选链路，不配也能先跑主流程。',
@@ -96,7 +121,11 @@ export const CONFIG_SECTIONS = [
   },
 ];
 
-const ALLOWED_SETTINGS_KEYS = new Set(CONFIG_SECTIONS.flatMap((section) => section.fields.map((field) => field.key)));
+const HIDDEN_SETTINGS_KEYS = new Set(['GATEWAY_SYNC_FAMILY']);
+const ALLOWED_SETTINGS_KEYS = new Set([
+  ...CONFIG_SECTIONS.flatMap((section) => section.fields.map((field) => field.key)),
+  ...HIDDEN_SETTINGS_KEYS,
+]);
 
 function maskSecret(value) {
   const normalized = String(value || '').trim();
@@ -161,7 +190,8 @@ export function collectSettingsUpdates(sections = []) {
   return updates;
 }
 
-export async function runBatchProviderPrecheck() {
+export async function runBatchProviderPrecheck(options = {}) {
+  const imageLiveProbe = options.imageLiveProbe;
   const llmTextProvider = process.env.LLM_PROVIDER || 'qwen';
   const llmTextModel = process.env.LLM_MODEL
     || (llmTextProvider === 'qwen' ? process.env.QWEN_MODEL : '')
@@ -215,9 +245,41 @@ export async function runBatchProviderPrecheck() {
         message: result.ok ? '视觉模型连通性正常' : (result.error || '视觉模型预检失败'),
         hint: result.hint || '',
       })),
-      safeConfigResult('image', '出图与图像编辑', () => {
+      await (async () => {
         const imageRoute = resolveImageRoute(IMAGE_TASK_TYPES.REALISTIC_IMAGE);
         const imageTransport = resolveImageTransportProvider();
+        if (typeof imageLiveProbe === 'function') {
+          try {
+            const result = await imageLiveProbe({
+              provider: imageTransport,
+              model: imageRoute.model,
+              env: extractImageProviderEnv(process.env),
+            });
+            return {
+              sectionId: 'image',
+              sectionTitle: '出图与图像编辑',
+              checkType: 'live',
+              provider: result?.provider || imageTransport,
+              model: result?.model || imageRoute.model,
+              ok: Boolean(result?.ok),
+              latencyMs: Number(result?.latencyMs || 0),
+              message: result?.message || (result?.ok ? '图像鉴权与模型权限正常' : '图像预检失败'),
+              hint: result?.hint || '',
+            };
+          } catch (err) {
+            return {
+              sectionId: 'image',
+              sectionTitle: '出图与图像编辑',
+              checkType: 'live',
+              provider: imageTransport,
+              model: imageRoute.model,
+              ok: false,
+              latencyMs: 0,
+              message: err.message || '图像预检失败',
+              hint: '请检查图像 API Key、模型权限和供应商账户状态。',
+            };
+          }
+        }
         const ok = Boolean(process.env.IMAGE_API_BASE_URL && process.env.IMAGE_API_KEY);
         return {
           sectionId: 'image',
@@ -230,7 +292,7 @@ export async function runBatchProviderPrecheck() {
           message: ok ? '已检测到图像接口地址和 API Key' : '图像接口地址或 API Key 缺失',
           hint: '当前先做配置完整性检查，避免误触发真实出图计费。',
         };
-      }),
+      })(),
       safeConfigResult('tts', '配音', () => {
         const ttsProvider = resolveTtsProvider();
         const ttsRequest = buildMiniMaxTtsRequest('预检', {}, process.env);
@@ -262,6 +324,25 @@ export async function runBatchProviderPrecheck() {
           hint: '当前先校验配置是否完整，避免在设置页直接提交真实视频任务。',
         };
       }),
+      {
+        sectionId: 'gatewaySync',
+        sectionTitle: '中转站对账补录',
+        checkType: 'config',
+        provider: process.env.GATEWAY_SYNC_FAMILY || 'auto',
+        model: '',
+        ok: String(process.env.GATEWAY_SYNC_ENABLED || 'false') !== 'true'
+          || Boolean(process.env.GATEWAY_SYNC_BASE_URL && process.env.GATEWAY_SYNC_API_KEY),
+        latencyMs: 0,
+        message:
+          String(process.env.GATEWAY_SYNC_ENABLED || 'false') === 'true'
+            ? (process.env.GATEWAY_SYNC_BASE_URL && process.env.GATEWAY_SYNC_API_KEY
+              ? '已检测到中转站日志同步所需基础配置'
+              : '中转站日志同步配置不完整')
+            : '当前未启用中转站对账补录',
+        hint: String(process.env.GATEWAY_SYNC_SCHEDULE_ENABLED || 'false') === 'true'
+          ? '已启用定时同步；该链路只用于对账补录，不会替代本地账本查询。'
+          : '该配置只用于对账补录，不会自动替代本地账本。',
+      },
     ],
   };
 }

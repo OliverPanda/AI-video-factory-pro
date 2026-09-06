@@ -1,0 +1,57 @@
+﻿[32m16:50:35 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:35 INFO [VideoComposer][0m 合成计划：1 个分镜
+[32m16:50:35 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:35 INFO [VideoComposer][0m 合成计划：1 个分镜
+[32m16:50:35 INFO [VideoComposer][0m 视频合成完成：C:\Users\zzjhy\AppData\Local\Temp\aivf-video-composer-artifacts-eEBc1w\output\final-video.mp4
+✔ video composer writes compose plan metrics and ffmpeg evidence on failure (135.5025ms)
+✔ video composer returns structured result with artifact index and delivery report on success (99.9821ms)
+[32m16:50:35 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:35 INFO [VideoComposer][0m 合成计划：1 个分镜
+
+[FFmpeg] 进度：93%
+[32m16:50:37 INFO [VideoComposer][0m 视频合成完成：C:\Users\zzjhy\AppData\Local\Temp\aivf-video-composer-real-render-o4YMrQ\output\final-video.mp4
+[32m16:50:37 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:37 INFO [VideoComposer][0m 合成计划：1 个分镜
+[32m16:50:37 INFO [VideoComposer][0m 视频合成完成：C:\Users\zzjhy\AppData\Local\Temp\aivf-composer-packaging-8Kq4SK\final.mp4
+[32m16:50:37 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:37 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:37 INFO [VideoComposer][0m 合成计划：1 个分镜
+[32m16:50:37 INFO [VideoComposer][0m 视频合成完成：C:\Users\zzjhy\AppData\Local\Temp\aivf-compose-legacy-jfdqbx\final-video.mp4
+[32m16:50:37 INFO [VideoComposer][0m 开始合成视频...
+[32m16:50:37 INFO [VideoComposer][0m 合成计划：1 个分镜
+[32m16:50:37 INFO [VideoComposer][0m 视频合成完成：C:\Users\zzjhy\AppData\Local\Temp\aivf-compose-job-3YLAvk\final-video.mp4
+✔ video composer can render a playable mp4 with real ffmpeg inputs (1483.6852ms)
+✔ buildCompositionPlan inserts approved bridge clips between primary shots (0.2605ms)
+✔ insertBridgeClips ignores direct-cut fallback and manual-review bridge entries (0.1047ms)
+✔ insertBridgeClips ignores bridges whose toShotId is not the next timeline anchor (0.0864ms)
+✔ buildCompositionPlan lets approved sequence clips cover multiple shots and keeps downstream bridge insertion (0.2589ms)
+✔ buildCompositionPlan ignores non-pass sequence clips and falls back to shot visuals (0.1248ms)
+✔ buildCompositionPlan ignores overlapping or non-contiguous sequence clips (0.1993ms)
+✔ buildCompositionPlan ignores pass sequence clips that do not actually cover multiple unique shots (0.2213ms)
+✔ buildCompositionPlan prefers generated video clips over animation clips when provided (0.1343ms)
+✔ buildCompositionPlan prefers lipsync clip over generated video for dialogue shots (0.0866ms)
+✔ buildCompositionPlan keeps generated video over lipsync for non-dialogue shots (0.0548ms)
+✔ buildCompositionPlan falls back to static image when no animation clip exists (0.0519ms)
+✔ collectExistingAudioItems skips silent shots without calling existsSync on null paths (0.082ms)
+✔ buildAudioTimeline preserves offsets across mixed audio and silent shots (0.0414ms)
+✔ collectPackagingAudioItems converts local BGM and SFX cues into delayed mix inputs (1.5708ms)
+✔ buildVisualSegmentJobs carries animation clips into the segment rendering pipeline (0.182ms)
+✔ buildCompositionPlan supports ShotPlan camelCase duration fields (0.0802ms)
+✔ buildSubtitleFilterArg uses quoted subtitles syntax that fluent-ffmpeg accepts on Windows paths (0.0944ms)
+✔ composeFromLegacy passes packagingPlan subtitleStyleProfile to subtitle generation (2.6379ms)
+✔ buildCompositionPlan prefers lipsync clips over animation clips (0.1261ms)
+✔ isVideoBackedVisualType includes generated video clips so ffmpeg uses transcode path (0.0447ms)
+✔ buildCompositionPlan falls back to animation clips when generated video and lipsync are unavailable (0.0604ms)
+✔ buildVideoMetrics summarizes composition outputs (0.0623ms)
+✔ adaptLegacyComposeInput maps current agent outputs into normalized protocol shapes (0.168ms)
+✔ composeFromLegacy blocks before render when tts qa is blocked (0.2457ms)
+✔ composeFromLegacy returns structured result and warning summary after render (2.1601ms)
+✔ composeFromJob adapts platform job assets into legacy-compatible render inputs (3.9914ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1738.2954

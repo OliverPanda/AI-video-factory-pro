@@ -8,6 +8,7 @@ test('buildWorkbenchViewModel returns stable workbench contract', () => {
     runJobs: [
       {
         id: 'run_1',
+        runKey: 'rk_run_1',
         projectId: 'project_a',
         scriptId: 'script_a',
         episodeId: 'episode_a',
@@ -42,7 +43,10 @@ test('buildWorkbenchViewModel returns stable workbench contract', () => {
 
   assert.equal(model.summary.runCount, 1);
   assert.equal(model.currentRun.id, 'run_1');
+  assert.equal(model.currentRun.runKey, 'rk_run_1');
   assert.equal(model.currentRun.qaOverview.status, 'warn');
   assert.ok(model.currentRun.stages.preproduction);
   assert.deepEqual(model.currentRun.artifactSummary.agentDirs, ['01-script-parser']);
+  assert.equal(model.projects[0].latestRunKey, 'rk_run_1');
+  assert.equal(model.recentRuns[0].runKey, 'rk_run_1');
 });

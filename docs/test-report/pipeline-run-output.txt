@@ -1,0 +1,49 @@
+﻿
+╔════════════════════════════════════════╗
+║    AI漫剧自动化生成系统 v1.0.0         ║
+╚════════════════════════════════════════╝
+
+[32m17:20:50 INFO [Main][0m runtime image env {"IMAGE_API_BASE_URL":"https://api.apilio.ai/v1","REALISTIC_IMAGE_MODEL":"gpt-image-2-all","IMAGE_EDIT_MODEL":"gpt-image-2-all","PRIMARY_API_PROVIDER":"openai_compat"}
+[32m17:20:52 INFO [Director][0m === 开始任务 pilot_episode-1_1788600052341 ===
+[32m17:20:52 INFO [Director][0m 项目：project-example | 剧本：pilot | 分集：episode-1 | 风格：realistic
+[32m17:20:52 INFO [Director][0m 剧名：试播集，分集：第一集，本次抽样运行前 1/1 个分镜，1 个角色
+[32m17:20:52 INFO [Director][0m 【Step 1/6】构建角色档案...
+[32m17:20:52 INFO [CharacterRegistry][0m 构建 1 个角色的视觉档案...
+[32m17:20:52 INFO [CharacterRegistry][0m 补齐 1 个缺少视觉档案的分集角色...
+[31m17:20:52 ERROR [Director][0m 任务失败：Invalid prompt: System messages are not allowed in the prompt or messages fields. Use the instructions option instead.
+[31m17:20:52 ERROR [Director][0m AI_InvalidPromptError: Invalid prompt: System messages are not allowed in the prompt or messages fields. Use the instructions option instead.
+    at standardizePrompt (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:2616:11)
+    at generateText (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:5544:31)
+    at callWithPolicy.op (file:///D:/My-Project/AI-video-factory-pro/src/llm/client.js:126:7)
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:223:37
+    at #tryToStartAnother (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:120:17)
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:247:36
+    at new Promise (<anonymous>)
+    at PQueue.add (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:217:16)
+    at executeQueuedTask (file:///D:/My-Project/AI-video-factory-pro/src/utils/queue.js:149:16)
+    at callWithPolicy (file:///D:/My-Project/AI-video-factory-pro/src/llm/client.js:96:26)
+[31m17:20:52 ERROR [Main][0m 生成失败：Invalid prompt: System messages are not allowed in the prompt or messages fields. Use the instructions option instead.
+node : Error executing step workflow.director-episode-pipeline.step.run_episode_pipeline: AI_InvalidPromptError: Invali
+d prompt: System messages are not allowed in the prompt or messages fields. Use the instructions option instead.
+At line:1 char:1
++ node scripts/run.js --project=project-example --script=pilot --episod ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error executing...option instead.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    at standardizePrompt (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_module
+s/ai/dist/index.js:2616:11)
+    at generateText (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/
+dist/index.js:5544:31)
+    at callWithPolicy.op (file:///D:/My-Project/AI-video-factory-pro/src/llm/client.js:126:7)
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:2
+23:37
+    at #tryToStartAnother (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-q
+ueue/dist/index.js:120:17)
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dist/index.js:2
+47:36
+    at new Promise (<anonymous>)
+    at PQueue.add (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/p-queue@8.1.1/node_modules/p-queue/dis
+t/index.js:217:16)
+    at executeQueuedTask (file:///D:/My-Project/AI-video-factory-pro/src/utils/queue.js:149:16)
+    at callWithPolicy (file:///D:/My-Project/AI-video-factory-pro/src/llm/client.js:96:26)

@@ -169,19 +169,21 @@ test('buildPromptText turns structured blocks into Seedance-style subject enviro
     ],
   });
 
-  const subjectIndex = promptText.indexOf('subject and action');
-  const environmentIndex = promptText.indexOf('scene and style');
-  const cameraIndex = promptText.indexOf('camera and timing');
-  const referenceIndex = promptText.indexOf('reference binding');
+  // v2 渲染为叙事流自然语言，段落顺序固定：场景氛围 → 人物动作 → 镜头行为 → 连续性约束(含 Reference binding)
+  const sceneIndex = promptText.indexOf('warehouse main aisle');
+  const subjectIndex = promptText.indexOf('Two rivals confront');
+  const cameraIndex = promptText.indexOf('slow push camera motion');
+  const referenceIndex = promptText.indexOf('Reference binding:');
 
+  assert.notEqual(sceneIndex, -1);
   assert.notEqual(subjectIndex, -1);
-  assert.notEqual(environmentIndex, -1);
   assert.notEqual(cameraIndex, -1);
   assert.notEqual(referenceIndex, -1);
-  assert.equal(subjectIndex < environmentIndex, true);
-  assert.equal(environmentIndex < cameraIndex, true);
+  assert.equal(sceneIndex < subjectIndex, true);
+  assert.equal(subjectIndex < cameraIndex, true);
   assert.equal(cameraIndex < referenceIndex, true);
   assert.match(promptText, /image1 is the first frame keyframe/i);
+  assert.match(promptText, /Entry and exit states: entry:/i);
 });
 
 test('buildSeedanceVideoRequest prioritizes structured prompt blocks over legacy provider hints in final request text', async () => {

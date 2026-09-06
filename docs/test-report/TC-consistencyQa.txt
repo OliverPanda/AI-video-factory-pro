@@ -1,0 +1,19 @@
+﻿✔ lead + anchor near threshold passes with async review (0.7978ms)
+✔ scores clearly below the low-confidence band warn and tighten prompts (0.1923ms)
+✔ hard identity failure blocks regardless of score (0.1077ms)
+✔ support + complex low-confidence soft risk passes with review (0.1276ms)
+✔ score equal to threshold passes with review as low confidence (0.1622ms)
+✔ high score without soft risk passes cleanly (0.3433ms)
+✔ evaluateConsistencyDecision uses defaults for missing fields (0.3042ms)
+✔ non-array hardFailureReasons should not block (0.1687ms)
+✔ resolveCharacterPriority normalizes and falls back to support (0.3463ms)
+✔ classifyShotConsistencyClass identifies anchor and complex shots (0.2786ms)
+✔ anchor takes precedence when both anchor and complex signals exist (0.0753ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9.6294

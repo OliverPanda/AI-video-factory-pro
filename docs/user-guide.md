@@ -40,23 +40,11 @@ ffprobe -version
 cp .env.example .env
 ```
 
-## 3. 两种运行模式
+## 3. 运行模式
 
-### 3.1 兼容模式
+> v1.2（D1）起只保留**项目模式**；兼容单文件模式（位置参数 `.txt` 直跑自动桥接）已整体移除。
 
-适合直接给单个剧本文件跑一轮：
-
-```bash
-node scripts/run.js samples/双生囚笼.txt --style=realistic
-```
-
-如果输入不是专业分镜剧本，而是小说/大纲，显式打开改编模式：
-
-```bash
-node scripts/run.js samples/source.txt --style=realistic --input-format=raw-novel
-```
-
-### 3.2 项目模式
+### 3.1 项目模式
 
 适合多项目、多剧集管理：
 
@@ -65,6 +53,8 @@ node scripts/init-sample-project.js
 node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
 ```
 
+小说 / 大纲类输入在剧本文本落为项目数据时按 `--input-format=raw-novel` 解析（默认 `professional-script`）。
+
 ## 4. 低成本冒烟建议
 
 第一次接新环境时，不建议直接跑完整视频生成。
@@ -72,7 +62,7 @@ node scripts/run.js --project=project-example --script=pilot --episode=episode-1
 推荐先用：
 
 ```bash
-node scripts/run.js samples/双生囚笼.txt --style=realistic --max-shots=2 --stop-at=before_video
+node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic --max-shots=2 --stop-at=before_video
 ```
 
 这个组合适合先验证：
@@ -91,9 +81,9 @@ node scripts/run.js samples/双生囚笼.txt --style=realistic --max-shots=2 --s
 最常用命令：
 
 ```bash
-node scripts/resume-from-step.js --step=lipsync samples/双生囚笼.txt --dry-run --style=realistic
-node scripts/resume-from-step.js --step=lipsync samples/双生囚笼.txt --style=realistic
-node scripts/resume-from-step.js --step=video samples/双生囚笼.txt --style=realistic --confirm-paid-video
+node scripts/resume-from-step.js --step=lipsync --project=project-example --script-id=pilot --episode=episode-1 --dry-run --style=realistic
+node scripts/resume-from-step.js --step=lipsync --project=project-example --script-id=pilot --episode=episode-1 --style=realistic
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --style=realistic --confirm-paid-video
 ```
 
 说明：
@@ -105,8 +95,8 @@ node scripts/resume-from-step.js --step=video samples/双生囚笼.txt --style=r
 如果要严格绑定某次历史 run：
 
 ```bash
-node scripts/resume-from-step.js --step=video samples/双生囚笼.txt --run-id=run_xxx --dry-run --style=realistic
-node scripts/resume-from-step.js --step=video samples/双生囚笼.txt --run-id=run_xxx --style=realistic --confirm-paid-video
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --run-id=run_xxx --dry-run --style=realistic
+node scripts/resume-from-step.js --step=video --project=project-example --script-id=pilot --episode=episode-1 --run-id=run_xxx --style=realistic --confirm-paid-video
 ```
 
 ## 6. Workbench 怎么用

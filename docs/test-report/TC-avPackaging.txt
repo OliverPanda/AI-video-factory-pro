@@ -1,0 +1,15 @@
+﻿✔ buildAvPackagingPlan warns without optional BGM or SFX assets but does not block (3.4358ms)
+✔ buildAvPackagingPlan generates subtitle style profile (0.638ms)
+✔ buildAvPackagingPlan creates sword and impact SFX cues for fight sequence (1.9416ms)
+✔ buildAvPackagingPlan creates BGM cues when emotion changes (1.0942ms)
+✔ buildAvPackagingPlan warns when configured local audio asset paths are missing (0.9211ms)
+✔ buildAvPackagingPlan emits lipsync over sequence over bridge priority hints (0.5824ms)
+✔ runAvPackaging writes complete artifacts metrics manifest and qa summary (12.6269ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29.5428

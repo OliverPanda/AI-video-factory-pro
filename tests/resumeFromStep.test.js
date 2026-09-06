@@ -15,13 +15,30 @@ test('normalizeStepName resolves common aliases', () => {
   assert.equal(__testables.normalizeStepName('post-review'), 'post_review');
 });
 
-test('parseCliArgs enters project mode selection when no legacy script file is provided', () => {
+test('parseCliArgs returns null ids when no project flags are provided for interactive selection', () => {
   const parsed = __testables.parseCliArgs(['--step=lipsync']);
 
-  assert.equal(parsed.mode, 'project');
   assert.equal(parsed.projectId, null);
   assert.equal(parsed.scriptId, null);
   assert.equal(parsed.episodeId, null);
+});
+
+test('parseCliArgs rejects positional script file arguments (D1 removed legacy mode)', () => {
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', 'samples/寒烬宫变-pro.txt']),
+    /位置参数剧本文件（samples\/寒烬宫变-pro\.txt）已不再支持/
+  );
+});
+
+test('parseCliArgs rejects legacy --script-file and --project-id flags (D1 removed legacy mode)', () => {
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', '--script-file=samples/x.txt']),
+    /--script-file \/ --project-id 已随兼容单文件模式整体移除/
+  );
+  assert.throws(
+    () => __testables.parseCliArgs(['--step=lipsync', '--project-id=demo']),
+    /--script-file \/ --project-id 已随兼容单文件模式整体移除/
+  );
 });
 
 test('parseCliArgs records explicit paid video confirmation', () => {

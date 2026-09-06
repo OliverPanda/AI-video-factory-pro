@@ -3,7 +3,6 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -332,8 +331,8 @@ const STEP_PREREQUISITES = {
 function usage() {
   return `
 用法：
-  node scripts/resume-from-step.js --step=<step> <剧本文件路径> [选项]
   node scripts/resume-from-step.js --step=<step> --project=<projectId> --script-id=<scriptId> --episode=<episodeId> [选项]
+  node scripts/resume-from-step.js --step=<step> [选项]（未提供项目三参数时进入交互选择）
 
 续跑 step：
   character_registry | prompts | images | consistency | continuity | video | dialogue | audio | lipsync | cross_consistency | compose | post_review
@@ -346,13 +345,10 @@ function usage() {
   --style=realistic|3d     续跑时覆盖风格
   --provider=<name>        续跑时覆盖 LLM provider
   --skip-consistency       续跑时传给主流程
-  --project-id=<id>        legacy 单文件入口透传给 run.js
-  --script-file=<path>     显式指定 legacy 剧本文件
 
 示例：
-  node scripts/resume-from-step.js --step=lipsync samples/寒烬宫变-pro.txt --style=realistic
   node scripts/resume-from-step.js --step=audio --project=demo --script-id=pilot --episode=episode-1
-  node scripts/resume-from-step.js --step=compose samples/寒烬宫变-pro.txt --dry-run
+  node scripts/resume-from-step.js --step=lipsync --dry-run
 `.trim();
 }
 
@@ -366,80 +362,44 @@ function normalizeId(value) {
   return trimmed ? trimmed : null;
 }
 
-function sanitizeFileSegment(value, fallback) {
-  const normalized = String(value || fallback).replace(/[^\w\u4e00-\u9fa5]/g, '_');
-  return normalized || fallback;
-}
-
-function buildLegacyBridgeIdentity(scriptFilePath) {
-  const resolvedPath = path.resolve(scriptFilePath);
-  const baseName = sanitizeFileSegment(path.basename(resolvedPath, path.extname(resolvedPath)), 'legacy');
-  const digest = createHash('sha1').update(resolvedPath).digest('hex').slice(0, 12);
-  const suffix = `${baseName}_${digest}`;
-
-  return {
-    resolvedPath,
-    jobId: `legacy_${suffix}`,
-    projectId: `legacy_project_${suffix}`,
-    scriptId: `legacy_script_${suffix}`,
-    episodeId: `legacy_episode_${suffix}`,
-  };
-}
-
 function normalizeStepName(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return STEP_ALIASES[normalized] || null;
 }
 
 function parseCliArgs(args) {
-  const scriptFileArg = args.find((arg) => !arg.startsWith('--')) ?? null;
-  const explicitScriptFile = normalizeId(getFlagValue(args, 'script-file'));
+  const positionalArgs = args.filter((arg) => !arg.startsWith('--'));
+  if (positionalArgs.length > 0) {
+    throw new Error(
+      `位置参数剧本文件（${positionalArgs[0]}）已不再支持：请使用项目模式 --project/--script-id/--episode。\n\n${usage()}`
+    );
+  }
+  if (args.some((arg) => arg.startsWith('--script-file=') || arg.startsWith('--project-id='))) {
+    throw new Error(
+      '--script-file / --project-id 已随兼容单文件模式整体移除（v1.2 / D1）：续跑只面向项目模式 run。'
+    );
+  }
+
   const projectId = normalizeId(getFlagValue(args, 'project'));
   const scriptId = normalizeId(getFlagValue(args, 'script-id'));
   const episodeId = normalizeId(getFlagValue(args, 'episode'));
   const style = normalizeId(getFlagValue(args, 'style'));
   const provider = normalizeId(getFlagValue(args, 'provider'));
   const runId = normalizeId(getFlagValue(args, 'run-id'));
-  const projectIdOverride = normalizeId(getFlagValue(args, 'project-id'));
   const step = normalizeStepName(getFlagValue(args, 'step'));
   const dryRun = args.includes('--dry-run');
   const prepareOnly = args.includes('--prepare-only');
   const confirmPaidVideo = args.includes('--confirm-paid-video') || args.includes('--allow-paid-video');
   const skipConsistencyCheck = args.includes('--skip-consistency');
-  const legacyScriptFile = explicitScriptFile || scriptFileArg;
 
-  const hasProjectMode = Boolean(projectId || scriptId || episodeId || !legacyScriptFile);
   if (!step) {
     throw new Error(`缺少或无法识别 --step。\n\n${usage()}`);
   }
 
-  if (hasProjectMode) {
-    if (legacyScriptFile) {
-      throw new Error('不能同时提供 legacy 剧本文件和项目模式参数。');
-    }
-    return {
-      mode: 'project',
-      projectId,
-      scriptId,
-      episodeId,
-      style,
-      provider,
-      runId,
-      dryRun,
-      prepareOnly,
-      confirmPaidVideo,
-      skipConsistencyCheck,
-      step,
-    };
-  }
-
-  if (!legacyScriptFile) {
-    throw new Error(usage());
-  }
-
   return {
-    mode: 'legacy',
-    scriptFile: legacyScriptFile,
+    projectId,
+    scriptId,
+    episodeId,
     style,
     provider,
     runId,
@@ -447,7 +407,6 @@ function parseCliArgs(args) {
     prepareOnly,
     confirmPaidVideo,
     skipConsistencyCheck,
-    projectIdOverride,
     step,
   };
 }
@@ -539,10 +498,6 @@ async function promptForChoice(label, items, display) {
 }
 
 async function resolveInteractiveProjectSelection(parsed, baseTempDir = process.env.TEMP_DIR || './temp') {
-  if (parsed.mode !== 'project') {
-    return parsed;
-  }
-
   let projectId = parsed.projectId;
   let scriptId = parsed.scriptId;
   let episodeId = parsed.episodeId;
@@ -723,24 +678,6 @@ function resolveLatestRunJob(projectId, scriptId, episodeId, runId = null, baseT
 }
 
 function resolveResumeContext(parsed, baseTempDir = process.env.TEMP_DIR || './temp') {
-  if (parsed.mode === 'legacy') {
-    const identity = buildLegacyBridgeIdentity(parsed.scriptFile);
-    const runJob = resolveLatestRunJob(identity.projectId, identity.scriptId, identity.episodeId, parsed.runId, baseTempDir);
-    const snapshotPath = runJob ? getStateSnapshotPath(runJob) : null;
-    return {
-      mode: 'legacy',
-      statePath: path.join(getJobDir(identity.jobId, baseTempDir), 'state.json'),
-      snapshotPath,
-      jobId: identity.jobId,
-      projectId: identity.projectId,
-      scriptId: identity.scriptId,
-      episodeId: identity.episodeId,
-      scriptFile: identity.resolvedPath,
-      runJob,
-      baseTempDir,
-    };
-  }
-
   const runJob = resolveLatestRunJob(parsed.projectId, parsed.scriptId, parsed.episodeId, parsed.runId, baseTempDir);
   if (!runJob) {
     throw new Error(`未找到 run-jobs：${parsed.projectId}/${parsed.scriptId}/${parsed.episodeId}`);
@@ -918,12 +855,6 @@ async function executeResumeRun(parsed, context) {
   }
 
   const cli = createCli({
-    runPipeline: async (scriptFilePath, options = {}) => {
-      const director = await import('../src/agents/director.js');
-      return director.runPipeline(scriptFilePath, {
-        ...options,
-      });
-    },
     runEpisodePipeline: async ({ projectId, scriptId, episodeId, options = {} }) => {
       const director = await import('../src/agents/director.js');
       return director.runEpisodePipeline({
@@ -937,16 +868,6 @@ async function executeResumeRun(parsed, context) {
       });
     },
   });
-
-  if (context.mode === 'legacy') {
-    return cli.run([
-      context.scriptFile,
-      ...(parsed.style ? [`--style=${parsed.style}`] : []),
-      ...(parsed.provider ? [`--provider=${parsed.provider}`] : []),
-      ...(parsed.skipConsistencyCheck ? ['--skip-consistency'] : []),
-      ...(parsed.projectIdOverride ? [`--project-id=${parsed.projectIdOverride}`] : []),
-    ]);
-  }
 
   return cli.run([
     `--project=${context.projectId}`,
@@ -1159,7 +1080,6 @@ export const __testables = {
   getStateKeysToDelete,
   collectShotIds,
   collectFilesToRemove,
-  buildLegacyBridgeIdentity,
   resolveResumeContext,
   collectMissingPrerequisites,
   getResumeMode,

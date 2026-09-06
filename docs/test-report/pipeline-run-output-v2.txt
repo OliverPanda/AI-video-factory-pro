@@ -1,0 +1,54 @@
+﻿
+╔════════════════════════════════════════╗
+║    AI漫剧自动化生成系统 v1.0.0         ║
+╚════════════════════════════════════════╝
+
+[32m17:22:13 INFO [Main][0m runtime image env {"IMAGE_API_BASE_URL":"https://api.apilio.ai/v1","REALISTIC_IMAGE_MODEL":"gpt-image-2-all","IMAGE_EDIT_MODEL":"gpt-image-2-all","PRIMARY_API_PROVIDER":"openai_compat"}
+[32m17:22:14 INFO [Director][0m === 开始任务 pilot_episode-1_1788600134744 ===
+[32m17:22:14 INFO [Director][0m 项目：project-example | 剧本：pilot | 分集：episode-1 | 风格：realistic
+[32m17:22:14 INFO [Director][0m 剧名：试播集，分集：第一集，本次抽样运行前 1/1 个分镜，1 个角色
+[32m17:22:14 INFO [Director][0m 【Step 1/6】构建角色档案...
+[32m17:22:14 INFO [CharacterRegistry][0m 构建 1 个角色的视觉档案...
+[32m17:22:14 INFO [CharacterRegistry][0m 补齐 1 个缺少视觉档案的分集角色...
+[31m17:22:15 ERROR [Director][0m 任务失败：Free quota exhausted. To continue accessing the model on a paid basis, please add funds or disable the "use free tier only" mode in the management console.
+[31m17:22:15 ERROR [Director][0m AI_APICallError: Free quota exhausted. To continue accessing the model on a paid basis, please add funds or disable the "use free tier only" mode in the management console.
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3954:14
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async postToApi (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3586:28)
+    at async postJsonToApi (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3527:7)
+    at async _OpenAICompatibleChatLanguageModel.doGenerate (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+openai-compatible@3.0.43_zod@4.5.4/node_modules/@ai-sdk/openai-compatible/dist/index.js:612:9)
+    at async execute (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:5851:42)
+    at async runWithTracingChannelSpan (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:4357:12)
+    at async executeLanguageModelCall (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:4565:14)
+    at async file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/index.js:5848:32
+    at async retryWithExponentialBackoffInternal (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3805:12)
+node : Error executing step workflow.director-episode-pipeline.step.run_episode_pipeline: AI_APICallError: Free quota e
+xhausted. To continue accessing the model on a paid basis, please add funds or disable the "use free tier only" mode in
+ the management console.
+At line:1 char:1
++ node scripts/run.js --project=project-example --script=pilot --episod ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error executing...gement console.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    at file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod@4.5.4/node_modul
+es/@ai-sdk/provider-utils/dist/index.js:3954:14
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async postToApi (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36_zod
+@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3586:28)
+    at async postJsonToApi (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk+provider-utils@5.0.36
+_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3527:7)
+    at async _OpenAICompatibleChatLanguageModel.doGenerate (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pn
+pm/@ai-sdk+openai-compatible@3.0.43_zod@4.5.4/node_modules/@ai-sdk/openai-compatible/dist/index.js:612:9)
+    at async execute (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai
+/dist/index.js:5851:42)
+    at async runWithTracingChannelSpan (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5
+.4/node_modules/ai/dist/index.js:4357:12)
+    at async executeLanguageModelCall (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.
+4/node_modules/ai/dist/index.js:4565:14)
+    at async file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/ai@7.0.91_zod@4.5.4/node_modules/ai/dist/ind
+ex.js:5848:32
+    at async retryWithExponentialBackoffInternal (file:///D:/My-Project/AI-video-factory-pro/node_modules/.pnpm/@ai-sdk
++provider-utils@5.0.36_zod@4.5.4/node_modules/@ai-sdk/provider-utils/dist/index.js:3805:12)
+[31m17:22:15 ERROR [Main][0m 生成失败：Free quota exhausted. To continue accessing the model on a paid basis, please add funds or disable the "use free tier only" mode in the management console.
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76

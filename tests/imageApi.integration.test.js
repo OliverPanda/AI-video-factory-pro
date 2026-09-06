@@ -15,7 +15,12 @@ function makeTempDir(t) {
 
 test(
   '真实图像 provider 可以生成图片并成功落盘',
-  { timeout: 180000 },
+  {
+    timeout: 180000,
+    skip: process.env.LAOZHANG_API_KEY
+      ? false
+      : '缺少 LAOZHANG_API_KEY，跳过真实 provider 集成测试（本地有 key 时自动恢复执行）',
+  },
   async (t) => {
     assert.ok(process.env.LAOZHANG_API_KEY, '缺少 LAOZHANG_API_KEY');
 

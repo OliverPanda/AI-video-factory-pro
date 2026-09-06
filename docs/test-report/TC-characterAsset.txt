@@ -1,0 +1,12 @@
+﻿✔ lead characters without a character bible are blocked for reusable asset governance (0.8309ms)
+✔ temporary characters can stay episode-local without canonical refs (0.4973ms)
+✔ canonical references include bible references, selected best frame, and generated ref sheet (0.1757ms)
+✔ governance report emits review items and audit entries (0.2942ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7.5683

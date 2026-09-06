@@ -62,6 +62,7 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
       'imageGenerator',
       'consistencyChecker',
       'continuityChecker',
+      'sceneGrammarAgent',
       'ttsAgent',
       'ttsQaAgent',
       'lipsyncAgent',
@@ -130,6 +131,7 @@ test('createRunArtifactContext creates root manifest-friendly folder structure',
     assert.equal(ctx.runDir.startsWith(path.join(ctx.episodeDir, 'runs', 'r_2026-04-01_090000_')), true);
     assert.equal(ctx.runDir.length < 180, true);
     assert.deepEqual(ctx.agents.scriptParser, {
+      runDir: ctx.runDir,
       dir: path.join(ctx.runDir, '01-script-parser'),
       manifestPath: path.join(ctx.runDir, '01-script-parser', 'manifest.json'),
       inputsDir: path.join(ctx.runDir, '01-script-parser', '0-inputs'),

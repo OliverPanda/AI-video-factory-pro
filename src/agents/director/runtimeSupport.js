@@ -540,7 +540,7 @@ function buildConsistencyRegenerationPrompt(originalPrompt, item = {}) {
     .join(', ');
 }
 
-async function createEmptyProviderRun() {
+function createEmptyProviderRun() {
   return {
     results: [],
     report: {
@@ -1360,8 +1360,50 @@ function readSeedancePromptMetrics(loadJSONFn, artifactContext) {
   );
 }
 
+function buildQaOverviewOptions(loadJSONFn, artifactContext, { visualEligibilityReport, upstreamFailureInsights, preflightQaReport }) {
+  const seedancePromptMetrics = readSeedancePromptMetrics(loadJSONFn, artifactContext);
+  const preflightContextSummary =
+    preflightQaReport
+      ? `生成前质检结果：pass ${preflightQaReport.passCount || 0}，warn ${preflightQaReport.warnCount || 0}，block ${preflightQaReport.blockCount || 0}。`
+      : '';
+  const seedanceInferenceSummary =
+    seedancePromptMetrics
+      ? `Seedance 输入补全：coverage ${seedancePromptMetrics.inferredCoverageCount || 0}，blocking ${seedancePromptMetrics.inferredBlockingCount || 0}，continuity ${seedancePromptMetrics.inferredContinuityCount || 0}。`
+      : '';
+  return {
+    releasable: true,
+    seedancePromptMetrics,
+    extraTopIssues: [
+      ...buildVisualEligibilityTopIssues(visualEligibilityReport),
+      ...buildUpstreamFailureTopIssues(upstreamFailureInsights),
+      ...buildPreflightTopIssues(preflightQaReport),
+      ...buildPreflightFixBriefTopIssues(preflightQaReport),
+      ...buildSeedanceInferenceTopIssues(seedancePromptMetrics),
+    ],
+    summaryAppend: [
+      buildVisualEligibilitySummaryText(visualEligibilityReport),
+      buildUpstreamFailureSummaryText(upstreamFailureInsights),
+      preflightContextSummary,
+      seedanceInferenceSummary,
+    ].filter(Boolean).join(' '),
+  };
+}
+
 function normalizeRunDebugText(value) {
   return String(value || '').trim();
+}
+
+function mapPostComposeReviewItems(postComposeReview) {
+  return (postComposeReview?.editTaskPack?.humanReview?.items || []).map((item) => ({
+    id: `post_compose_${item.taskId}`,
+    type: 'post_compose_edit_task',
+    priority: item.priority || 'medium',
+    status: 'open',
+    shotId: item.targetRef?.type === 'shot' ? item.targetRef.id : null,
+    reason: item.reason || '成片预览后编辑任务需要确认',
+    suggestedAction: `${item.reviewType || 'approve_or_skip'}: ${item.targetRef?.type || 'unknown'}:${item.targetRef?.id || 'unknown'}`,
+    evidence: ['post-compose-review/edit-task-pack.json'],
+  }));
 }
 
 function buildRunDebugSignals({ runJob = null, stateSnapshot = null, agentSummaries = [] } = {}) {
@@ -3158,16 +3200,7 @@ async function executePostComposeReviewStage(ctx, deps, {}) {
         }
       )
     );
-    const postComposeReviewItems = (postComposeReview.editTaskPack?.humanReview?.items || []).map((item) => ({
-      id: `post_compose_${item.taskId}`,
-      type: 'post_compose_edit_task',
-      priority: item.priority || 'medium',
-      status: 'open',
-      shotId: item.targetRef?.type === 'shot' ? item.targetRef.id : null,
-      reason: item.reason || '成片预览后编辑任务需要确认',
-      suggestedAction: `${item.reviewType || 'approve_or_skip'}: ${item.targetRef?.type || 'unknown'}:${item.targetRef?.id || 'unknown'}`,
-      evidence: ['post-compose-review/edit-task-pack.json'],
-    }));
+    const postComposeReviewItems = mapPostComposeReviewItems(postComposeReview);
     let humanReviewQueue = ctx.humanReviewQueue;
     humanReviewQueue = deps.buildHumanReviewQueue({
       assetGovernanceReport: characterAssetGovernanceReport || null,
@@ -3181,18 +3214,7 @@ async function executePostComposeReviewStage(ctx, deps, {}) {
     ctx.saveState({ postComposeReview, humanReviewQueue });
   } else {
     ctx.logCachedStepRunBound('post_compose_review', '使用缓存的成片预览后编辑任务包', '【Step 13.5/13】使用缓存的成片预览后编辑任务包');
-    // 缓存恢复路径：从缓存的 postComposeReview 中重新提取编辑任务，重建人审队列，
-    // 确保断点续跑时成片预览后编辑任务不会从人审界面丢失。
-    const cachedPostComposeReviewItems = (postComposeReview?.editTaskPack?.humanReview?.items || []).map((item) => ({
-      id: `post_compose_${item.taskId}`,
-      type: 'post_compose_edit_task',
-      priority: item.priority || 'medium',
-      status: 'open',
-      shotId: item.targetRef?.type === 'shot' ? item.targetRef.id : null,
-      reason: item.reason || '成片预览后编辑任务需要确认',
-      suggestedAction: `${item.reviewType || 'approve_or_skip'}: ${item.targetRef?.type || 'unknown'}:${item.targetRef?.id || 'unknown'}`,
-      evidence: ['post-compose-review/edit-task-pack.json'],
-    }));
+    const cachedPostComposeReviewItems = mapPostComposeReviewItems(postComposeReview);
     let humanReviewQueue = ctx.humanReviewQueue;
     humanReviewQueue = deps.buildHumanReviewQueue({
       assetGovernanceReport: characterAssetGovernanceReport || null,
@@ -3281,14 +3303,6 @@ async function executeDeliverySummaryStage(ctx, deps, { dirs }) {
     }),
     'utf-8'
   );
-  const preflightContextSummary =
-    preflightQaReport
-      ? `生成前质检结果：pass ${preflightQaReport.passCount || 0}，warn ${preflightQaReport.warnCount || 0}，block ${preflightQaReport.blockCount || 0}。`
-      : '';
-  const seedanceInferenceSummary =
-    seedancePromptMetrics
-      ? `Seedance 输入补全：coverage ${seedancePromptMetrics.inferredCoverageCount || 0}，blocking ${seedancePromptMetrics.inferredBlockingCount || 0}，continuity ${seedancePromptMetrics.inferredContinuityCount || 0}。`
-      : '';
   if (shouldBlockFormalDeliveryForSeedanceInference(pipelineSummary)) {
     ctx.pipelineSummary = pipelineSummary;
     ctx.saveState({
@@ -3303,23 +3317,11 @@ async function executeDeliverySummaryStage(ctx, deps, { dirs }) {
     );
   }
   writeRunQaOverview(
-    collectRunQaOverview(deps.loadJSON, artifactContext, {
-      releasable: true,
-      seedancePromptMetrics,
-      extraTopIssues: [
-        ...buildVisualEligibilityTopIssues(visualEligibilityReport),
-        ...buildUpstreamFailureTopIssues(upstreamFailureInsights),
-        ...buildPreflightTopIssues(preflightQaReport),
-        ...buildPreflightFixBriefTopIssues(preflightQaReport),
-        ...buildSeedanceInferenceTopIssues(seedancePromptMetrics),
-      ],
-      summaryAppend: [
-        buildVisualEligibilitySummaryText(visualEligibilityReport),
-        buildUpstreamFailureSummaryText(upstreamFailureInsights),
-        preflightContextSummary,
-        seedanceInferenceSummary,
-      ].filter(Boolean).join(' '),
-    }),
+    collectRunQaOverview(deps.loadJSON, artifactContext, buildQaOverviewOptions(deps.loadJSON, artifactContext, {
+      visualEligibilityReport,
+      upstreamFailureInsights,
+      preflightQaReport,
+    })),
     artifactContext
   );
 
@@ -3345,38 +3347,13 @@ async function executeFinishRunJobStage(ctx, deps, {}) {
   const artifactContext = ctx.artifactContext;
   const runJobRef = ctx.runJobRef;
   const options = ctx.pipelineOptions || {};
-  const seedancePromptMetrics = readSeedancePromptMetrics(deps.loadJSON, artifactContext);
-  const visualEligibilityReport = ctx.visualEligibilityReport;
-  const upstreamFailureInsights = ctx.upstreamFailureInsights;
-  const preflightQaReport = ctx.preflightQaReport;
-
-  const preflightContextSummary =
-    preflightQaReport
-      ? `生成前质检结果：pass ${preflightQaReport.passCount || 0}，warn ${preflightQaReport.warnCount || 0}，block ${preflightQaReport.blockCount || 0}。`
-      : '';
-  const seedanceInferenceSummary =
-    seedancePromptMetrics
-      ? `Seedance 输入补全：coverage ${seedancePromptMetrics.inferredCoverageCount || 0}，blocking ${seedancePromptMetrics.inferredBlockingCount || 0}，continuity ${seedancePromptMetrics.inferredContinuityCount || 0}。`
-      : '';
 
   writeRunQaOverview(
-    collectRunQaOverview(deps.loadJSON, artifactContext, {
-      releasable: true,
-      seedancePromptMetrics,
-      extraTopIssues: [
-        ...buildVisualEligibilityTopIssues(visualEligibilityReport),
-        ...buildUpstreamFailureTopIssues(upstreamFailureInsights),
-        ...buildPreflightTopIssues(preflightQaReport),
-        ...buildPreflightFixBriefTopIssues(preflightQaReport),
-        ...buildSeedanceInferenceTopIssues(seedancePromptMetrics),
-      ],
-      summaryAppend: [
-        buildVisualEligibilitySummaryText(visualEligibilityReport),
-        buildUpstreamFailureSummaryText(upstreamFailureInsights),
-        preflightContextSummary,
-        seedanceInferenceSummary,
-      ].filter(Boolean).join(' '),
-    }),
+    collectRunQaOverview(deps.loadJSON, artifactContext, buildQaOverviewOptions(deps.loadJSON, artifactContext, {
+      visualEligibilityReport: ctx.visualEligibilityReport,
+      upstreamFailureInsights: ctx.upstreamFailureInsights,
+      preflightQaReport: ctx.preflightQaReport,
+    })),
     artifactContext
   );
 
@@ -3498,44 +3475,24 @@ async function executeCostGovernanceStage(ctx, deps, { phase }) {
   const artifactContext = ctx.artifactContext;
   const options = ctx.pipelineOptions || {};
 
-  if (phase === 'pre_video') {
-    const costGovernanceReport = deps.buildCostGovernanceReport({
-      preflightShotPackages: ctx.preflightShotPackages,
-      consistencyNeedsRegeneration: ctx.consistencyResult?.needsRegeneration || [],
-      costMetricsState: state.costMetrics,
-      runId: ctx.runJobRef?.id,
-      policy: options.costPolicy || {},
-    });
-    deps.writeCostGovernanceArtifacts(costGovernanceReport, artifactContext.agents.costGovernance);
-    const humanReviewQueue = deps.buildHumanReviewQueue({
-      assetGovernanceReport: state.characterAssetGovernanceReport || null,
-      consistencyResult: ctx.consistencyResult,
-      costReport: costGovernanceReport,
-    });
-    deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
-    ctx.costGovernanceReport = costGovernanceReport;
-    ctx.humanReviewQueue = humanReviewQueue;
-    ctx.saveState({ costGovernanceReport, costMetrics: costGovernanceReport?.costMetricsState || state.costMetrics || {}, humanReviewQueue });
-  } else if (phase === 'post_video') {
-    const costGovernanceReport = deps.buildCostGovernanceReport({
-      preflightShotPackages: ctx.preflightShotPackages,
-      consistencyNeedsRegeneration: ctx.consistencyResult?.needsRegeneration || [],
-      videoResults: ctx.rawVideoResults,
-      costMetricsState: state.costMetrics,
-      runId: ctx.runJobRef?.id,
-      policy: options.costPolicy || {},
-    });
-    deps.writeCostGovernanceArtifacts(costGovernanceReport, artifactContext.agents.costGovernance);
-    const humanReviewQueue = deps.buildHumanReviewQueue({
-      assetGovernanceReport: state.characterAssetGovernanceReport || null,
-      consistencyResult: ctx.consistencyResult,
-      costReport: costGovernanceReport,
-    });
-    deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
-    ctx.costGovernanceReport = costGovernanceReport;
-    ctx.humanReviewQueue = humanReviewQueue;
-    ctx.saveState({ costGovernanceReport, costMetrics: costGovernanceReport?.costMetricsState || state.costMetrics || {}, humanReviewQueue });
-  }
+  const costGovernanceReport = deps.buildCostGovernanceReport({
+    preflightShotPackages: ctx.preflightShotPackages,
+    consistencyNeedsRegeneration: ctx.consistencyResult?.needsRegeneration || [],
+    ...(phase === 'post_video' ? { videoResults: ctx.rawVideoResults } : {}),
+    costMetricsState: state.costMetrics,
+    runId: ctx.runJobRef?.id,
+    policy: options.costPolicy || {},
+  });
+  deps.writeCostGovernanceArtifacts(costGovernanceReport, artifactContext.agents.costGovernance);
+  const humanReviewQueue = deps.buildHumanReviewQueue({
+    assetGovernanceReport: state.characterAssetGovernanceReport || null,
+    consistencyResult: ctx.consistencyResult,
+    costReport: costGovernanceReport,
+  });
+  deps.writeHumanReviewQueueArtifacts(humanReviewQueue, artifactContext.agents.humanReviewQueue);
+  ctx.costGovernanceReport = costGovernanceReport;
+  ctx.humanReviewQueue = humanReviewQueue;
+  ctx.saveState({ costGovernanceReport, costMetrics: costGovernanceReport?.costMetricsState || state.costMetrics || {}, humanReviewQueue });
 }
 
 async function executeEnhanceVideoClipsStage(ctx, deps, {}) {

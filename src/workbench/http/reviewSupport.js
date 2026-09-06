@@ -104,6 +104,8 @@ function buildTaskStatusSummary(tasks = []) {
     total: Array.isArray(tasks) ? tasks.length : 0,
     pending: 0,
     approved: 0,
+    rejected: 0,
+    needs_changes: 0,
     skipped: 0,
     manual_review: 0,
     other: 0,
@@ -111,7 +113,13 @@ function buildTaskStatusSummary(tasks = []) {
 
   for (const task of Array.isArray(tasks) ? tasks : []) {
     const status = String(task?.status || 'pending_approval').trim();
-    if (status === 'approved' || status === 'skipped' || status === 'manual_review') {
+    if (
+      status === 'approved' ||
+      status === 'rejected' ||
+      status === 'needs_changes' ||
+      status === 'skipped' ||
+      status === 'manual_review'
+    ) {
       summary[status] += 1;
     } else if (status === 'pending_approval' || status === 'open' || status === 'pending') {
       summary.pending += 1;
@@ -283,6 +291,8 @@ export function syncEditTaskPackStatusFields(editTaskPack) {
     manualTaskCount: summary.total,
     pendingTaskCount: summary.pending,
     approvedTaskCount: summary.approved,
+    rejectedTaskCount: summary.rejected,
+    needsChangesTaskCount: summary.needs_changes,
     skippedTaskCount: summary.skipped,
     manualReviewTaskCount: summary.manual_review,
   };
@@ -306,9 +316,13 @@ export function syncPostComposeReviewStatusFields(postComposeReview, editTaskPac
     manualTaskCount: summary.total,
     pendingTaskCount: summary.pending,
     approvedTaskCount: summary.approved,
+    rejectedTaskCount: summary.rejected,
+    needsChangesTaskCount: summary.needs_changes,
     skippedTaskCount: summary.skipped,
     manualReviewTaskCount: summary.manual_review,
-    status: summary.pending > 0 ? 'needs_review' : 'reviewed',
+    status: summary.pending > 0
+      ? 'needs_review'
+      : (summary.rejected > 0 || summary.needs_changes > 0 || summary.manual_review > 0 ? 'changes_requested' : 'reviewed'),
   };
   return postComposeReview;
 }

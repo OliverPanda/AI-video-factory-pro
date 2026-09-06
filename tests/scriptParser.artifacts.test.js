@@ -3,22 +3,10 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createDirector } from '../src/agents/director.js';
 import { parseScript } from '../src/agents/scriptParser.js';
 import { createRunArtifactContext } from '../src/utils/runArtifacts.js';
 import { withManagedTempRoot } from './helpers/testArtifacts.js';
 
-function createLegacyDirs(root) {
-  const dirs = {
-    root,
-    images: path.join(root, 'images'),
-    audio: path.join(root, 'audio'),
-    output: path.join(root, 'output'),
-  };
-
-  Object.values(dirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
-  return dirs;
-}
 
 test('script parser writes source script shot table and parser metrics', async (t) => {
   await withManagedTempRoot(t, 'aivf-script-parser-artifacts', async (tempRoot) => {
@@ -274,100 +262,3 @@ test('auto raw novel parser artifact records detected format', async (t) => {
   }, 'auto-raw-novel-parser');
 });
 
-test('legacy runPipeline keeps parser artifacts in the final parsed-title run package', async (t) => {
-  await withManagedTempRoot(t, 'aivf-script-parser-legacy-run', async (tempRoot) => {
-    const legacyRoot = path.join(tempRoot, 'legacy-job');
-    const scriptFilePath = path.join(tempRoot, 'filename-bootstrap.txt');
-    const projects = new Map();
-    const scripts = new Map();
-    const episodes = new Map();
-    let parserCallCount = 0;
-
-    fs.writeFileSync(scriptFilePath, '原始剧本文本', 'utf-8');
-
-    const director = createDirector({
-      initDirs: () => createLegacyDirs(legacyRoot),
-      readTextFile: () => '原始剧本文本',
-      loadProject: (projectId) => projects.get(projectId) ?? null,
-      saveProject: (project) => projects.set(project.id, structuredClone(project)),
-      loadScript: (projectId, scriptId) => scripts.get(`${projectId}:${scriptId}`) ?? null,
-      saveScript: (projectId, script) =>
-        scripts.set(`${projectId}:${script.id}`, structuredClone({ ...script, projectId })),
-      loadEpisode: (projectId, scriptId, episodeId) =>
-        episodes.get(`${projectId}:${scriptId}:${episodeId}`) ?? null,
-      saveEpisode: (projectId, scriptId, episode) =>
-        episodes.set(
-          `${projectId}:${scriptId}:${episode.id}`,
-          structuredClone({ ...episode, projectId, scriptId })
-        ),
-      buildCharacterRegistry: async () => [],
-      generateAllPrompts: async () => [],
-      generateAllImages: async () => [],
-      runConsistencyCheck: async () => ({ needsRegeneration: [] }),
-      generateAllAudio: async () => [],
-      runTtsQa: async () => ({ status: 'pass', blockers: [], warnings: [], manualReviewPlan: { recommendedShotIds: [] } }),
-      composeVideo: async () => {},
-    });
-
-    await director.runPipeline(scriptFilePath, {
-      startedAt: '2026-04-01T09:00:00.000Z',
-      storeOptions: { baseTempDir: tempRoot },
-      parseScriptDeps: {
-        inputFormat: 'raw-novel',
-        chatJSON: async () => {
-          parserCallCount += 1;
-          if (parserCallCount === 1) {
-            return {
-              title: '咖啡馆相遇',
-              totalDuration: 6,
-              characters: [{ name: '小红', gender: 'female' }],
-              episodes: [{ episodeNo: 1, title: '试播集', summary: '...' }],
-            };
-          }
-
-          return {
-            shots: [
-              { scene: '咖啡馆', characters: ['小红'], action: '整理咖啡杯', duration: 3 },
-              { scene: '吧台', characters: ['小红'], action: '抬头微笑', dialogue: '你好', speaker: '小红', duration: 3 },
-            ],
-          };
-        },
-      },
-    });
-
-    const sourceScriptFiles = [];
-    function collectSourceScriptFiles(rootDir) {
-      for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
-        const fullPath = path.join(rootDir, entry.name);
-        if (entry.isDirectory()) {
-          collectSourceScriptFiles(fullPath);
-        } else if (entry.name === 'source-script.txt') {
-          sourceScriptFiles.push(fullPath);
-        }
-      }
-    }
-
-    collectSourceScriptFiles(tempRoot);
-
-    assert.equal(sourceScriptFiles.length, 1);
-    const sourceScriptPath = sourceScriptFiles[0];
-    assert.equal(sourceScriptPath.includes('咖啡馆相遇'), true);
-    assert.equal(sourceScriptPath.includes('filename-bootstrap'), false);
-
-    const parserDir = path.dirname(path.dirname(sourceScriptPath));
-    const runDir = path.dirname(parserDir);
-
-    assert.equal(fs.existsSync(path.join(runDir, 'manifest.json')), true);
-    assert.equal(fs.existsSync(path.join(runDir, 'timeline.json')), true);
-    assert.equal(fs.existsSync(path.join(parserDir, 'manifest.json')), true);
-
-    const parserManifest = JSON.parse(
-      fs.readFileSync(path.join(parserDir, 'manifest.json'), 'utf-8')
-    );
-    assert.equal(parserManifest.status, 'completed');
-    assert.equal(parserManifest.shotCount, 2);
-    assert.equal(parserManifest.characterCount, 1);
-
-    assert.equal(parserCallCount, 2);
-  }, 'script-parser');
-});

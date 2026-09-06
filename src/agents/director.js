@@ -8,8 +8,6 @@ import path from 'path';
 import { parseScript } from './scriptParser.js';
 import {
   buildCharacterRegistry,
-  getShotCharacterCards,
-  resolveCharacterIdentity,
 } from './characterRegistry.js';
 import { generateAllPrompts } from './promptEngineer.js';
 import { generateAllImages, regenerateImage } from './imageGenerator.js';
@@ -47,11 +45,10 @@ import { runCrossVideoConsistency } from './crossVideoConsistencyAgent.js';
 import { runAvPackaging } from './avPackagingAgent.js';
 import { runPostComposeReview } from './postComposeReviewAgent.js';
 import { buildCharacterAssetGovernanceReport } from '../domain/characterAssetGovernance.js';
-import { createEpisode, createProject, createScript } from '../domain/projectModel.js';
 import { loadEpisode, loadProject, loadScript, saveEpisode, saveProject, saveScript } from '../utils/projectStore.js';
 import { ensureDir, generateJobId, initDirs, loadJSON, readTextFile, saveJSON } from '../utils/fileHelper.js';
 import { appendAgentTaskRun, createRunJob, finishRunJob } from '../utils/jobStore.js';
-import { AGENT_ARTIFACT_LAYOUT, adoptAgentArtifacts, createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
+import { createRunArtifactContext, initializeRunArtifacts } from '../utils/runArtifacts.js';
 import { listCharacterBibles } from '../utils/characterBibleStore.js';
 import { loadPronunciationLexicon } from '../utils/pronunciationLexiconStore.js';
 import { writeRunQaOverview } from '../utils/qaSummary.js';
@@ -60,9 +57,8 @@ import { buildCostGovernanceReport, writeCostGovernanceArtifacts } from '../util
 import { buildHumanReviewQueue, writeHumanReviewQueueArtifacts } from '../utils/humanReviewQueue.js';
 import { ensureProjectVoiceCast, loadVoiceCast } from '../utils/voiceCastStore.js';
 import { loadVoicePreset } from '../utils/voicePresetStore.js';
-import { buildEpisodeDirName, buildProjectDirName } from '../utils/naming.js';
 import logger from '../utils/logger.js';
-import { createEpisodePipelineWorkflow, createMultiStepPipelineWorkflow, runEpisodeViaWorkflow } from './director/workflowRuntime.js';
+import { createEpisodePipelineWorkflow, runEpisodeViaWorkflow } from './director/workflowRuntime.js';
 import {
   buildEpisodeContext,
   initializePhase4SequenceState,

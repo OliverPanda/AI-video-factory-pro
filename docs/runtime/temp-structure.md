@@ -67,7 +67,7 @@ temp/
   - 单独跑某个 agent 测试，并保留成果物时使用
   - 目录内部通常仍然会继续套 `projects/.../runs/...`
 
-兼容旧单文件入口时，历史上也出现过 `temp/<legacy-job-id>/` 这类平铺缓存目录。它们现在属于可清理的旧产物，不建议继续长期保留。
+兼容单文件入口（v1.2 / D1 起整体移除）历史上产生过 `temp/<legacy-job-id>/` 这类平铺缓存目录；已不再产生新例，存量属可清理的旧产物。
 
 ## 一句话区分三种 `temp/` 用法
 
@@ -76,45 +76,11 @@ temp/
 - `temp/<agentName>/...`
   - 单独跑某个 agent 测试并保留成果物
 - `temp/<legacy-job-id>/...`
-  - 旧单文件兼容缓存
+  - 已移除的兼容单文件入口留下的历史缓存（仅存量，可清理）
 
-## 兼容模式结构
+## 已移除：兼容模式结构（v1.2 / D1）
 
-如果你跑的是：
-
-```bash
-node scripts/run.js samples/test_script.txt
-```
-
-通常会看到：
-
-```text
-temp/
-  test_script_1775000000000/
-    state.json
-    images/
-    audio/
-```
-
-这个目录的用途是：
-
-- 缓存旧入口每一步结果
-- 允许同一个 job 复跑时跳过已完成步骤
-
-这里最关键的文件是：
-
-- `state.json`
-  - 兼容模式缓存总状态
-  - 常见字段：
-    - `scriptData`
-    - `characterRegistry`
-    - `promptList`
-    - `imageResults`
-    - `audioResults`
-    - `consistencyCheckDone`
-    - `continuityCheckDone`
-    - `outputPath`
-    - `lastError`
+兼容单文件模式（位置参数 `.txt` 直跑、`temp/<legacy-job-id>/` 平铺缓存）已在 v1.2 随 D1 整体移除。该模式下 `state.json` 缓存字段协议（`scriptData / characterRegistry / promptList / imageResults / audioResults / outputPath / lastError` 等）已并入项目模式 run 的 `state.json` / `state.snapshot.json`，续跑语义见 `docs/runtime/resume-from-step.md`。
 
 ## 项目模式结构
 
@@ -383,7 +349,7 @@ temp/projects/多角色多场景一致性测试__multi-scene-character-demo/
 
 ## 现在可以放心清理的旧产物
 
-下面这些通常都属于历史调试/兼容遗留物，可以按需删除：
+下面这些通常都属于历史调试/已移除的兼容单文件入口遗留物，可以按需删除：
 
 ```text
 temp/<legacy-job-id>/
@@ -396,7 +362,7 @@ temp/projects/*__project_1/
 
 它们的共同特点是：
 
-- 主要服务于旧入口兼容或阶段性调试
+- 主要服务于阶段性调试或已移除的兼容单文件入口
 - 和当前推荐保留的 demo 项目没有直接绑定关系
 - 名称可读性差，长期保留只会增加排障成本
 

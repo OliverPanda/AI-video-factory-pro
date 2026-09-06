@@ -1,0 +1,21 @@
+﻿✔ sequence coverage suppresses duplicate per-shot reference gaps (4.1937ms)
+✔ missing projectKey does not write HappyHorse context memory by default (0.6964ms)
+✔ non-HappyHorse projectKey blocks context memory writes (0.4994ms)
+✔ HappyHorse projectKey with seedance provider blocks context memory writes (0.6621ms)
+✔ metadata-only seedance provider blocks HappyHorse context memory writes (1.6804ms)
+✔ bridge internal transition is indexed but not treated as a main timeline shot (0.7718ms)
+✔ clip index includes lipsync clips with shot sequence and bridge associations (0.6183ms)
+✔ missing reference evidence creates reference_gap (0.6262ms)
+✔ high-risk motion blocks blind bridge and recommends regenerate_sequence (0.5151ms)
+✔ sequence-covered dialogue shot without lipsync or downgrade creates lipsync_risk (0.8707ms)
+✔ sequence lipsync evidence covers dialogue shot in sequence coverage (0.7855ms)
+✔ bridge dialogue hint without lipsync or downgrade creates lipsync_risk (0.5603ms)
+✔ runCrossVideoConsistency writes report markdown metrics manifest and qa summary artifacts (22.8983ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 49.8159

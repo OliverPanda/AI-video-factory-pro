@@ -317,7 +317,8 @@ export async function checkCharacterConsistency(characterName, characterCard, im
     const prompt = `${CONSISTENCY_CHECK_SYSTEM}\n\n${CONSISTENCY_CHECK_USER(characterName, characterCard, batch.length)}`;
 
     try {
-      const raw = await visionChat(prompt, imageBase64List, {
+      const visionFn = options.visionChat || visionChat;
+      const raw = await visionFn(prompt, imageBase64List, {
         maxTokens: 1024,
         temperature: 0.2,
       });
@@ -409,6 +410,7 @@ export async function runConsistencyCheck(characterRegistry, imageResults) {
     const report = normalizeConsistencyReport(
       await runCheckCharacterConsistency(charCard.name, charCard, charImages, {
         artifactContext: deps.artifactContext,
+        visionChat: deps.visionChat,
       }),
       charCard.name,
       charImages

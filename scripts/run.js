@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * CLI 入口
- * 兼容旧用法：node scripts/run.js <剧本文件路径> [选项]
- * 项目模式：node scripts/run.js --project=<projectId> --script=<scriptId> --episode=<episodeId> [选项]
+ * 项目主入口（CLI Entry）
+ * package.json 的 start 指向这里：`npm start` / `node scripts/run.js`
+ *
+ * v1.2（D1）起仅保留项目模式入口：
+ *   node scripts/run.js --project=<projectId> --script=<scriptId> --episode=<episodeId> [选项]
+ * 兼容单文件模式（位置参数剧本直跑）已整体移除。
  */
 
 import 'dotenv/config';
+import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +17,6 @@ import logger from '../src/utils/logger.js';
 
 const USAGE = `
 用法：
-  node scripts/run.js <剧本文件路径> [选项]
   node scripts/run.js --project=<projectId> --script=<scriptId> --episode=<episodeId> [选项]
 
 选项：
@@ -21,7 +24,6 @@ const USAGE = `
   --skip-consistency        跳过一致性验证（加速测试）
   --max-shots=<number>      仅处理前 N 个分镜（用于抽样验证）
   --provider=qwen|deepseek|claude  LLM提供商（覆盖.env设置）
-  --project-id=<id>         为旧单文件入口指定 VoicePreset 所属项目
   --input-format=professional-script|raw-novel|auto
                              输入文本类型（默认：professional-script）
   --stop-at=full|after_ref_sheets|after_images|before_video
@@ -31,9 +33,6 @@ const USAGE = `
   --run-attempt-id=<id>      指定本次运行 attempt ID（用于前后端状态对齐）
 
 示例：
-  node scripts/run.js samples/test_script.txt
-  node scripts/run.js samples/test_script.txt --style=3d --skip-consistency
-  node scripts/run.js samples/test_script.txt --project-id=demo-project
   node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --style=realistic
   node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --stop-at=after_images
   node scripts/run.js --project=project-example --script=pilot --episode=episode-1 --continue --stop-at=before_video
@@ -64,12 +63,32 @@ function resolveStoreOptions() {
   return { baseTempDir };
 }
 
+function logRuntimeImageEnv() {
+  const snapshot = {
+    IMAGE_API_BASE_URL: String(process.env.IMAGE_API_BASE_URL || '').trim(),
+    REALISTIC_IMAGE_MODEL: String(process.env.REALISTIC_IMAGE_MODEL || '').trim(),
+    IMAGE_EDIT_MODEL: String(process.env.IMAGE_EDIT_MODEL || '').trim(),
+    PRIMARY_API_PROVIDER: String(process.env.PRIMARY_API_PROVIDER || '').trim(),
+  };
+  logger.info('Main', `runtime image env ${JSON.stringify(snapshot)}`);
+}
+
 export function parseCliArgs(args) {
-  const scriptFile = args.find((arg) => !arg.startsWith('--')) ?? null;
+  const positionalArgs = args.filter((arg) => !arg.startsWith('--'));
+  if (positionalArgs.length > 0) {
+    throw new Error(
+      `位置参数剧本文件（${positionalArgs[0]}）已不再支持：请使用项目模式 --project/--script/--episode。\n\n${USAGE}`
+    );
+  }
+  if (args.some((arg) => arg.startsWith('--project-id='))) {
+    throw new Error(
+      '--project-id 已随兼容单文件模式整体移除（v1.2 / D1）：语音 preset 归属由项目模式的项目 id 决定。'
+    );
+  }
+
   const projectId = normalizeId(getFlagValue(args, 'project'));
   const scriptId = normalizeId(getFlagValue(args, 'script'));
   const episodeId = normalizeId(getFlagValue(args, 'episode'));
-  const projectIdOverride = normalizeId(getFlagValue(args, 'project-id'));
   const style = normalizeId(getFlagValue(args, 'style'));
   const provider = normalizeId(getFlagValue(args, 'provider'));
   const maxShotsRaw = normalizeId(getFlagValue(args, 'max-shots'));
@@ -89,30 +108,21 @@ export function parseCliArgs(args) {
     maxShots = parsedMaxShots;
   }
 
-  const hasProjectModeFlags = projectId || scriptId || episodeId;
-  const hasCompleteProjectMode = projectId && scriptId && episodeId;
-
-  if (scriptFile && hasProjectModeFlags) {
-    throw new Error('不能同时提供剧本文件路径和 --project/--script/--episode。');
-  }
-
-  if (hasProjectModeFlags && !hasCompleteProjectMode) {
-    throw new Error('项目模式必须同时提供 --project、--script 和 --episode。');
-  }
-
-  if (!scriptFile && !hasCompleteProjectMode) {
+  const hasCompleteProjectMode = Boolean(projectId && scriptId && episodeId);
+  if (projectId || scriptId || episodeId) {
+    if (!hasCompleteProjectMode) {
+      throw new Error('项目模式必须同时提供 --project、--script 和 --episode。');
+    }
+  } else {
     throw new Error(USAGE);
   }
 
   let stopAt = stopAtFlag || 'full';
 
   return {
-    mode: hasCompleteProjectMode ? 'project' : 'legacy',
-    scriptFile,
     projectId,
     scriptId,
     episodeId,
-    projectIdOverride,
     style,
     maxShots,
     skipConsistencyCheck,
@@ -127,10 +137,8 @@ export function parseCliArgs(args) {
 
 export function createCli(overrides = {}) {
   const deps = {
-    runPipeline: async (...args) => {
-      const director = await import('../src/agents/director.js');
-      return director.runPipeline(...args);
-    },
+    // 入口层只做参数解析和运行时选择；
+    // 真正的主流程编排都下沉到 director，避免 CLI 自己持有业务状态机。
     runEpisodePipeline: async (...args) => {
       const director = await import('../src/agents/director.js');
       return director.runEpisodePipeline(...args);
@@ -138,8 +146,6 @@ export function createCli(overrides = {}) {
     logger,
     cwd: () => process.cwd(),
     exit: (code) => process.exit(code),
-    resolveScriptPath: (scriptFile) =>
-      path.isAbsolute(scriptFile) ? scriptFile : path.resolve(process.cwd(), scriptFile),
     writeUsage: (message) => console.error(`\n${message}\n`),
     writeBanner: () =>
       console.log(`
@@ -168,44 +174,27 @@ export function createCli(overrides = {}) {
       }
 
       deps.writeBanner();
+      logRuntimeImageEnv();
 
-      if (parsedArgs.mode === 'project') {
-        const outputPath = await deps.runEpisodePipeline({
-          projectId: parsedArgs.projectId,
-          scriptId: parsedArgs.scriptId,
-          episodeId: parsedArgs.episodeId,
-          options: {
-            style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
-            maxShots: parsedArgs.maxShots,
-            skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
-            inputFormat: parsedArgs.inputFormat,
-            stopAt: parsedArgs.stopAt,
-            continue: parsedArgs.continueRun,
-            continueJobId: parsedArgs.continueJobId,
-            runAttemptId: parsedArgs.runAttemptId,
-            storeOptions: resolveStoreOptions(),
-          },
-        });
-        deps.writeSuccess(outputPath);
-        return outputPath;
-      }
-
-      const result = await deps.runPipeline(deps.resolveScriptPath(parsedArgs.scriptFile), {
-        style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
-        maxShots: parsedArgs.maxShots,
-        skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
-        stopAt: parsedArgs.stopAt,
-        projectId: parsedArgs.projectIdOverride,
-        inputFormat: parsedArgs.inputFormat,
-        runAttemptId: parsedArgs.runAttemptId,
-        storeOptions: resolveStoreOptions(),
-      });
-      if (parsedArgs.stopAt && parsedArgs.stopAt !== 'full') {
-        deps.logger.info('Main', `已完成到 ${parsedArgs.stopAt} 阶段，提前退出`);
-        return result;
-      }
-      deps.writeSuccess(result);
-      return result;
+      const payload = {
+        projectId: parsedArgs.projectId,
+        scriptId: parsedArgs.scriptId,
+        episodeId: parsedArgs.episodeId,
+        options: {
+          style: parsedArgs.style || process.env.IMAGE_STYLE || 'realistic',
+          maxShots: parsedArgs.maxShots,
+          skipConsistencyCheck: parsedArgs.skipConsistencyCheck,
+          inputFormat: parsedArgs.inputFormat,
+          stopAt: parsedArgs.stopAt,
+          continue: parsedArgs.continueRun,
+          continueJobId: parsedArgs.continueJobId,
+          runAttemptId: parsedArgs.runAttemptId,
+          storeOptions: resolveStoreOptions(),
+        },
+      };
+      const outputPath = await deps.runEpisodePipeline(payload);
+      deps.writeSuccess(outputPath);
+      return outputPath;
     },
 
     async runAndExit(args) {

@@ -6,6 +6,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 
 import { createWorkbenchServer } from '../../src/workbench/http/router.js';
+import { createWorkbenchServer as createFastifyWorkbenchServer } from '../../src/app/workbench/server.js';
 
 const postProcessingFixturesDir = path.resolve('tests/fixtures/post-processing');
 
@@ -57,6 +58,62 @@ async function requestRaw(port, pathname, options = {}) {
   });
 
   return response;
+}
+
+async function collectSseEvents(port, pathname, options = {}) {
+  return await new Promise((resolve, reject) => {
+    const events = [];
+    let settled = false;
+    let buffer = '';
+    const req = http.request(
+      `http://127.0.0.1:${port}${pathname}`,
+      {
+        method: 'GET',
+        headers: options.headers || {},
+      },
+      (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          buffer += String(chunk);
+          const blocks = buffer.split('\n\n');
+          buffer = blocks.pop() || '';
+          for (const block of blocks.filter(Boolean)) {
+            const eventMatch = block.match(/event:\s*(.+)/);
+            const dataMatch = block.match(/data:\s*(.+)/);
+            if (eventMatch && dataMatch) {
+              events.push({
+                event: eventMatch[1].trim(),
+                data: JSON.parse(dataMatch[1]),
+              });
+            }
+          }
+          if (!settled && events.some((entry) => entry.event === 'done')) {
+            settled = true;
+            req.destroy();
+          }
+        });
+        res.on('close', () => {
+          if (!settled) {
+            settled = true;
+          }
+          resolve(events);
+        });
+        res.on('end', () => {
+          if (!settled) {
+            settled = true;
+          }
+          resolve(events);
+        });
+      }
+    );
+    req.on('error', (error) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    });
+    req.end();
+  });
 }
 
 function writeJson(filePath, payload) {
@@ -181,6 +238,10 @@ function createReviewRunFixture(workspaceRoot) {
   fs.writeFileSync(path.join(runDir, 'output', 'final.mp4'), Buffer.from('0123456789abcdef'));
 
   return { tempProjectsDir, runDir };
+}
+
+function seedBillingLedger(runDir, entries) {
+  writeJson(path.join(runDir, 'billing-ledger.json'), entries);
 }
 
 function createLiveStateReviewRunFixture(workspaceRoot) {
@@ -383,6 +444,78 @@ test('GET /api/runs/:runId/artifacts returns artifact summary', async () => {
   assert.ok(Array.isArray(payload.agentDirs));
 });
 
+test('GET /api/runs/:runId returns runtime journal when present', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-run-runtime-journal-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  writeJson(path.join(runDir, 'runtime-journal.json'), {
+    runtimeVersion: 1,
+    status: 'completed',
+    updatedAt: '2026-06-27T00:00:00.000Z',
+    stages: [
+      { stage: 'character', status: 'completed', outputKeys: ['characterRegistry'] },
+      { stage: 'compose', status: 'completed', outputKeys: ['finalOutputPath'] },
+    ],
+    decisions: [
+      {
+        decisionType: 'video_provider_selection',
+        policySource: 'videoProviderPolicy',
+        decisionKey: 'shot_001',
+        timestamp: '2026-06-27T00:00:00.000Z',
+        inputSnapshot: { shotId: 'shot_001', requestedProvider: 'seedance', hasReferenceImage: true },
+        outputSnapshot: { preferredProvider: 'seedance', fallbackProviders: [] },
+        rationale: 'reference image available, using requested provider seedance',
+        tags: ['video-routing', 'reference-available'],
+      },
+    ],
+  });
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const body = await new Promise((resolve, reject) => {
+    http
+      .get(`http://127.0.0.1:${port}/api/runs/run_post_loop_fixture`, (response) => {
+        let text = '';
+        response.on('data', (chunk) => {
+          text += chunk;
+        });
+        response.on('end', () => {
+          resolve({ statusCode: response.statusCode, text });
+        });
+      })
+      .on('error', reject);
+  });
+
+  server.close();
+  fs.rmSync(workspaceRoot, { recursive: true, force: true });
+
+  const payload = JSON.parse(body.text);
+  assert.equal(body.statusCode, 200);
+  assert.equal(Boolean(payload.runState), true);
+  assert.equal(payload.runState.run.status, 'completed');
+  assert.equal(Array.isArray(payload.runState.stageRuns), true);
+  assert.equal(Array.isArray(payload.runState.decisionRecords), true);
+  assert.equal(payload.runtimeJournal.status, 'completed');
+  assert.equal(payload.runtimeJournal.stages.length, 2);
+  assert.equal(payload.runtimeJournal.stages[0].stage, 'character');
+  assert.equal(payload.runtimeJournal.decisions.length, 1);
+  assert.equal(payload.runtimeJournal.decisions[0].decisionType, 'video_provider_selection');
+  assert.equal(payload.controlPlane.status, 'completed');
+  assert.equal(payload.controlPlane.currentStage, 'compose');
+  assert.equal(payload.controlPlane.currentStageStatus, 'completed');
+  assert.equal(Array.isArray(payload.controlPlane.decisionTrail), true);
+  assert.equal(payload.controlPlane.decisionTrail.length, 1);
+  assert.equal(Array.isArray(payload.controlPlane.availableActions), true);
+  // P2 单轨收敛：实验轨专属 action 已移除，控制面仅剩人审 action
+  assert.equal(
+    payload.controlPlane.availableActions.some(
+      (item) => item.kind === 'rerun_stage' || item.kind === 'resume_runtime'
+    ),
+    false
+  );
+});
+
 test('GET /api/runs/:runId/review returns aggregated post-processing review payload', async () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-review-aggregate-'));
   const { tempProjectsDir } = createReviewRunFixture(workspaceRoot);
@@ -493,7 +626,7 @@ test('GET storyboard returns live state snapshot for resumed runs', async () => 
   assert.equal(response.payload.snapshot.audioVoiceResolution[0].speakerName, '主角');
 });
 
-test('PUT /api/runs/:runId/review/tasks/:taskId persists approved skipped and manual_review statuses', async () => {
+test('PUT /api/runs/:runId/review/tasks/:taskId persists approved skipped manual_review and needs_changes statuses', async () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-review-task-'));
   const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
 
@@ -513,6 +646,10 @@ test('PUT /api/runs/:runId/review/tasks/:taskId persists approved skipped and ma
     method: 'PUT',
     body: { status: 'manual_review' },
   });
+  const needsChangesResponse = await requestJson(port, '/api/runs/run_post_loop_fixture/review/tasks/edit_task_003', {
+    method: 'PUT',
+    body: { status: 'needs_changes' },
+  });
 
   server.close();
 
@@ -527,16 +664,463 @@ test('PUT /api/runs/:runId/review/tasks/:taskId persists approved skipped and ma
   assert.equal(skippedResponse.payload.task.status, 'skipped');
   assert.equal(manualReviewResponse.statusCode, 200);
   assert.equal(manualReviewResponse.payload.task.status, 'manual_review');
+  assert.equal(needsChangesResponse.statusCode, 200);
+  assert.equal(needsChangesResponse.payload.task.status, 'needs_changes');
   assert.deepEqual(savedStatuses, {
     edit_task_001: 'approved',
     edit_task_002: 'skipped',
-    edit_task_003: 'manual_review',
+    edit_task_003: 'needs_changes',
   });
+});
+
+test('GET /api/logs returns global aggregation when projectId is missing', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-global-overview-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  seedBillingLedger(runDir, [
+    {
+      id: 'image_bill_global_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'image',
+      provider: 'laozhang',
+      operation: 'generate_image',
+      currency: 'CNY',
+      amount: 2.4,
+      status: 'billed',
+      timestamp: '2026-06-19T00:05:00.000Z',
+      requestedAt: '2026-06-19T00:04:00.000Z',
+      finishedAt: '2026-06-19T00:05:00.000Z',
+      imagePath: 'images/shot_001.png',
+      billingRef: 'img-global-1',
+    },
+  ]);
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  const response = await withServer(server, (port) => requestJson(port, '/api/logs'));
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.scope.projectId, null);
+  assert.equal(response.payload.scope.runCount, 1);
+  assert.equal(response.payload.costSummary.total, 0);
+  assert.equal(response.payload.costSummary.hasRealBilling, false);
+  assert.equal(response.payload.imageLogs.length, 0);
+  fs.rmSync(workspaceRoot, { recursive: true, force: true });
+});
+
+test('GET /api/logs aggregates billed and unknown ledger entries by project', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-overview-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  seedBillingLedger(runDir, [
+    {
+      id: 'image_bill_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'image',
+      provider: 'laozhang',
+      operation: 'generate_image',
+      currency: 'CNY',
+      amount: 1.5,
+      status: 'billed',
+      timestamp: '2026-06-19T00:05:00.000Z',
+      requestedAt: '2026-06-19T00:04:00.000Z',
+      finishedAt: '2026-06-19T00:05:00.000Z',
+      imagePath: 'images/shot_001.png',
+      promptSummary: '主角在马厩',
+      referenceCount: 2,
+      billingRef: 'img-bill-1',
+      metadata: {
+        gatewaySync: {
+          rawPayload: {
+            created_at: 1782704754,
+            content: '大小 1080x1920, 生成数量 1, 模型价格 0.3',
+            model_name: 'qwen-image-edit',
+            group: 'default',
+            token_name: '380425169@qq.com的初始令牌',
+            use_time: 26,
+            is_stream: false,
+            ip: '54.95.147.198',
+            other: {
+              model_price: 0.3,
+              request_id: 'B202606290345286254782068268d9d6TThg7qrWMA',
+              request_path: '/v1/images/edits',
+              path: '/v1/images/edits',
+              usages: {
+                prompt_tokens: 1,
+                completion_tokens: 0,
+                total_tokens: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      id: 'video_unknown_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_002',
+      category: 'video',
+      provider: 'seedance',
+      operation: 'generate_video',
+      currency: 'CNY',
+      amount: null,
+      status: 'unknown',
+      timestamp: '2026-06-19T00:08:00.000Z',
+      requestedAt: '2026-06-19T00:07:00.000Z',
+      finishedAt: null,
+      videoPath: 'video/shot_002.mp4',
+      durationSec: 4,
+      billingRef: 'video-unknown-1',
+    },
+  ]);
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  const response = await withServer(server, (port) =>
+    requestJson(port, '/api/logs?projectId=project_happyhorse')
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.scope.projectId, 'project_happyhorse');
+  assert.equal(response.payload.scope.runCount, 1);
+  assert.equal(response.payload.costSummary.total, 1.5);
+  assert.equal(response.payload.costSummary.hasRealBilling, true);
+  assert.equal(response.payload.costSummary.billedCount, 1);
+  assert.equal(response.payload.costSummary.unknownCount, 0);
+  assert.equal(response.payload.costSummary.byCategory.image, 1.5);
+  assert.equal(response.payload.billingLogs.length, 1);
+  assert.equal(response.payload.billingLogs[0].modelName, 'qwen-image-edit');
+  assert.equal(response.payload.billingLogs[0].typeLabel, '消费');
+  assert.equal(response.payload.billingLogs[0].ip, '54.95.147.198');
+  assert.equal(response.payload.billingLogs[0].detail.includes('模型价格 0.3'), true);
+  assert.equal(response.payload.imageLogs.length, 1);
+  assert.equal(response.payload.videoLogs.length, 0);
+  assert.equal(response.payload.imageLogs[0].provider, 'laozhang');
+  assert.equal(response.payload.imageLogs[0].operation, 'generate_image');
+  fs.rmSync(workspaceRoot, { recursive: true, force: true });
+});
+
+test('GET /api/logs filters to a single run and keeps unknown-only billing as non-real', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-single-run-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  seedBillingLedger(runDir, [
+    {
+      id: 'video_unknown_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'video',
+      provider: 'sora2',
+      operation: 'generate_video',
+      currency: 'CNY',
+      amount: null,
+      status: 'unknown',
+      timestamp: '2026-06-19T00:08:00.000Z',
+      requestedAt: '2026-06-19T00:07:00.000Z',
+      finishedAt: null,
+      videoPath: 'video/shot_001.mp4',
+      durationSec: 3,
+      billingRef: 'video-unknown-1',
+    },
+  ]);
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/logs?projectId=project_happyhorse&runId=run_post_loop_fixture');
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.scope.runId, 'run_post_loop_fixture');
+    assert.equal(response.payload.costSummary.total, 0);
+    assert.equal(response.payload.costSummary.hasRealBilling, false);
+    assert.equal(response.payload.costSummary.unknownCount, 0);
+    assert.equal(response.payload.videoLogs.length, 0);
+  } finally {
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/logs/runs returns sorted run options for a project', async () => {
+  const server = createFastifyWorkbenchServer({
+    workspaceRoot: process.cwd(),
+    tempProjectsDir: path.resolve('tests/fixtures/workbench/minimal-run-jobs'),
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/logs/runs?projectId=project_x');
+    assert.equal(response.statusCode, 200);
+    assert.equal(Array.isArray(response.payload), true);
+    assert.equal(response.payload.length > 0, true);
+    assert.equal(typeof response.payload[0].id, 'string');
+    assert.equal(typeof response.payload[0].scriptTitle, 'string');
+    assert.equal('runKey' in response.payload[0], true);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/logs/sync backfills ledger from gateway logs', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-sync-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  const previousFetch = global.fetch;
+  const previousEnv = {
+    GATEWAY_SYNC_FAMILY: process.env.GATEWAY_SYNC_FAMILY,
+    GATEWAY_SYNC_BASE_URL: process.env.GATEWAY_SYNC_BASE_URL,
+    GATEWAY_SYNC_API_KEY: process.env.GATEWAY_SYNC_API_KEY,
+    GATEWAY_SYNC_PATH: process.env.GATEWAY_SYNC_PATH,
+  };
+
+  process.env.GATEWAY_SYNC_FAMILY = 'openai_compat';
+  process.env.GATEWAY_SYNC_BASE_URL = 'https://gateway.example';
+  process.env.GATEWAY_SYNC_API_KEY = 'gateway-token';
+  process.env.GATEWAY_SYNC_PATH = '/usage';
+  seedBillingLedger(runDir, [
+    {
+      id: 'image_unknown_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'image',
+      provider: 'openai_compat',
+      operation: 'generate_image',
+      requestId: 'req_sync_1',
+      billingRef: 'req_sync_1',
+      currency: 'CNY',
+      amount: null,
+      status: 'unknown',
+    },
+  ]);
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      items: [
+        {
+          request_id: 'req_sync_1',
+          total_cost: 5.5,
+          currency: 'CNY',
+          status: 'success',
+          finished_at: '2026-06-29T00:00:00.000Z',
+        },
+      ],
+    }),
+  });
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/logs/sync', {
+      method: 'POST',
+      body: { projectId: 'project_happyhorse', runId: 'run_post_loop_fixture' },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.matchedCount, 1);
+
+    const after = await requestJson(port, '/api/logs?projectId=project_happyhorse&runId=run_post_loop_fixture');
+    assert.equal(after.payload.costSummary.total, 5.5);
+    assert.equal(after.payload.costSummary.hasRealBilling, true);
+  } finally {
+    global.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/logs/sync auto-detects apilio family when only base url is switched', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-sync-apilio-auto-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  const previousFetch = global.fetch;
+  const previousEnv = {
+    GATEWAY_SYNC_FAMILY: process.env.GATEWAY_SYNC_FAMILY,
+    GATEWAY_SYNC_BASE_URL: process.env.GATEWAY_SYNC_BASE_URL,
+    GATEWAY_SYNC_API_KEY: process.env.GATEWAY_SYNC_API_KEY,
+    GATEWAY_SYNC_PATH: process.env.GATEWAY_SYNC_PATH,
+  };
+
+  process.env.GATEWAY_SYNC_FAMILY = 'auto';
+  process.env.GATEWAY_SYNC_BASE_URL = 'https://api.apilio.ai';
+  process.env.GATEWAY_SYNC_API_KEY = 'gateway-token';
+  process.env.GATEWAY_SYNC_PATH = '/usage';
+  seedBillingLedger(runDir, [
+    {
+      id: 'image_unknown_apilio_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'image',
+      provider: 'openai_compat',
+      operation: 'generate_image',
+      requestId: 'B202606290345286254782068268d9d6TThg7qrWMA',
+      billingRef: 'B202606290345286254782068268d9d6TThg7qrWMA',
+      currency: 'CNY',
+      amount: null,
+      status: 'unknown',
+    },
+  ]);
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        page: 1,
+        page_size: 10,
+        total: 1,
+        items: [
+          {
+            created_at: 1782704754,
+            content: '大小 1080x1920, 生成数量 1, 模型价格 0.3',
+            model_name: 'qwen-image-edit',
+            other: {
+              billing_source: 'wallet',
+              host: 'api.apilio.ai',
+              model_price: 0.3,
+              path: '/v1/images/edits',
+              request_id: 'B202606290345286254782068268d9d6TThg7qrWMA',
+              request_path: '/v1/images/edits',
+            },
+          },
+        ],
+      },
+      success: true,
+      message: '',
+    }),
+  });
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/logs/sync', {
+      method: 'POST',
+      body: { projectId: 'project_happyhorse', runId: 'run_post_loop_fixture' },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.gatewayFamily, 'apilio_openai_compat');
+    assert.equal(response.payload.matchedCount, 1);
+    assert.equal(response.payload.results[0].amount, 0.3);
+
+    const after = await requestJson(port, '/api/logs?projectId=project_happyhorse&runId=run_post_loop_fixture');
+    assert.equal(after.payload.costSummary.total, 0.3);
+    assert.equal(after.payload.costSummary.hasRealBilling, true);
+  } finally {
+    global.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/logs/sync supports global sync without projectId', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-logs-sync-global-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  const previousFetch = global.fetch;
+  const previousEnv = {
+    GATEWAY_SYNC_FAMILY: process.env.GATEWAY_SYNC_FAMILY,
+    GATEWAY_SYNC_BASE_URL: process.env.GATEWAY_SYNC_BASE_URL,
+    GATEWAY_SYNC_API_KEY: process.env.GATEWAY_SYNC_API_KEY,
+    GATEWAY_SYNC_PATH: process.env.GATEWAY_SYNC_PATH,
+  };
+
+  process.env.GATEWAY_SYNC_FAMILY = 'openai_compat';
+  process.env.GATEWAY_SYNC_BASE_URL = 'https://gateway.example';
+  process.env.GATEWAY_SYNC_API_KEY = 'gateway-token';
+  process.env.GATEWAY_SYNC_PATH = '/usage';
+  seedBillingLedger(runDir, [
+    {
+      id: 'image_unknown_global_1',
+      runId: 'run_post_loop_fixture',
+      projectId: 'project_happyhorse',
+      scriptId: 'script_1',
+      episodeId: 'episode_1',
+      shotId: 'shot_001',
+      category: 'image',
+      provider: 'openai_compat',
+      operation: 'generate_image',
+      requestId: 'req_global_sync_1',
+      billingRef: 'req_global_sync_1',
+      currency: 'CNY',
+      amount: null,
+      status: 'unknown',
+    },
+  ]);
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      items: [
+        {
+          request_id: 'req_global_sync_1',
+          total_cost: 6.6,
+          currency: 'CNY',
+          status: 'success',
+          finished_at: '2026-06-29T00:00:00.000Z',
+        },
+      ],
+    }),
+  });
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/logs/sync', {
+      method: 'POST',
+      body: {},
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.matchedCount, 1);
+
+    const after = await requestJson(port, '/api/logs');
+    assert.equal(after.payload.costSummary.total, 6.6);
+    assert.equal(after.payload.costSummary.hasRealBilling, true);
+  } finally {
+    global.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
 });
 
 test('PUT /api/runs/:runId/review/tasks/:taskId keeps /review aggregate task status views in sync', async () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-review-task-sync-'));
-  const { tempProjectsDir } = createReviewRunFixture(workspaceRoot);
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
 
   const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
   await new Promise((resolve) => server.listen(0, resolve));
@@ -551,12 +1135,116 @@ test('PUT /api/runs/:runId/review/tasks/:taskId keeps /review aggregate task sta
   server.close();
 
   const queueItem = reviewResponse.payload.humanReviewQueue.items.find((item) => item.id === 'post_compose_edit_task_001');
+  const snapshot = JSON.parse(fs.readFileSync(path.join(runDir, 'state.snapshot.json'), 'utf8'));
+  const humanReviewRecord = snapshot.runState?.humanReviewRecords?.[0] || null;
 
   assert.equal(updateResponse.statusCode, 200);
   assert.equal(reviewResponse.statusCode, 200);
   assert.equal(reviewResponse.payload.editTaskPack.tasks.find((task) => task.id === 'edit_task_001').status, 'approved');
   assert.equal(reviewResponse.payload.postComposeReview.taskStatusSummary.approved, 1);
   assert.equal(queueItem.status, 'approved');
+  assert.equal(Boolean(humanReviewRecord), true);
+  assert.equal(humanReviewRecord.resolutionPayload.latestTaskUpdate.taskId, 'edit_task_001');
+  assert.equal(humanReviewRecord.resolutionPayload.latestTaskUpdate.status, 'approved');
+});
+
+test('POST /api/runs submit_review_action persists review decision through control plane command', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-review-command-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const response = await requestJson(port, '/api/runs', {
+    method: 'POST',
+    body: {
+      projectId: 'project_post_loop',
+      scriptId: 'script_post_loop',
+      episodeId: 'episode_post_loop',
+      mode: {
+        kind: 'submit_review_action',
+        runId: 'run_post_loop_fixture',
+        taskId: 'edit_task_002',
+        status: 'skipped',
+      },
+    },
+  });
+  const reviewResponse = await requestJson(port, '/api/runs/run_post_loop_fixture/review');
+
+  server.close();
+
+  const savedTaskPack = JSON.parse(
+    fs.readFileSync(path.join(runDir, '10b-post-compose-review', '1-outputs', 'edit-task-pack.json'), 'utf8')
+  );
+  const savedSnapshot = JSON.parse(fs.readFileSync(path.join(runDir, 'state.snapshot.json'), 'utf8'));
+  const task = savedTaskPack.tasks.find((item) => item.id === 'edit_task_002');
+  const queueItem = reviewResponse.payload.humanReviewQueue.items.find(
+    (item) => item.taskId === 'edit_task_002' || String(item.id || '').endsWith('edit_task_002')
+  );
+  const humanReviewRecord = savedSnapshot.runState?.humanReviewRecords?.[0] || null;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.success, true);
+  assert.equal(response.payload.mode, 'submit_review_action');
+  assert.equal(response.payload.controlCommand.kind, 'submit_review_action');
+  assert.equal(response.payload.controlCommand.runId, 'run_post_loop_fixture');
+  assert.equal(response.payload.controlCommand.taskId, 'edit_task_002');
+  assert.equal(response.payload.controlCommand.status, 'skipped');
+  assert.equal(response.payload.task.id, 'edit_task_002');
+  assert.equal(response.payload.task.status, 'skipped');
+  assert.equal(task.status, 'skipped');
+  assert.equal(reviewResponse.payload.editTaskPack.tasks.find((item) => item.id === 'edit_task_002').status, 'skipped');
+  assert.equal(queueItem.status, 'skipped');
+  assert.equal(Boolean(humanReviewRecord), true);
+  assert.equal(humanReviewRecord.resolutionPayload.latestTaskUpdate.taskId, 'edit_task_002');
+  assert.equal(humanReviewRecord.resolutionPayload.latestTaskUpdate.status, 'skipped');
+});
+
+test('POST /api/runs submit_review_action accepts rejected and keeps blocked review state', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-review-command-rejected-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  const snapshotPath = path.join(runDir, 'state.snapshot.json');
+  const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+  snapshot.executionGate = {
+    status: 'blocked',
+    stoppedBeforeStage: 'generate_video_clips',
+    reason: 'manual_review_required',
+  };
+  snapshot.blockedStage = 'video_routing';
+  snapshot.humanReviewQueue = readFixtureJson('human-review-queue.json');
+  writeJson(snapshotPath, snapshot);
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const response = await requestJson(port, '/api/runs', {
+    method: 'POST',
+    body: {
+      projectId: 'project_post_loop',
+      scriptId: 'script_post_loop',
+      episodeId: 'episode_post_loop',
+      mode: {
+        kind: 'submit_review_action',
+        runId: 'run_post_loop_fixture',
+        taskId: 'edit_task_001',
+        status: 'rejected',
+      },
+    },
+  });
+
+  server.close();
+
+  const savedSnapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+  const humanReviewRecord = savedSnapshot.runState?.humanReviewRecords?.[0] || null;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.task.status, 'rejected');
+  assert.equal(savedSnapshot.runState.humanReviewRecords[0].status, 'blocked');
+  assert.equal(savedSnapshot.executionGate.status, 'blocked');
+  assert.equal(Boolean(humanReviewRecord), true);
+  assert.equal(humanReviewRecord.resolutionPayload.latestTaskUpdate.status, 'rejected');
 });
 
 test('PUT /api/runs/:runId/review/tasks/:taskId rejects invalid task review status', async () => {
@@ -1134,6 +1822,60 @@ test('GET /api/projects/:projectId/scripts/:scriptId/episodes/:episodeId returns
   assert.equal(response.payload.shots[0].id, 'shot_001');
 });
 
+test('GET /api/projects/:projectId/scripts/:scriptId/episodes/:episodeId falls back to minimal run-backed payload when episode.json is missing', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-episode-detail-fallback-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  const logicalEpisodeDir = path.join(
+    tempProjectsDir,
+    'project_missing_episode',
+    'scripts',
+    'script_missing_episode',
+    'episodes',
+    'episode_missing_payload'
+  );
+  const runDir = path.join(
+    logicalEpisodeDir,
+    'runs',
+    'run_missing_episode'
+  );
+  fs.mkdirSync(path.join(logicalEpisodeDir, 'run-jobs'), { recursive: true });
+  fs.mkdirSync(runDir, { recursive: true });
+  writeJson(path.join(logicalEpisodeDir, 'run-jobs', 'run_missing_episode.json'), {
+    id: 'run_missing_episode',
+    projectId: 'project_missing_episode',
+    scriptId: 'script_missing_episode',
+    episodeId: 'episode_missing_payload',
+    scriptTitle: '老项目兼容',
+    episodeTitle: '第一集',
+    status: 'completed',
+    startedAt: '2026-06-22T00:00:00.000Z',
+    finishedAt: '2026-06-22T00:01:00.000Z',
+    artifactRunDir: path.relative(workspaceRoot, runDir),
+  });
+
+  const server = createWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const response = await requestJson(
+    port,
+    '/api/projects/project_missing_episode/scripts/script_missing_episode/episodes/episode_missing_payload'
+  );
+
+  server.close();
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.id, 'episode_missing_payload');
+  assert.equal(response.payload.title, '第一集');
+  assert.deepEqual(response.payload.shots, []);
+  assert.deepEqual(response.payload.characters, []);
+  assert.deepEqual(response.payload.scenes, []);
+  assert.deepEqual(response.payload.voices, []);
+});
+
 test('POST /api/runs retry supports stopAt before_video to avoid video generation', async () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-retry-stop-'));
   const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
@@ -1216,6 +1958,259 @@ test('POST /api/runs retry supports stopAt before_video to avoid video generatio
   assert.equal(spawned.command, 'node');
   assert.equal(spawned.args.includes('--stop-at=before_video'), true);
   assert.equal(spawned.args.includes('--input-format=professional-script'), true);
+});
+
+test('POST /api/runs retry resolves project locator from runId only', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-retry-runid-only-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  const episodeDir = path.join(
+    tempProjectsDir,
+    'project_retry',
+    'scripts',
+    'script_retry',
+    'episodes',
+    'episode_retry'
+  );
+  fs.mkdirSync(path.join(episodeDir, 'run-jobs'), { recursive: true });
+  fs.writeFileSync(
+    path.join(episodeDir, 'episode.json'),
+    JSON.stringify({ id: 'episode_retry', title: '重试测试', shots: [{ id: 'shot_001' }] }, null, 2),
+    'utf8'
+  );
+  writeJson(path.join(tempProjectsDir, 'project_retry', 'scripts', 'script_retry', 'script.json'), {
+    id: 'script_retry',
+    projectId: 'project_retry',
+    title: '重试测试',
+    sourceText: [
+      '第1集《重试测试》',
+      '【画面1】',
+      '场景：客厅。',
+      '人物：周凛。',
+      '动作：周凛抬头看向灯光。',
+      '对白：周凛：再试一次。',
+      '时长：5秒',
+    ].join('\n'),
+    parseOk: true,
+    shotCount: 1,
+  });
+  fs.writeFileSync(
+    path.join(episodeDir, 'run-jobs', 'run_previous.json'),
+    JSON.stringify(
+      {
+        id: 'run_previous',
+        runKey: 'rk_previous',
+        projectId: 'project_retry',
+        scriptId: 'script_retry',
+        episodeId: 'episode_retry',
+        jobId: 'job_previous',
+        status: 'failed',
+        startedAt: '2026-06-17T00:00:00.000Z',
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  let spawned = null;
+  const server = createWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+    spawnProcess(command, args) {
+      spawned = { command, args };
+      return {
+        pid: 12345,
+        unref() {},
+      };
+    },
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const response = await requestJson(port, '/api/runs', {
+    method: 'POST',
+    body: {
+      runId: 'run_previous',
+      mode: { kind: 'retry', runId: 'run_previous', stopAt: 'before_video' },
+    },
+  });
+
+  server.close();
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(spawned.command, 'node');
+  assert.equal(spawned.args.includes('--project=project_retry'), true);
+  assert.equal(spawned.args.includes('--script=script_retry'), true);
+  assert.equal(spawned.args.includes('--episode=episode_retry'), true);
+  assert.equal(spawned.args.includes('--stop-at=before_video'), true);
+});
+
+test('POST /api/runs retry resolves project locator from runKey only', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-retry-runkey-only-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  const episodeDir = path.join(
+    tempProjectsDir,
+    'project_retry',
+    'scripts',
+    'script_retry',
+    'episodes',
+    'episode_retry'
+  );
+  fs.mkdirSync(path.join(episodeDir, 'run-jobs'), { recursive: true });
+  fs.writeFileSync(
+    path.join(episodeDir, 'episode.json'),
+    JSON.stringify({ id: 'episode_retry', title: '重试测试', shots: [{ id: 'shot_001' }] }, null, 2),
+    'utf8'
+  );
+  writeJson(path.join(tempProjectsDir, 'project_retry', 'scripts', 'script_retry', 'script.json'), {
+    id: 'script_retry',
+    projectId: 'project_retry',
+    title: '重试测试',
+    sourceText: '【画面1】\n场景：客厅。\n人物：周凛。\n动作：周凛抬头看向灯光。\n对白：周凛：再试一次。\n时长：5秒',
+    parseOk: true,
+    shotCount: 1,
+  });
+  fs.writeFileSync(
+    path.join(episodeDir, 'run-jobs', 'run_previous.json'),
+    JSON.stringify(
+      {
+        id: 'run_previous',
+        runKey: 'rk_previous',
+        projectId: 'project_retry',
+        scriptId: 'script_retry',
+        episodeId: 'episode_retry',
+        jobId: 'job_previous',
+        status: 'failed',
+        startedAt: '2026-06-17T00:00:00.000Z',
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  let spawned = null;
+  const server = createWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+    spawnProcess(command, args) {
+      spawned = { command, args };
+      return { pid: 12345, unref() {} };
+    },
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const response = await requestJson(port, '/api/runs', {
+    method: 'POST',
+    body: {
+      runKey: 'rk_previous',
+      mode: { kind: 'retry', runKey: 'rk_previous', stopAt: 'before_video' },
+    },
+  });
+
+  server.close();
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(spawned.args.includes('--project=project_retry'), true);
+  assert.equal(spawned.args.includes('--script=script_retry'), true);
+  assert.equal(spawned.args.includes('--episode=episode_retry'), true);
+});
+
+test('GET /api/runs/:runId resolves run detail by runKey', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-runkey-detail-'));
+  const { tempProjectsDir } = createReviewRunFixture(workspaceRoot);
+  const runJobPath = path.join(
+    tempProjectsDir,
+    'project_happyhorse',
+    'scripts',
+    'script_1',
+    'episodes',
+    'episode_1',
+    'run-jobs',
+    'run_post_loop_fixture.json'
+  );
+  const runJob = JSON.parse(fs.readFileSync(runJobPath, 'utf8'));
+  runJob.runKey = 'rk_post_loop_fixture';
+  fs.writeFileSync(runJobPath, JSON.stringify(runJob, null, 2), 'utf8');
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/runs/rk_post_loop_fixture');
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.id, 'run_post_loop_fixture');
+    assert.equal(response.payload.runKey, 'rk_post_loop_fixture');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/projects returns latestRunKey and nested runKey fields', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-project-runkey-list-'));
+  const { tempProjectsDir } = createReviewRunFixture(workspaceRoot);
+  const runJobPath = path.join(
+    tempProjectsDir,
+    'project_happyhorse',
+    'scripts',
+    'script_1',
+    'episodes',
+    'episode_1',
+    'run-jobs',
+    'run_post_loop_fixture.json'
+  );
+  const runJob = JSON.parse(fs.readFileSync(runJobPath, 'utf8'));
+  runJob.runKey = 'rk_project_fixture';
+  fs.writeFileSync(runJobPath, JSON.stringify(runJob, null, 2), 'utf8');
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const listResponse = await requestJson(port, '/api/projects');
+    assert.equal(listResponse.statusCode, 200);
+    assert.equal(listResponse.payload[0].latestRunKey, 'rk_project_fixture');
+
+    const detailResponse = await requestJson(port, '/api/projects/project_happyhorse');
+    assert.equal(detailResponse.statusCode, 200);
+    assert.equal(detailResponse.payload.latestRunKey, 'rk_project_fixture');
+    assert.equal(detailResponse.payload.scripts[0].episodes[0].latestRunKey, 'rk_project_fixture');
+    assert.equal(detailResponse.payload.scripts[0].episodes[0].runs[0].runKey, 'rk_project_fixture');
+  } finally {
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('POST /api/runs rejects experimental runtime control plane modes with 410 (P2 单轨收敛移除)', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-runtime-removed-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+
+  const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  try {
+    for (const kind of ['resume_runtime', 'rerun_stage']) {
+      const response = await requestJson(port, '/api/runs', {
+        method: 'POST',
+        body: {
+          projectId: 'project_demo',
+          scriptId: 'script_demo',
+          episodeId: 'episode_demo',
+          mode: { kind, runId: 'run_any' },
+        },
+      });
+      assert.equal(response.statusCode, 410);
+      assert.match(response.payload.error, /Experimental runtime control plane has been removed/);
+    }
+  } finally {
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
 });
 
 test('POST /api/scripts/professionalize rewrites rough text into professional script format', async () => {
@@ -2190,4 +3185,395 @@ test('GET /api/runs/:id reconciles early parser failures from run log', async ()
   const persistedRunJob = JSON.parse(fs.readFileSync(runJobPath, 'utf8'));
   assert.equal(persistedRunJob.status, 'failed');
   assert.match(persistedRunJob.error, /未找到任何【画面N】/);
+});
+
+test('POST /api/settings/providers/precheck surfaces image auth rejection from live probe', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-settings-image-auth-'));
+  fs.writeFileSync(
+    path.join(workspaceRoot, '.env'),
+    [
+      'LLM_PROVIDER=qwen',
+      'QWEN_API_KEY=test-qwen-key',
+      'QWEN_MODEL=qwen3.7-plus',
+      'LLM_VISION_PROVIDER=qwen',
+      'QWEN_VISION_MODEL=qwen-vl-max',
+      'IMAGE_API_BASE_URL=https://image.example/v1',
+      'IMAGE_API_KEY=test-image-key',
+      'REALISTIC_IMAGE_MODEL=gpt-image-2',
+      'TTS_PROVIDER=minimax',
+      'MINIMAX_API_KEY=test-minimax-key',
+      'VIDEO_PROVIDER=happyhorse',
+      'VIDEO_TRANSPORT_PROVIDER=dashscope_async',
+      'VIDEO_TRANSPORT_BASE_URL=https://dashscope.aliyuncs.com',
+      'VIDEO_TRANSPORT_API_KEY=test-video-key',
+      'VIDEO_MODEL_SHOT=happyhorse-1.0-r2v',
+      'ASR_PROVIDER=mock',
+      'LIPSYNC_PROVIDER=mock',
+    ].join('\n'),
+    'utf8'
+  );
+
+  const previousFetch = global.fetch;
+  const previousEnv = {
+    LLM_PROVIDER: process.env.LLM_PROVIDER,
+    QWEN_API_KEY: process.env.QWEN_API_KEY,
+    QWEN_MODEL: process.env.QWEN_MODEL,
+    LLM_VISION_PROVIDER: process.env.LLM_VISION_PROVIDER,
+    QWEN_VISION_MODEL: process.env.QWEN_VISION_MODEL,
+    IMAGE_API_BASE_URL: process.env.IMAGE_API_BASE_URL,
+    IMAGE_API_KEY: process.env.IMAGE_API_KEY,
+    REALISTIC_IMAGE_MODEL: process.env.REALISTIC_IMAGE_MODEL,
+    TTS_PROVIDER: process.env.TTS_PROVIDER,
+    MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+    VIDEO_PROVIDER: process.env.VIDEO_PROVIDER,
+    VIDEO_TRANSPORT_PROVIDER: process.env.VIDEO_TRANSPORT_PROVIDER,
+    VIDEO_TRANSPORT_BASE_URL: process.env.VIDEO_TRANSPORT_BASE_URL,
+    VIDEO_TRANSPORT_API_KEY: process.env.VIDEO_TRANSPORT_API_KEY,
+    VIDEO_MODEL_SHOT: process.env.VIDEO_MODEL_SHOT,
+    ASR_PROVIDER: process.env.ASR_PROVIDER,
+    LIPSYNC_PROVIDER: process.env.LIPSYNC_PROVIDER,
+  };
+
+  Object.assign(process.env, {
+    LLM_PROVIDER: 'qwen',
+    QWEN_API_KEY: 'test-qwen-key',
+    QWEN_MODEL: 'qwen3.7-plus',
+    LLM_VISION_PROVIDER: 'qwen',
+    QWEN_VISION_MODEL: 'qwen-vl-max',
+    IMAGE_API_BASE_URL: 'https://image.example/v1',
+    IMAGE_API_KEY: 'test-image-key',
+    REALISTIC_IMAGE_MODEL: 'gpt-image-2',
+    TTS_PROVIDER: 'minimax',
+    MINIMAX_API_KEY: 'test-minimax-key',
+    VIDEO_PROVIDER: 'happyhorse',
+    VIDEO_TRANSPORT_PROVIDER: 'dashscope_async',
+    VIDEO_TRANSPORT_BASE_URL: 'https://dashscope.aliyuncs.com',
+    VIDEO_TRANSPORT_API_KEY: 'test-video-key',
+    VIDEO_MODEL_SHOT: 'happyhorse-1.0-r2v',
+    ASR_PROVIDER: 'mock',
+    LIPSYNC_PROVIDER: 'mock',
+  });
+
+  global.fetch = async () => ({
+    ok: false,
+    status: 403,
+    text: async () => 'Forbidden',
+  });
+
+  try {
+    const server = createWorkbenchServer({
+      workspaceRoot,
+      tempProjectsDir: path.resolve('tests/fixtures/workbench/minimal-run-jobs'),
+    });
+    const response = await withServer(server, (port) =>
+      requestJson(port, '/api/settings/providers/precheck', { method: 'POST' })
+    );
+
+    assert.equal(response.statusCode, 200);
+    const imageResult = response.payload.results.find((item) => item.sectionId === 'image');
+    assert.equal(imageResult.checkType, 'live');
+    assert.equal(imageResult.ok, false);
+    assert.match(imageResult.message, /访问被拒绝|拒绝/);
+  } finally {
+    global.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('POST /api/settings/providers/precheck rejects html landing page from image provider probe', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-settings-image-html-'));
+  fs.writeFileSync(
+    path.join(workspaceRoot, '.env'),
+    [
+      'LLM_PROVIDER=qwen',
+      'QWEN_API_KEY=test-qwen-key',
+      'QWEN_MODEL=qwen3.7-plus',
+      'LLM_VISION_PROVIDER=qwen',
+      'QWEN_VISION_MODEL=qwen-vl-max',
+      'IMAGE_API_BASE_URL=https://image.example/v1',
+      'IMAGE_API_KEY=test-image-key',
+      'REALISTIC_IMAGE_MODEL=gpt-image-2',
+      'TTS_PROVIDER=minimax',
+      'MINIMAX_API_KEY=test-minimax-key',
+      'VIDEO_PROVIDER=happyhorse',
+      'VIDEO_TRANSPORT_PROVIDER=dashscope_async',
+      'VIDEO_TRANSPORT_BASE_URL=https://dashscope.aliyuncs.com',
+      'VIDEO_TRANSPORT_API_KEY=test-video-key',
+      'VIDEO_MODEL_SHOT=happyhorse-1.0-r2v',
+      'ASR_PROVIDER=mock',
+      'LIPSYNC_PROVIDER=mock',
+    ].join('\n'),
+    'utf8'
+  );
+
+  const previousFetch = global.fetch;
+  const previousEnv = {
+    IMAGE_API_BASE_URL: process.env.IMAGE_API_BASE_URL,
+    IMAGE_API_KEY: process.env.IMAGE_API_KEY,
+    REALISTIC_IMAGE_MODEL: process.env.REALISTIC_IMAGE_MODEL,
+  };
+
+  Object.assign(process.env, {
+    IMAGE_API_BASE_URL: 'https://image.example/v1',
+    IMAGE_API_KEY: 'test-image-key',
+    REALISTIC_IMAGE_MODEL: 'gpt-image-2',
+  });
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        return String(name).toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null;
+      },
+    },
+    text: async () => '<!doctype html><html><title>landing</title></html>',
+  });
+
+  try {
+    const server = createWorkbenchServer({
+      workspaceRoot,
+      tempProjectsDir: path.resolve('tests/fixtures/workbench/minimal-run-jobs'),
+    });
+    const response = await withServer(server, (port) =>
+      requestJson(port, '/api/settings/providers/precheck', { method: 'POST' })
+    );
+
+    assert.equal(response.statusCode, 200);
+    const imageResult = response.payload.results.find((item) => item.sectionId === 'image');
+    assert.equal(imageResult.checkType, 'live');
+    assert.equal(imageResult.ok, false);
+    assert.match(imageResult.message, /非模型列表|兼容图像 API/);
+    assert.match(imageResult.hint, /API 根路径|\/models JSON/);
+  } finally {
+    global.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('POST /api/runs/:id/export-jianying writes fallback draft files under workspace output', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-jianying-export-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+
+  const originalUserProfile = process.env.USERPROFILE;
+  process.env.USERPROFILE = path.join(workspaceRoot, 'fake-user-without-capcut');
+
+  try {
+    const server = createWorkbenchServer({ workspaceRoot, tempProjectsDir });
+    await withServer(server, async (port) => {
+      const response = await requestJson(port, '/api/runs/run_post_loop_fixture/export-jianying');
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.payload.success, true);
+      assert.equal(response.payload.directToCapcut, false);
+      assert.match(response.payload.exportPath, /CapCut_Draft/);
+
+      const draftContentPath = path.join(response.payload.exportPath, 'draft_content.json');
+      const draftMetaPath = path.join(response.payload.exportPath, 'draft_meta_info.json');
+      assert.equal(fs.existsSync(draftContentPath), true);
+      assert.equal(fs.existsSync(draftMetaPath), true);
+
+      const draftContent = JSON.parse(fs.readFileSync(draftContentPath, 'utf8'));
+      const draftMeta = JSON.parse(fs.readFileSync(draftMetaPath, 'utf8'));
+      assert.equal(Array.isArray(draftContent.tracks), true);
+      assert.equal(draftContent.tracks.length, 3);
+      assert.equal(draftContent.materials.videos.length >= 2, true);
+      assert.equal(draftMeta.draft_fold_path, response.payload.exportPath);
+      assert.equal(typeof response.payload.durationSec, 'number');
+      assert.equal(response.payload.durationSec > 0, true);
+    });
+  } finally {
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+  }
+});
+
+test('Fastify workbench server preserves SSE streaming for /api/runs/:id/stream', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-fastify-sse-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  const episodeDir = path.join(
+    tempProjectsDir,
+    'project_stream',
+    'scripts',
+    'script_stream',
+    'episodes',
+    'episode_stream'
+  );
+  fs.mkdirSync(path.join(episodeDir, 'run-jobs'), { recursive: true });
+  writeJson(path.join(episodeDir, 'run-jobs', 'run_stream.json'), {
+    id: 'run_stream',
+    projectId: 'project_stream',
+    scriptId: 'script_stream',
+    episodeId: 'episode_stream',
+    status: 'completed',
+    startedAt: '2026-06-26T00:00:00.000Z',
+    finishedAt: '2026-06-26T00:01:00.000Z',
+    agentTaskRuns: [{ id: 'task_1', step: 'compose_video', status: 'completed' }],
+  });
+
+  const server = createFastifyWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const events = await collectSseEvents(port, '/api/runs/run_stream/stream');
+    assert.equal(events[0]?.event, 'status');
+    assert.equal(events[0]?.data?.id, 'run_stream');
+    assert.equal(events.at(-1)?.event, 'done');
+    assert.equal(events.at(-1)?.data?.status, 'completed');
+  } finally {
+    server.close();
+  }
+});
+
+test('Fastify workbench server returns runtime control plane in /api/runs/:id', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-fastify-control-plane-'));
+  const { tempProjectsDir, runDir } = createReviewRunFixture(workspaceRoot);
+  writeJson(path.join(runDir, 'runtime-journal.json'), {
+    runtimeVersion: 1,
+    status: 'completed',
+    updatedAt: '2026-06-27T00:00:00.000Z',
+    stages: [
+      { stage: 'character', status: 'completed', outputKeys: ['characterRegistry'] },
+      { stage: 'compose', status: 'completed', outputKeys: ['finalOutputPath'] },
+    ],
+    decisions: [
+      {
+        decisionType: 'video_provider_selection',
+        policySource: 'videoProviderPolicy',
+        decisionKey: 'shot_001',
+        timestamp: '2026-06-27T00:00:00.000Z',
+        rationale: 'reference image available, using requested provider seedance',
+      },
+    ],
+  });
+
+  const server = createFastifyWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/runs/run_post_loop_fixture');
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.controlPlane.status, 'completed');
+    assert.equal(response.payload.controlPlane.currentStage, 'compose');
+    assert.equal(Array.isArray(response.payload.controlPlane.availableActions), true);
+    assert.equal(
+      response.payload.controlPlane.availableActions.some(
+        (item) => item.kind === 'rerun_stage' || item.kind === 'resume_runtime'
+      ),
+      false
+    );
+  } finally {
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Fastify workbench server serves /api/workbench through legacy compatibility layer', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-fastify-workbench-'));
+  const { tempProjectsDir } = createReviewRunFixture(workspaceRoot);
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/workbench');
+    assert.equal(response.statusCode, 200);
+    assert.equal(typeof response.payload.currentRun, 'object');
+    assert.equal(typeof response.payload.currentRun.runKey, 'string');
+    assert.equal(Array.isArray(response.payload.projects), true);
+    assert.equal(typeof response.payload.projects[0].latestRunKey, 'string');
+    assert.equal(typeof response.payload.recentRuns[0].runKey, 'string');
+  } finally {
+    server.close();
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Fastify workbench server preserves professionalize endpoint behavior', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-fastify-professionalize-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  fs.mkdirSync(tempProjectsDir, { recursive: true });
+
+  const server = createFastifyWorkbenchServer({
+    workspaceRoot,
+    tempProjectsDir,
+    scriptProfessionalizeChat: async () => ({
+      text: '【画面1】\n场景：办公室\n人物：小明\n动作：起身\n对白：我来试试。\n时长：5秒',
+    }),
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const response = await requestJson(port, '/api/scripts/professionalize', {
+      method: 'POST',
+      body: {
+        title: '测试剧本',
+        content: '小明从工位站起来，说我来试试。',
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.parseOk, true);
+    assert.match(response.payload.content, /【画面1】/);
+  } finally {
+    server.close();
+  }
+});
+
+test('Fastify workbench server enforces Bearer token on protected writes', async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aivf-fastify-token-'));
+  const tempProjectsDir = path.join(workspaceRoot, 'temp', 'projects');
+  fs.mkdirSync(tempProjectsDir, { recursive: true });
+
+  const previousToken = process.env.WORKBENCH_TOKEN;
+  process.env.WORKBENCH_TOKEN = 'fastify-secret-token';
+
+  const server = createFastifyWorkbenchServer({ workspaceRoot, tempProjectsDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const unauthorized = await requestJson(port, '/api/settings/providers', {
+      method: 'PUT',
+      body: { sections: [] },
+    });
+    assert.equal(unauthorized.statusCode, 401);
+
+    const authorized = await requestJson(port, '/api/settings/providers', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer fastify-secret-token' },
+      body: { sections: [] },
+    });
+    assert.equal(authorized.statusCode, 200);
+  } finally {
+    server.close();
+    if (previousToken === undefined) {
+      delete process.env.WORKBENCH_TOKEN;
+    } else {
+      process.env.WORKBENCH_TOKEN = previousToken;
+    }
+  }
 });

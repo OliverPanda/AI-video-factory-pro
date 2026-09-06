@@ -19,7 +19,6 @@ import {
 } from './characterRegistry.js';
 import { writeTextFile, ensureDir, saveJSON } from '../utils/fileHelper.js';
 import { writeAgentQaSummary } from '../utils/qaSummary.js';
-import { llmQueue } from '../utils/queue.js';
 import logger from '../utils/logger.js';
 
 function mergePromptSegments(segments = []) {
@@ -390,10 +389,8 @@ export async function generateAllPrompts(shots, characterRegistry, style = 'real
     const shot = shots[i];
     logger.step(i + 1, shots.length, `生成Prompt: ${shot.id}`);
     try {
-      // 使用 llmQueue 限流，防止大量镜头时触发 API RPM 限制
-      const prompt = await llmQueue.add(() =>
-        generatePromptForShot(shot, characterRegistry, style, deps)
-      );
+      // 限流已由 LLM 客户端共享层统一负责（client.js callWithPolicy → llmQueue），此处不再重复入队
+      const prompt = await generatePromptForShot(shot, characterRegistry, style, deps);
       results.push(prompt);
       promptSources.push({ shotId: shot.id, source: 'llm' });
     } catch (err) {
